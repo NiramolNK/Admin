@@ -3343,19 +3343,50 @@ export default function AllocationPanel({ isAdmin = true }) {
                   </div>
                   {/* Import file — using visible input for sandbox compatibility */}
                   <div style={{position:"relative",display:"inline-block"}}>
-                    <input type="file" accept=".csv,.txt,.json"
+                    <input type="file" accept=".csv,.txt,.json,.xlsx,.xls"
                       style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%",zIndex:2}}
                       onChange={(e) => {
                       const file = e.target.files?.[0];
                       e.target.value = "";
                       if(!file) return;
-                      const isJSON = file.name.match(/\.json$/i);
+                      const isJSON  = file.name.match(/\.json$/i);
                       const isExcel = file.name.match(/\.xlsx?$/i);
 
-                      if (isExcel) {
-                        alert("Excel (.xlsx) files cannot be read directly.\n\nPlease save as CSV first:\n1. Open the file in Excel\n2. File → Save As → CSV (comma delimited)\n3. Import the .csv file here");
-                        return;
-                      }
+                      // Helper: parse an xlsx ArrayBuffer to rows via SheetJS.
+                      // Lazy-imports xlsx so the bundle only pays the cost when actually needed.
+                      const handleXLSX = async (buf) => {
+                        try {
+                          const XLSX = await import("xlsx");
+                          const wb = XLSX.read(buf, { type: "array" });
+                          // Use first sheet by default
+                          const ws = wb.Sheets[wb.SheetNames[0]];
+                          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+                          // Strip fully-empty trailing rows so processRows hits the right empty-check
+                          while (rows.length && rows[rows.length-1].every(c => c === "" || c == null)) rows.pop();
+                          if (rows.length < 2) { alert("File appears empty or has no data rows."); return; }
+                          processRows(rows);
+                        } catch (err) {
+                          alert("XLSX import failed: " + err.message);
+                        }
+                      };
+
+                      // Read file as ArrayBuffer first so we can detect XLSX by magic bytes,
+                      // catching cases where someone renamed a .xlsx to .csv.
+                      const sniff = new FileReader();
+                      sniff.onload = (evt) => {
+                        const buf = evt.target.result;
+                        const u8 = new Uint8Array(buf);
+                        // ZIP magic = 0x50 0x4B 0x03 0x04  ("PK\x03\x04")
+                        const looksZip = u8.length > 4 && u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 0x03 && u8[3] === 0x04;
+                        if (isExcel || looksZip) { handleXLSX(buf); return; }
+                        // Otherwise fall through to text-based paths below.
+                        const text = new TextDecoder("utf-8").decode(u8);
+                        if (isJSON) { handleJSONText(text); return; }
+                        handleCSVText(text);
+                      };
+                      sniff.onerror = () => alert("Could not read the file.");
+                      sniff.readAsArrayBuffer(file);
+                      return;
 
                       // ── Parse CSV ────────────────────────────────────────────
                       const parseCSVText = (text) => {
@@ -3485,98 +3516,90 @@ export default function AllocationPanel({ isAdmin = true }) {
                         alert(`Import successful!\n• ${matched} brands updated\n• ${newBrands.length} new brands added\n• ${skipped} closed/offboarded stores skipped\n• ${Object.keys(agg).length} total stores in file`);
                       };
 
-                      // ── Handle Duoke JSON (multi-month) ──────────────────
-                      if (isJSON) {
-                        const reader = new FileReader();
-                        reader.onload = (evt) => {
-                          try {
-                            const allMonths = JSON.parse(evt.target.result);
-                            let totalStores = 0, monthCount = 0;
-                            const updBrands = [...brands];
-                            const updVol = {};
-                            const normalise = s => s.toLowerCase().replace(/[^a-z0-9]/g,"");
-                            const normPlat = p => {const s=String(p).toLowerCase();return s.includes("shopee")?"Shopee":s.includes("lazada")?"Lazada":s.includes("tiktok")?"Tiktok":s.includes("line")||s.includes("myshop")?"Line MyShop":s.includes("amaze")?"Amaze":s.includes("brand.com")||s.includes("brandcom")?"Brand.com":s.charAt(0).toUpperCase()+s.slice(1);};
-
-                            const nameMap = {};
-                            updBrands.forEach((b,i) => { nameMap[normalise(b.name)] = i; });
-                            const findBrand = (storeName) => {
-                              const norm = normalise(storeName);
-                              if (nameMap[norm] !== undefined) return nameMap[norm];
-                              for (let i=0; i<updBrands.length; i++) {
-                                const bn = normalise(updBrands[i].name);
-                                if (bn.length >= 6 && norm.length >= 6 && (norm.includes(bn) || bn.includes(norm))) return i;
-                              }
-                              return -1;
-                            };
-
-                            const allStores = new Set();
-                            for (const rows of Object.values(allMonths)) {
-                              rows.forEach(r => {
-                                const store = r.s || r.shopName || "";
-                                if (store && !store.toLowerCase().startsWith("closed") && !store.toLowerCase().startsWith("offboarded")) allStores.add(store);
-                              });
-                            }
-                            allStores.forEach(store => {
-                              if (findBrand(store) < 0) {
-                                const newId = "imp" + Date.now() + Math.random().toString(36).slice(2,6);
-                                const idx = updBrands.length;
-                                updBrands.push({ id:newId, name:store, group:"", wh:store.includes("-")?store.split("-").pop().trim():"", platforms:[], perf:{}, chats:Object.fromEntries(PLATFORMS.map(p=>[p,0])) });
-                                nameMap[normalise(store)] = idx;
-                              }
-                            });
-
-                            const sortedMonths = Object.keys(allMonths).sort();
-                            for (const monthKey of sortedMonths) {
-                              monthCount++;
-                              const rows = allMonths[monthKey];
-                              const volForMonth = {};
-                              updBrands.forEach(b => { volForMonth[b.id] = Object.fromEntries(PLATFORMS.map(p=>[p,0])); });
-                              rows.forEach(r => {
-                                const store = r.s || r.shopName || "";
-                                const plat = normPlat(r.p || r.platform || "");
-                                const chats = r.c || r.conversationNum || 0;
-                                if (!store || !plat || store.toLowerCase().startsWith("closed") || store.toLowerCase().startsWith("offboarded")) return;
-                                const idx = findBrand(store);
-                                if (idx >= 0) {
-                                  const bid = updBrands[idx].id;
-                                  volForMonth[bid][plat] = (volForMonth[bid][plat]||0) + chats;
-                                  if (chats > 0 && !(updBrands[idx].platforms||[]).includes(plat)) updBrands[idx] = {...updBrands[idx], platforms:[...(updBrands[idx].platforms||[]),plat]};
-                                  updBrands[idx] = {...updBrands[idx], perf:{...(updBrands[idx].perf||{}), [plat.toLowerCase()]:{chats, replied:r.rc||0, customers:r.cu||0, avgResp:r.afr||0, conv:r.cr||0, amount:r.loa||0, rating:r.rt}}};
-                                }
-                                totalStores++;
-                              });
-                              updVol[monthKey] = volForMonth;
-                            }
-
-                            const latestMk = sortedMonths[sortedMonths.length-1];
-                            const latestVol = updVol[latestMk] || {};
-                            const finalBrands = updBrands.map(b => ({...b, chats: latestVol[b.id] || b.chats}));
-                            setBrands(finalBrands);
-                            setMonthlyVol(prev => ({...prev, ...updVol}));
-
-                            const dbg = sortedMonths.map(mk => {
-                              const vol = updVol[mk];
-                              const tc = vol ? Object.values(vol).reduce((s,v)=>s+Object.values(v).reduce((a,b)=>a+b,0),0) : 0;
-                              return mk + ": " + tc.toLocaleString();
-                            }).join("\n");
-                            alert("Duoke JSON imported!\n\n" + monthCount + " months (" + sortedMonths[0] + " > " + latestMk + ")\n" + finalBrands.length + " brands\n\nChats per month:\n" + dbg);
-                          } catch(err) { alert("JSON import failed: " + err.message); }
-                        };
-                        reader.readAsText(file, "UTF-8");
-                        return;
-                      }
-
-                      // ── CSV import ─────────────────────────────────────────
-                      const reader = new FileReader();
-                      reader.onload = (evt) => {
+                      // ── Helper: parse Duoke JSON text ──────────────────
+                      const handleJSONText = (text) => {
                         try {
-                          const rows = parseCSVText(evt.target.result);
+                          const allMonths = JSON.parse(text);
+                          let totalStores = 0, monthCount = 0;
+                          const updBrands = [...brands];
+                          const updVol = {};
+                          const normalise = s => s.toLowerCase().replace(/[^a-z0-9]/g,"");
+                          const normPlat = p => {const s=String(p).toLowerCase();return s.includes("shopee")?"Shopee":s.includes("lazada")?"Lazada":s.includes("tiktok")?"Tiktok":s.includes("line")||s.includes("myshop")?"Line MyShop":s.includes("amaze")?"Amaze":s.includes("brand.com")||s.includes("brandcom")?"Brand.com":s.charAt(0).toUpperCase()+s.slice(1);};
+
+                          const nameMap = {};
+                          updBrands.forEach((b,i) => { nameMap[normalise(b.name)] = i; });
+                          const findBrand = (storeName) => {
+                            const norm = normalise(storeName);
+                            if (nameMap[norm] !== undefined) return nameMap[norm];
+                            for (let i=0; i<updBrands.length; i++) {
+                              const bn = normalise(updBrands[i].name);
+                              if (bn.length >= 6 && norm.length >= 6 && (norm.includes(bn) || bn.includes(norm))) return i;
+                            }
+                            return -1;
+                          };
+
+                          const allStores = new Set();
+                          for (const rows of Object.values(allMonths)) {
+                            rows.forEach(r => {
+                              const store = r.s || r.shopName || "";
+                              if (store && !store.toLowerCase().startsWith("closed") && !store.toLowerCase().startsWith("offboarded")) allStores.add(store);
+                            });
+                          }
+                          allStores.forEach(store => {
+                            if (findBrand(store) < 0) {
+                              const newId = "imp" + Date.now() + Math.random().toString(36).slice(2,6);
+                              const idx = updBrands.length;
+                              updBrands.push({ id:newId, name:store, group:"", wh:store.includes("-")?store.split("-").pop().trim():"", platforms:[], perf:{}, chats:Object.fromEntries(PLATFORMS.map(p=>[p,0])) });
+                              nameMap[normalise(store)] = idx;
+                            }
+                          });
+
+                          const sortedMonths = Object.keys(allMonths).sort();
+                          for (const monthKey of sortedMonths) {
+                            monthCount++;
+                            const rows = allMonths[monthKey];
+                            const volForMonth = {};
+                            updBrands.forEach(b => { volForMonth[b.id] = Object.fromEntries(PLATFORMS.map(p=>[p,0])); });
+                            rows.forEach(r => {
+                              const store = r.s || r.shopName || "";
+                              const plat = normPlat(r.p || r.platform || "");
+                              const chats = r.c || r.conversationNum || 0;
+                              if (!store || !plat || store.toLowerCase().startsWith("closed") || store.toLowerCase().startsWith("offboarded")) return;
+                              const idx = findBrand(store);
+                              if (idx >= 0) {
+                                const bid = updBrands[idx].id;
+                                volForMonth[bid][plat] = (volForMonth[bid][plat]||0) + chats;
+                                if (chats > 0 && !(updBrands[idx].platforms||[]).includes(plat)) updBrands[idx] = {...updBrands[idx], platforms:[...(updBrands[idx].platforms||[]),plat]};
+                                updBrands[idx] = {...updBrands[idx], perf:{...(updBrands[idx].perf||{}), [plat.toLowerCase()]:{chats, replied:r.rc||0, customers:r.cu||0, avgResp:r.afr||0, conv:r.cr||0, amount:r.loa||0, rating:r.rt}}};
+                              }
+                              totalStores++;
+                            });
+                            updVol[monthKey] = volForMonth;
+                          }
+
+                          const latestMk = sortedMonths[sortedMonths.length-1];
+                          const latestVol = updVol[latestMk] || {};
+                          const finalBrands = updBrands.map(b => ({...b, chats: latestVol[b.id] || b.chats}));
+                          setBrands(finalBrands);
+                          setMonthlyVol(prev => ({...prev, ...updVol}));
+
+                          const dbg = sortedMonths.map(mk => {
+                            const vol = updVol[mk];
+                            const tc = vol ? Object.values(vol).reduce((s,v)=>s+Object.values(v).reduce((a,b)=>a+b,0),0) : 0;
+                            return mk + ": " + tc.toLocaleString();
+                          }).join("\n");
+                          alert("Duoke JSON imported!\n\n" + monthCount + " months (" + sortedMonths[0] + " > " + latestMk + ")\n" + finalBrands.length + " brands\n\nChats per month:\n" + dbg);
+                        } catch(err) { alert("JSON import failed: " + err.message); }
+                      };
+
+                      // ── Helper: parse CSV text ────────────────────────────
+                      const handleCSVText = (text) => {
+                        try {
+                          const rows = parseCSVText(text);
                           if (rows.length >= 2) { processRows(rows); }
                           else { alert("File appears empty or has no data rows."); }
                         } catch(err) { alert("CSV import failed: " + err.message); }
                       };
-                      reader.onerror = () => alert("Could not read the file.");
-                      reader.readAsText(file, "UTF-8");
                     }}/>
                     <div style={{padding:"5px 12px",borderRadius:7,border:"1px solid #34D39944",background:"#ECFDF5",color:"#065F46",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",position:"relative",zIndex:1,pointerEvents:"none"}}>
                       Import
