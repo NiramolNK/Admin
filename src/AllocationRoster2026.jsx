@@ -3349,45 +3349,6 @@ export default function AllocationPanel({ isAdmin = true }) {
                       const file = e.target.files?.[0];
                       e.target.value = "";
                       if(!file) return;
-                      const isJSON  = file.name.match(/\.json$/i);
-                      const isExcel = file.name.match(/\.xlsx?$/i);
-
-                      // Helper: parse an xlsx ArrayBuffer to rows via SheetJS.
-                      // Lazy-imports xlsx so the bundle only pays the cost when actually needed.
-                      const handleXLSX = async (buf) => {
-                        try {
-                          const XLSX = await import("xlsx");
-                          const wb = XLSX.read(buf, { type: "array" });
-                          // Use first sheet by default
-                          const ws = wb.Sheets[wb.SheetNames[0]];
-                          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
-                          // Strip fully-empty trailing rows so processRows hits the right empty-check
-                          while (rows.length && rows[rows.length-1].every(c => c === "" || c == null)) rows.pop();
-                          if (rows.length < 2) { alert("File appears empty or has no data rows."); return; }
-                          processRows(rows);
-                        } catch (err) {
-                          alert("XLSX import failed: " + err.message);
-                        }
-                      };
-
-                      // Read file as ArrayBuffer first so we can detect XLSX by magic bytes,
-                      // catching cases where someone renamed a .xlsx to .csv.
-                      const sniff = new FileReader();
-                      sniff.onload = (evt) => {
-                        const buf = evt.target.result;
-                        const u8 = new Uint8Array(buf);
-                        // ZIP magic = 0x50 0x4B 0x03 0x04  ("PK\x03\x04")
-                        const looksZip = u8.length > 4 && u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 0x03 && u8[3] === 0x04;
-                        if (isExcel || looksZip) { handleXLSX(buf); return; }
-                        // Otherwise fall through to text-based paths below.
-                        const text = new TextDecoder("utf-8").decode(u8);
-                        if (isJSON) { handleJSONText(text); return; }
-                        handleCSVText(text);
-                      };
-                      sniff.onerror = () => alert("Could not read the file.");
-                      sniff.readAsArrayBuffer(file);
-                      return;
-
                       // ── Parse CSV ────────────────────────────────────────────
                       const parseCSVText = (text) => {
                         const lines = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n").filter(l=>l.trim());
@@ -3515,6 +3476,44 @@ export default function AllocationPanel({ isAdmin = true }) {
                         const skipped = Object.keys(agg).filter(s=>s.toLowerCase().startsWith("closed")||s.toLowerCase().startsWith("offboarded")).length;
                         alert(`Import successful!\n• ${matched} brands updated\n• ${newBrands.length} new brands added\n• ${skipped} closed/offboarded stores skipped\n• ${Object.keys(agg).length} total stores in file`);
                       };
+
+                      const isJSON  = file.name.match(/\.json$/i);
+                      const isExcel = file.name.match(/\.xlsx?$/i);
+
+                      // Helper: parse an xlsx ArrayBuffer to rows via SheetJS.
+                      // Lazy-imports xlsx so the bundle only pays the cost when actually needed.
+                      const handleXLSX = async (buf) => {
+                        try {
+                          const XLSX = await import("xlsx");
+                          const wb = XLSX.read(buf, { type: "array" });
+                          // Use first sheet by default
+                          const ws = wb.Sheets[wb.SheetNames[0]];
+                          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+                          // Strip fully-empty trailing rows so processRows hits the right empty-check
+                          while (rows.length && rows[rows.length-1].every(c => c === "" || c == null)) rows.pop();
+                          if (rows.length < 2) { alert("File appears empty or has no data rows."); return; }
+                          processRows(rows);
+                        } catch (err) {
+                          alert("XLSX import failed: " + err.message);
+                        }
+                      };
+
+                      // Read file as ArrayBuffer first so we can detect XLSX by magic bytes,
+                      // catching cases where someone renamed a .xlsx to .csv.
+                      const sniff = new FileReader();
+                      sniff.onload = (evt) => {
+                        const buf = evt.target.result;
+                        const u8 = new Uint8Array(buf);
+                        // ZIP magic = 0x50 0x4B 0x03 0x04  ("PK\x03\x04")
+                        const looksZip = u8.length > 4 && u8[0] === 0x50 && u8[1] === 0x4B && u8[2] === 0x03 && u8[3] === 0x04;
+                        if (isExcel || looksZip) { handleXLSX(buf); return; }
+                        // Otherwise fall through to text-based paths below.
+                        const text = new TextDecoder("utf-8").decode(u8);
+                        if (isJSON) { handleJSONText(text); return; }
+                        handleCSVText(text);
+                      };
+                      sniff.onerror = () => alert("Could not read the file.");
+                      sniff.readAsArrayBuffer(file);
 
                       // ── Helper: parse Duoke JSON text ──────────────────
                       const handleJSONText = (text) => {
