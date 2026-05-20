@@ -3610,6 +3610,13 @@ export default function AllocationPanel({ isAdmin = true }) {
                   }} style={{padding:"5px 12px",borderRadius:7,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
                     Clear Month
                   </button>
+                  <button onClick={()=>{
+                    const newId=`b${String(brands.length+1).padStart(2,"0")}${Date.now().toString(36).slice(-3)}`;
+                    setEditBrand({id:newId,name:"",group:"",wh:"",platforms:[],chats:{}});
+                    setBrandModal(true);
+                  }} style={{padding:"5px 12px",borderRadius:7,border:"none",background:"#0D9488",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                    + Add Brand
+                  </button>
                 </div>
               </div>
 
@@ -3662,7 +3669,13 @@ export default function AllocationPanel({ isAdmin = true }) {
                               {b.name}
                             </td>
                             <td style={{padding:"6px 10px"}}>
-                              <span style={{fontSize:10,padding:"2px 6px",borderRadius:5,background:"#F1F5F9",color:"#94A3B8",fontWeight:600}}>{b.wh||"—"}</span>
+                              <input
+                                value={b.wh || ""}
+                                placeholder="—"
+                                onChange={e => { const v = e.target.value; setBrands(bs => bs.map(x => x.id === b.id ? {...x, wh: v} : x)); }}
+                                title="Click to edit group"
+                                style={{width:60, padding:"3px 8px", borderRadius:5, background:"#F1F5F9", color:"#475569", fontSize:10, fontWeight:600, border:"1px solid transparent", outline:"none", textAlign:"center", fontFamily:"inherit"}}
+                              />
                             </td>
                             {activePlats.map(p => {
                               const pc = PLATFORM_C[p];
