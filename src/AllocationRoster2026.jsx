@@ -1,0 +1,3953 @@
+import { useState, useMemo, useEffect, useRef } from "react";
+import CSAnalyticsTab from "./CSAnalyticsTab.jsx";
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
+const Ico = ({size=16,color="currentColor",style={},children}) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,...style}}>{children}</svg>
+);
+const Sliders = (p) => <Ico {...p}><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></Ico>;
+const Search = (p) => <Ico {...p}><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></Ico>;
+const CalendarIcon = (p) => <Ico {...p}><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></Ico>;
+const IconGrid = (p) => <Ico {...p}><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></Ico>;
+const IconUsers = (p) => <Ico {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></Ico>;
+const IconBarChart = (p) => <Ico {...p}><path d="M12 20V10M18 20V4M6 20v-4"/></Ico>;
+const IconFileText = (p) => <Ico {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 13h4M10 17h4M8 9h2"/></Ico>;
+const NirmLogo = ({size=32,light=false}) => {
+  const bg = light ? "#fff" : "#0D9488";
+  const fg = light ? "#0D9488" : "#fff";
+  return (
+    <svg width={size} height={size} viewBox="0 0 36 36" fill="none" style={{flexShrink:0}}>
+      <rect width="36" height="36" rx="10" fill={bg}/>
+      <rect x="7" y="20" width="5" height="9" rx="2" fill={fg} opacity="0.45"/>
+      <rect x="15.5" y="14" width="5" height="15" rx="2" fill={fg} opacity="0.7"/>
+      <rect x="24" y="7" width="5" height="22" rx="2" fill={fg}/>
+      <circle cx="27" cy="7" r="2.5" fill={fg}/>
+    </svg>
+  );
+};
+const IconX = (p) => <Ico {...p}><path d="M18 6 6 18M6 6l12 12"/></Ico>;
+const IconChevL = (p) => <Ico {...p}><path d="m15 18-6-6 6-6"/></Ico>;
+const IconChevR = (p) => <Ico {...p}><path d="m9 18 6-6-6-6"/></Ico>;
+const IconUpload = (p) => <Ico {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></Ico>;
+const IconDownload = (p) => <Ico {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></Ico>;
+const IconTrash = (p) => <Ico {...p}><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></Ico>;
+const IconPlus = (p) => <Ico {...p}><path d="M12 5v14M5 12h14"/></Ico>;
+const IconCheck = (p) => <Ico {...p}><path d="M20 6 9 17l-5-5"/></Ico>;
+const IconAlert = (p) => <Ico {...p}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/></Ico>;
+const IconSend = (p) => <Ico {...p}><path d="m22 2-7 20-4-9-9-4Z"/><path d="m22 2-11 11"/></Ico>;
+const IconCopy = (p) => <Ico {...p}><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></Ico>;
+const IconLogOut = (p) => <Ico {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></Ico>;
+const IconSun = (p) => <Ico {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></Ico>;
+const IconMoon = (p) => <Ico {...p}><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></Ico>;
+const IconSunset = (p) => <Ico {...p}><path d="M12 10V2M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M8 6l4-4 4 4M16 18a4 4 0 0 0-8 0"/></Ico>;
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const ALLOC_SHIFTS  = [{code:"M",label:"Morning"},{code:"ME",label:"Mid"},{code:"E",label:"Evening"}];
+const ALLOC_DAYS    = [{code:"Mon",wd:1},{code:"Tue",wd:2},{code:"Wed",wd:3},{code:"Thu",wd:4},{code:"Fri",wd:5},{code:"Sat",wd:6},{code:"Sun",wd:0}];
+const ALLOC_WK      = [1,2,3,4,5];
+const ALLOC_ALL     = [1,2,3,4,5,6,0];
+const ALLOC_SHIFT_C = {M:{bg:"#DBEAFE",color:"#1D4ED8",label:"M"},ME:{bg:"#F0FDFA",color:"#0F766E",label:"ME"},E:{bg:"#D1FAE5",color:"#065F46",label:"E"},Off:{bg:"#FEE2E2",color:"#B91C1C",label:"Off"},TOIL:{bg:"#FEF3C7",color:"#92400E",label:"TOIL"},OT:{bg:"#FCE7F3",color:"#9D174D",label:"OT"}};
+const ALLOC_TEAM_C  = {T2:{color:"#1D4ED8",bg:"#DBEAFE"},T1:{color:"#0F766E",bg:"#F0FDFA"},Return:{color:"#B91C1C",bg:"#FEE2E2"}};
+const ALLOC_AGENTS_INIT = [
+  {id:"A01",name:"Markhom", team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:766, rule:""},
+  {id:"A02",name:"Veer",    team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:953, rule:""},
+  {id:"A03",name:"Aorr",    team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:885, rule:""},
+  {id:"A04",name:"Mark",    team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:440, rule:""},
+  {id:"A05",name:"Cream T2",team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:846, rule:""},
+  {id:"A16",name:"Prim",    team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:1269,rule:"Manager"},
+  {id:"A06",name:"Ohm",     team:"T1",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:480,rule:"Sat & Sun off"},
+  {id:"A07",name:"Cake SP", team:"T1",    active:true,shifts:["M"],        days:[...ALLOC_ALL], costDay:464,rule:"M shift only"},
+  {id:"A08",name:"Joy",     team:"T1",    active:true,shifts:["M","ME","E"],days:[...ALLOC_ALL],costDay:496,rule:""},
+  {id:"A09",name:"Boo",     team:"T1",    active:true,shifts:["E"],        days:[...ALLOC_ALL], costDay:456,rule:""},
+  {id:"A10",name:"Best",    team:"T1",    active:true,shifts:["M","ME","E"],days:[...ALLOC_ALL],costDay:480,rule:"Min 15 sessions"},
+  {id:"A11",name:"KhaoPun", team:"T1",    active:true,shifts:["M","ME","E"],days:[...ALLOC_ALL],costDay:448,rule:""},
+  {id:"A12",name:"Cream",   team:"T1",    active:true,shifts:["M","E"],    days:[...ALLOC_ALL], costDay:464,rule:""},
+  {id:"A13",name:"Ploy D",  team:"T1",    active:true,shifts:["E"],        days:[...ALLOC_ALL], costDay:416,rule:""},
+  {id:"A14",name:"Ploy",    team:"T1",    active:true,shifts:["M"],        days:[...ALLOC_ALL], costDay:400,rule:""},
+  {id:"A15",name:"AOF",     team:"Return",active:true,shifts:["M"],        days:[1,2,3,4,5,6],  costDay:464,rule:"Sunday off"},
+];
+const ALLOC_FLAGS_INIT = {
+  "2026-04-06":{type:"holiday",label:"Chakri Day"},
+  "2026-04-13":{type:"holiday",label:"Songkran"},
+  "2026-04-14":{type:"holiday",label:"Songkran"},
+  "2026-04-15":{type:"holiday",label:"Songkran"},
+};
+const ALLOC_BUDGET = {Alpha:50000,Beta:40000,Gamma:35000};
+const ALLOC_BRANDS  = ["Alpha","Beta","Gamma"];
+
+// ── Platforms ────────────────────────────────────────────────────────────────
+const PLATFORMS = ["Shopee","Lazada","Tiktok","Line MyShop","Amaze","Brand.com"];
+const PLATFORM_C = {
+  Shopee:       {color:"#EE4D2D", bg:"#FFF7ED", icon:""},
+  Lazada:       {color:"#0F5BF1", bg:"#EFF6FF", icon:""},
+  Tiktok:       {color:"#000000", bg:"#F1F5F9", icon:""},
+  "Line MyShop":{color:"#06C755", bg:"#E8FFF0", icon:""},
+  Amaze:        {color:"#1D4ED8", bg:"#DBEAFE", icon:""},
+  "Brand.com":  {color:"#B45309", bg:"#FEF3C7", icon:""},
+};
+
+// ── Store Performance Data — from duoke_shop_performance (Jan 1–Feb 24 2026) ─
+// chats = monthly average (YTD ÷ 1.807 months). perf = raw YTD totals for reference.
+// perf[platform] = {chats, replied, customers, avgResp, conv, amount, rating}
+const CS_BRANDS_INIT = [
+  {id:"b01",name:"111SKIN-IN",             wh:"IN",  group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:998,  Lazada:457,  Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:826, replied:778, customers:373, avgResp:6,   conv:6.03, amount:190336,  rating:"100"},shopee:{chats:1803, replied:1603,customers:1245,avgResp:10, conv:8.23, amount:577209,  rating:null}}},
+  {id:"b02",name:"AESTURA-Amor",           wh:"IN",  group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:2610, Lazada:648,  Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:1171,replied:1089,customers:471, avgResp:13,  conv:10.8, amount:71471,   rating:"99"}, shopee:{chats:4717, replied:4302,customers:2586,avgResp:23, conv:10.68,amount:212223,  rating:null}}},
+  {id:"b03",name:"Acne Aid and Spectraban-IN",wh:"IN",group:"",platforms:["Shopee","Lazada","Tiktok"], chats:{Shopee:4667, Lazada:1160, Tiktok:1158, Line:0,Amaze:0}, perf:{lazada:{chats:2097,replied:1933,customers:1229,avgResp:1,   conv:14.63,amount:177752,  rating:"100"},shopee:{chats:8434, replied:6480,customers:5921,avgResp:14, conv:12.1, amount:335073,  rating:null}, tiktok:{chats:2093,replied:1875,customers:1504,avgResp:0,   conv:7.11, amount:43203,   rating:"50"}}},
+  {id:"b04",name:"Armani Exchange-CMG",    wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:615,  Lazada:550,  Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:994, replied:932, customers:415, avgResp:0,   conv:10.34,amount:271107,  rating:"99"}, shopee:{chats:1112, replied:976, customers:709, avgResp:4,   conv:12.6, amount:632238,  rating:null}}},
+  {id:"b05",name:"Banila-CMG",             wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:1996, Lazada:632,  Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:1142,replied:1008,customers:601, avgResp:2,   conv:10.1, amount:97640,   rating:"100"},shopee:{chats:3606, replied:2838,customers:2684,avgResp:6,   conv:12.28,amount:242887,  rating:null}}},
+  {id:"b06",name:"Calvin Klein-MY PVH",    wh:"PVH", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:2065, Lazada:2169, Tiktok:0,    Line:0,Amaze:0}, perf:{shopee:{chats:3731,replied:3658,customers:2559,avgResp:40,  conv:8.36, amount:555493,  rating:null}, lazada:{chats:3920,replied:3698,customers:2521,avgResp:30,  conv:15.81,amount:2407625, rating:"98"}}},
+  {id:"b07",name:"Calvin Klein-SG PVH",    wh:"PVH", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:651,  Lazada:452,  Tiktok:0,    Line:0,Amaze:0}, perf:{shopee:{chats:1176,replied:1139,customers:880, avgResp:null,conv:10.31,amount:260134,  rating:null}, lazada:{chats:817, replied:746, customers:467, avgResp:3,   conv:12.93,amount:265106,  rating:"98"}}},
+  {id:"b08",name:"Casio-CMG",              wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:17617,Lazada:2053, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:3709,replied:3218,customers:2603,avgResp:6,   conv:9.0,  amount:667718,  rating:"99"}, shopee:{chats:31833,replied:25458,customers:24058,avgResp:3,  conv:10.86,amount:4006486, rating:null}}},
+  {id:"b09",name:"Clarins-CMG",            wh:"CMG", group:"", platforms:["Lazada"],                   chats:{Shopee:0,    Lazada:2592, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:4684,replied:4120,customers:2440,avgResp:29,  conv:13.76,amount:1998843, rating:"98"}}},
+  {id:"b10",name:"Crocs-CMG",              wh:"CMG", group:"", platforms:["Shopee","Lazada","Tiktok"], chats:{Shopee:39272,Lazada:4574, Tiktok:3434, Line:0,Amaze:0}, perf:{lazada:{chats:8265,replied:7387,customers:5787,avgResp:6,   conv:10.6, amount:1481583, rating:"99"}, shopee:{chats:70963,replied:60757,customers:51222,avgResp:3,  conv:12.19,amount:10672876,rating:null}, tiktok:{chats:6206,replied:5006,customers:4642,avgResp:0,   conv:9.25, amount:661813,  rating:"80"}}},
+  {id:"b11",name:"Decathlon Thailand",     wh:"Deca",group:"2",platforms:["Shopee"],                   chats:{Shopee:14160,Lazada:0,    Tiktok:0,    Line:0,Amaze:0}, perf:{shopee:{chats:25586,replied:20554,customers:18498,avgResp:4,  conv:15.55,amount:2834201, rating:null}}},
+  {id:"b12",name:"Dettol-IN",              wh:"IN",  group:"", platforms:["Tiktok"],                   chats:{Shopee:0,    Lazada:0,    Tiktok:2284, Line:0,Amaze:0}, perf:{tiktok:{chats:4128,replied:3760,customers:2920,avgResp:0,   conv:5.15, amount:188486,  rating:"100"}}},
+  {id:"b13",name:"Durex-IN",               wh:"IN",  group:"", platforms:["Tiktok"],                   chats:{Shopee:0,    Lazada:0,    Tiktok:377,  Line:0,Amaze:0}, perf:{tiktok:{chats:681, replied:620, customers:603, avgResp:0,   conv:3.99, amount:5400,    rating:null}}},
+  {id:"b14",name:"Fila-CMG",               wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:9411, Lazada:1925, Tiktok:0,    Line:0,Amaze:0}, perf:{shopee:{chats:17005,replied:14746,customers:13384,avgResp:5,  conv:12.13,amount:1487434, rating:null}, lazada:{chats:3478,replied:3205,customers:2466,avgResp:3,   conv:11.82,amount:352246,  rating:"99"}}},
+  {id:"b15",name:"FitFlop - CMG",          wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:15804,Lazada:2565, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:4635,replied:4149,customers:3151,avgResp:4,   conv:8.02, amount:690474,  rating:"99"}, shopee:{chats:28557,replied:24560,customers:18910,avgResp:2,  conv:13.24,amount:5402969, rating:null}}},
+  {id:"b16",name:"G2000 - CMG",            wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:5973, Lazada:2492, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:4503,replied:4094,customers:2426,avgResp:11,  conv:13.62,amount:1496076, rating:"99"}, shopee:{chats:10793,replied:9268,customers:6422,avgResp:2,   conv:18.39,amount:2748320, rating:null}}},
+  {id:"b17",name:"Guess-CMG TH",           wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:9877, Lazada:1303, Tiktok:0,    Line:0,Amaze:0}, perf:{shopee:{chats:17847,replied:15325,customers:11666,avgResp:3,  conv:12.74,amount:2891227, rating:null}, lazada:{chats:2354,replied:2098,customers:1387,avgResp:4,   conv:7.85, amount:299833,  rating:"99"}}},
+  {id:"b18",name:"Hill's-IN",              wh:"IN",  group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:4277, Lazada:716,  Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:1294,replied:1213,customers:693, avgResp:2,   conv:11.74,amount:142061,  rating:"100"},shopee:{chats:7728, replied:6650,customers:5063,avgResp:6,   conv:13.27,amount:926045,  rating:null}}},
+  {id:"b19",name:"Heydude-CMG",            wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:857,  Lazada:257,  Tiktok:0,    Line:0,Amaze:0}, perf:{shopee:{chats:1549,replied:1301,customers:1068,avgResp:1,   conv:13.38,amount:242747,  rating:null}, lazada:{chats:464, replied:433, customers:150, avgResp:6,   conv:5.67, amount:14888,   rating:"100"}}},
+  {id:"b20",name:"Hush Puppies - CMG",     wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:5381, Lazada:1066, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:1927,replied:1785,customers:1158,avgResp:10,  conv:10.98,amount:226643,  rating:"99"}, shopee:{chats:9723, replied:7648,customers:6546,avgResp:3,   conv:15.6, amount:1211857, rating:null}}},
+  {id:"b21",name:"JDE-IN",                 wh:"IN",  group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:5430, Lazada:1696, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:3065,replied:2780,customers:1725,avgResp:7,   conv:8.77, amount:194243,  rating:"100"},shopee:{chats:9812, replied:7946,customers:5850,avgResp:8,   conv:12.43,amount:845018,  rating:null}}},
+  {id:"b22",name:"JUNGSAEMMOOL-CMG",       wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:10939,Lazada:3793, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:6854,replied:5859,customers:4332,avgResp:5,   conv:13.27,amount:1114371, rating:"98"}, shopee:{chats:19766,replied:16044,customers:13205,avgResp:2,  conv:14.49,amount:2476573, rating:null}}},
+  {id:"b23",name:"Jockey - CMG",           wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:2112, Lazada:616,  Tiktok:0,    Line:0,Amaze:0}, perf:{shopee:{chats:3817,replied:2685,customers:2490,avgResp:1,   conv:13.94,amount:211988,  rating:null}, lazada:{chats:1114,replied:1012,customers:606, avgResp:24,  conv:12.77,amount:94189,   rating:"99"}}},
+  {id:"b24",name:"KIKO - CMG",             wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:4724, Lazada:1210, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:2186,replied:1946,customers:1381,avgResp:4,   conv:10.96,amount:180442,  rating:"100"},shopee:{chats:8536, replied:6958,customers:6316,avgResp:3,   conv:9.01, amount:447694,  rating:null}}},
+  {id:"b25",name:"LEE - CMG",              wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:7894, Lazada:1582, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:2858,replied:2414,customers:1896,avgResp:6,   conv:10.47,amount:231636,  rating:"99"}, shopee:{chats:14264,replied:11095,customers:10062,avgResp:2,  conv:14.43,amount:1099983, rating:null}}},
+  {id:"b26",name:"MLB - CMG",              wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:11582,Lazada:1821, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:3291,replied:2966,customers:2042,avgResp:8,   conv:12.72,amount:899477,  rating:"98"}, shopee:{chats:20928,replied:17250,customers:14688,avgResp:2,  conv:13.84,amount:4325107, rating:null}}},
+  {id:"b27",name:"Mondelez-IN",            wh:"IN",  group:"", platforms:["Shopee","Lazada","Tiktok"], chats:{Shopee:1563, Lazada:472,  Tiktok:260,  Line:0,Amaze:0}, perf:{lazada:{chats:852, replied:804, customers:422, avgResp:12,  conv:5.94, amount:23732,   rating:"100"},tiktok:{chats:469, replied:437, customers:271, avgResp:0,   conv:5.12, amount:10363,   rating:null}, shopee:{chats:2825, replied:2176,customers:1587,avgResp:11,  conv:12.25,amount:181594,  rating:null}}},
+  {id:"b28",name:"Nescafe Dolce Gusto-IN", wh:"IN",  group:"", platforms:["Shopee","Lazada","Tiktok"], chats:{Shopee:10703,Lazada:1697, Tiktok:2684, Line:0,Amaze:0}, perf:{lazada:{chats:3066,replied:2832,customers:1846,avgResp:10,  conv:11.35,amount:530801,  rating:"100"},shopee:{chats:19340,replied:16489,customers:11345,avgResp:2,  conv:14.51,amount:3700089, rating:null}, tiktok:{chats:4850,replied:4348,customers:2904,avgResp:null,conv:10.65,amount:613884,  rating:null}}},
+  {id:"b29",name:"Nespresso-IN",           wh:"IN",  group:"", platforms:["Tiktok"],                   chats:{Shopee:0,    Lazada:0,    Tiktok:170,  Line:0,Amaze:0}, perf:{tiktok:{chats:307, replied:286, customers:225, avgResp:0,   conv:1.88, amount:22261,   rating:null}}},
+  {id:"b30",name:"Nestle PetCare-IN",      wh:"IN",  group:"", platforms:["Shopee","Lazada","Tiktok"], chats:{Shopee:6116, Lazada:961,  Tiktok:818,  Line:0,Amaze:0}, perf:{lazada:{chats:1736,replied:1509,customers:995, avgResp:3,   conv:10.97,amount:277571,  rating:"100"},shopee:{chats:11051,replied:8352, customers:7385,avgResp:3,   conv:12.04,amount:685284,  rating:null}, tiktok:{chats:1478,replied:1087,customers:1085,avgResp:0,   conv:4.73, amount:30251,   rating:"100"}}},
+  {id:"b31",name:"Paul Smith-CMG",         wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:801,  Lazada:993,  Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:1795,replied:1656,customers:911, avgResp:8,   conv:13.81,amount:765523,  rating:"99"}, shopee:{chats:1447, replied:1199,customers:854, avgResp:2,   conv:13.32,amount:585933,  rating:null}}},
+  {id:"b32",name:"Pedigree & Whiskas-IN",  wh:"IN",  group:"", platforms:["Shopee","Lazada","Tiktok"], chats:{Shopee:7459, Lazada:1872, Tiktok:4021, Line:0,Amaze:0}, perf:{lazada:{chats:3382,replied:2875,customers:2114,avgResp:4,   conv:9.83, amount:209824,  rating:"100"},tiktok:{chats:7265,replied:5808,customers:4974,avgResp:null,conv:8.42, amount:289482,  rating:null}, shopee:{chats:13479,replied:10709,customers:8845,avgResp:3,  conv:11.44,amount:678954,  rating:null}}},
+  {id:"b33",name:"Polo Ralph Lauren-CMG",  wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:6562, Lazada:1484, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:2681,replied:2479,customers:1488,avgResp:20,  conv:7.83, amount:1005880, rating:"99"}, shopee:{chats:11858,replied:10390,customers:6696,avgResp:1,   conv:13.46,amount:5037945, rating:null}}},
+  {id:"b34",name:"Revlon-IN",              wh:"IN",  group:"", platforms:["Shopee","Lazada","Tiktok"], chats:{Shopee:1376, Lazada:371,  Tiktok:489,  Line:0,Amaze:0}, perf:{shopee:{chats:2486,replied:2223,customers:1999,avgResp:2,   conv:9.14, amount:69790,   rating:null}, tiktok:{chats:884, replied:846, customers:712, avgResp:0,   conv:7.26, amount:12635,   rating:"100"},lazada:{chats:671, replied:600, customers:433, avgResp:7,   conv:8.51, amount:41430,   rating:"99"}}},
+  {id:"b35",name:"Smart-Travel - TOG",     wh:"TOG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:478,  Lazada:244,  Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:441, replied:423, customers:118, avgResp:0,   conv:9.35, amount:31924,   rating:"100"},shopee:{chats:864,  replied:748, customers:608, avgResp:4,   conv:12.07,amount:200043,  rating:null}}},
+  {id:"b36",name:"THREE - CMG",            wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:1563, Lazada:1003, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:1812,replied:1512,customers:1020,avgResp:10,  conv:15.41,amount:399727,  rating:"100"},shopee:{chats:2825, replied:2083,customers:1894,avgResp:4,   conv:15.22,amount:544589,  rating:null}}},
+  {id:"b37",name:"TOMMY -CMG",             wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:3382, Lazada:2126, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:3842,replied:3456,customers:2114,avgResp:14,  conv:15.07,amount:926310,  rating:"99"}, shopee:{chats:6112, replied:5157,customers:4086,avgResp:2,   conv:13.42,amount:920991,  rating:null}}},
+  {id:"b38",name:"The North Face - TOG",   wh:"TOG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:7853, Lazada:2840, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:5131,replied:4446,customers:3374,avgResp:9,   conv:8.51, amount:1412100, rating:"99"}, shopee:{chats:14191,replied:12059,customers:9273,avgResp:4,   conv:10.81,amount:4200732, rating:null}}},
+  {id:"b39",name:"Tinder-IN",              wh:"IN",  group:"1",platforms:["Shopee","Lazada"],          chats:{Shopee:6883, Lazada:1550, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:2800,replied:2607,customers:1961,avgResp:12,  conv:4.28, amount:28826,   rating:"95"}, shopee:{chats:12438,replied:11434,customers:10297,avgResp:7,  conv:3.66, amount:125130,  rating:null}}},
+  {id:"b40",name:"Tommy Hilfiger-MY PVH",  wh:"PVH", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:1911, Lazada:1556, Tiktok:0,    Line:0,Amaze:0}, perf:{shopee:{chats:3453,replied:3398,customers:2383,avgResp:43,  conv:7.95, amount:468664,  rating:null}, lazada:{chats:2812,replied:2632,customers:1766,avgResp:7,   conv:12.77,amount:1594699, rating:"99"}}},
+  {id:"b41",name:"Tommy Hilfiger-SG PVH",  wh:"PVH", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:607,  Lazada:525,  Tiktok:0,    Line:0,Amaze:0}, perf:{shopee:{chats:1097,replied:1083,customers:774, avgResp:null,conv:14.3, amount:433548,  rating:null}, lazada:{chats:948, replied:845, customers:569, avgResp:3,   conv:12.71,amount:538059,  rating:"99"}}},
+  {id:"b42",name:"ULTIMA II-IN",           wh:"IN",  group:"", platforms:["Shopee","Lazada","Tiktok"], chats:{Shopee:35,   Lazada:80,   Tiktok:6,    Line:0,Amaze:0}, perf:{tiktok:{chats:10,  replied:10,  customers:9,   avgResp:null,conv:22.22,amount:214,     rating:null}, shopee:{chats:63,   replied:59,  customers:51,  avgResp:0,   conv:6.38, amount:1290,    rating:null}, lazada:{chats:144, replied:137, customers:16,  avgResp:0,   conv:0,    amount:0,       rating:"100"}}},
+  {id:"b43",name:"Wrangler - CMG",         wh:"CMG", group:"", platforms:["Shopee","Lazada"],          chats:{Shopee:7179, Lazada:1215, Tiktok:0,    Line:0,Amaze:0}, perf:{lazada:{chats:2196,replied:1894,customers:1350,avgResp:13,  conv:10.36,amount:190551,  rating:"99"}, shopee:{chats:12973,replied:10474,customers:8651,avgResp:2,   conv:14.1, amount:1542941, rating:null}}},
+];
+
+
+function allocLocalStr(dt){
+  return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
+}
+function allocMkDates(year,month){
+  const out=[];
+  const start=new Date(year,month-1,1);
+  const end=new Date(year,month,0); // last day of the month
+  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
+    const dt=new Date(d);const wd=dt.getDay();
+    out.push({date:allocLocalStr(dt),day:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][wd],wd,isWE:wd===0||wd===6,dd:dt.getDate(),mm:dt.getMonth()+1});
+  }
+  return out;
+}
+// Generate all dates in a range (for date-range filter)
+function mkDateRange(from, to) {
+  const out=[];
+  if(!from||!to) return out;
+  const start=new Date(from), end=new Date(to);
+  if(start>end) return out;
+  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
+    const dt=new Date(d);const wd=dt.getDay();
+    out.push({date:allocLocalStr(dt),day:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][wd],wd,isWE:wd===0||wd===6,dd:dt.getDate(),mm:dt.getMonth()+1});
+  }
+  return out;
+}
+function allocAutoFill(agents, dates, flags) {
+  // Use the same fair constrained logic with no constraints
+  return allocAutoFillConstrained(agents, dates, flags, { needM:0, needME:0, needE:0 }, []);
+}
+
+
+// Auto-allocate brands to T1 agents — balanced by chat volume (fewest-chats-first greedy)
+// Key format: brandId_date_shift_platform
+// Auto-allocate: 1 agent per brand+platform, balanced by chat volume (greedy fewest-load-first)
+// Always starts completely fresh. Additional agents can be added manually afterward.
+function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn) {
+  const result = {};
+  const t1Agents = agents.filter(a => a.active && a.team === "T1");
+
+  // Sort brands by total volume
+  const brandVol = {};
+  brands.forEach(b => {
+    brandVol[b.id] = (b.platforms||[]).reduce((s,p) => s + (b.chats?.[p]||0), 0);
+  });
+  const sortedBrandIds = brands.map(b=>b.id).sort((a,b) => (brandVol[b]||0) - (brandVol[a]||0));
+
+  // Top 30% = high volume (ME eligible)
+  const highVolCount = Math.max(3, Math.ceil(sortedBrandIds.length * 0.3));
+  const highVolBrands = new Set(sortedBrandIds.slice(0, highVolCount));
+
+  // Top 3 brands by volume get multi-agent assignment (2-3 agents)
+  const top3 = new Set(sortedBrandIds.slice(0, 3));
+
+  dates.forEach(d => {
+    const working = {M:[], ME:[], E:[]};
+    t1Agents.forEach(ag => {
+      const v = asgn[`${ag.id}_${d.date}`];
+      if(!v || v==="Off" || v==="TOIL") return;
+      if(v==="M") working.M.push(ag);
+      if(v==="ME") working.ME.push(ag);
+      if(v==="E") working.E.push(ag);
+    });
+
+    ["M","E"].forEach(shift => {
+      const shiftPool = shift==="M" ? working.M : working.E;
+      const mePool = working.ME;
+      const allPool = [...shiftPool, ...mePool];
+      if(!allPool.length) return;
+
+      // Determine how many agents top brands get based on shift pool size
+      const totalWorking = allPool.length;
+      const topBrandAgents = totalWorking >= 6 ? 3 : totalWorking >= 4 ? 2 : Math.min(2, totalWorking);
+
+      // Build tasks sorted by volume desc
+      const tasks = [];
+      brands.forEach(b => {
+        (b.platforms||[]).forEach(plat => {
+          const vol = b.chats?.[plat] || 0;
+          if (vol <= 0) return;
+          // How many agents for this brand+platform
+          const agentCount = top3.has(b.id) ? topBrandAgents : 1;
+          tasks.push({ k: `${b.id}_${d.date}_${shift}_${plat}`, vol, brandId: b.id, agentCount });
+        });
+      });
+      tasks.sort((a, b) => b.vol - a.vol);
+
+      // Load tracking
+      const load = {};
+      allPool.forEach(ag => { load[ag.name] = 0; });
+
+      tasks.forEach(({ k, vol, brandId, agentCount }) => {
+        const isHighVol = highVolBrands.has(brandId);
+        // ME agents only eligible for high-volume brands
+        const eligible = isHighVol ? allPool : (shiftPool.length > 0 ? shiftPool : allPool);
+        if(!eligible.length) return;
+
+        // Pick N lightest-loaded agents
+        const assigned = [];
+        const tempEligible = [...eligible];
+        for (let n = 0; n < Math.min(agentCount, tempEligible.length); n++) {
+          const lightest = tempEligible.reduce((min, ag) => load[ag.name] < load[min.name] ? ag : min, tempEligible[0]);
+          assigned.push(lightest.name);
+          load[lightest.name] += vol / agentCount; // Split volume load
+          tempEligible.splice(tempEligible.indexOf(lightest), 1);
+        }
+        result[k] = assigned;
+      });
+    });
+  });
+  return result;
+}
+
+// Smart Auto-Fill — Fair & Load-Balanced
+// Rules:
+//   • T2/Return: fixed schedule (holidays Off, unavailable days Off/TOIL)
+//   • T1: days-off spread evenly across the month (not random each week)
+//     - Each agent works roughly equal days over the period
+//     - Days-off are spaced as evenly as possible (not clustered)
+//     - Shift assignment respects each agent's allowed shifts
+//     - When multiple agents are eligible, always pick the one with fewest days assigned so far
+function allocAutoFillConstrained(agents, dates, flags, constraints, brands) {
+  const nxt = {};
+  // ── T2: fixed schedule (they're salaried, just mark their available days) ──
+  const t2Only = agents.filter(a => a.active && a.team === "T2");
+  t2Only.forEach(ag => {
+    dates.forEach(d => {
+      const k  = `${ag.id}_${d.date}`;
+      const avail = ag.days.includes(d.wd);
+      nxt[k] = avail ? (ag.shifts[0] || "M") : "Off";
+    });
+  });
+
+  // ── T1 + Return: daily rate agents — holidays don't force off ─────────────
+  // They get 1 day off per week, spread evenly across the month
+  const t1  = agents.filter(a => a.active && (a.team === "T1" || a.team === "Return"));
+
+  // ── T1: compute fair days-off spread across the entire period ────────────
+  // For each agent, figure out their available days, then space out OFF days
+  // evenly rather than randomly, so no agent gets a bad cluster of days off.
+
+  const forcedOff = {}; // `${agId}_${date}` → true
+
+  t1.forEach((ag, agIdx) => {
+    // All dates this agent is physically available (days[] includes this weekday)
+    const available = dates.filter(d => ag.days.includes(d.wd));
+    const unavailable = dates.filter(d => !ag.days.includes(d.wd));
+
+    // Unavailable days are always Off
+    unavailable.forEach(d => { forcedOff[`${ag.id}_${d.date}`] = true; });
+
+    // Group available days into Mon-start weeks
+    const weekMap = [];
+    let cw = [];
+    available.forEach(d => {
+      if (d.wd === 1 && cw.length > 0) { weekMap.push([...cw]); cw = []; }
+      cw.push(d);
+    });
+    if (cw.length > 0) weekMap.push(cw);
+
+    // Stagger off-days: each agent uses a different starting offset (agIdx)
+    // so agents are NEVER all off on the same day.
+    // Agent 0: off on pos 0,1,2... Agent 1: off on pos 1,2,3... Agent 2: off on pos 2,3,4...
+    weekMap.forEach((week, wi) => {
+      if (week.length === 0) return;
+      // Stagger by both week index AND agent index so no two agents share the same off day
+      const offIdx = (wi + agIdx) % week.length;
+      forcedOff[`${ag.id}_${week[offIdx].date}`] = true;
+    });
+  });
+
+  // ── T1: load-balanced daily assignment ────────────────────────────────────
+  // Track assigned day count per agent so we always pick the least-used agent first
+  const dayCount = {};
+  t1.forEach(ag => { dayCount[ag.id] = 0; });
+
+  // Also track shift rotation per agent: which shift index to use next
+  const shiftIdx = {};
+  t1.forEach(ag => { shiftIdx[ag.id] = 0; });
+
+  dates.forEach(d => {
+    const fl = flags[d.date];
+    const dc = constraints.dateOverrides?.[d.date];
+
+    const needM    = dc != null ? (dc.needM  ?? 0) : (constraints.needM  ?? 0);
+    const needME   = dc != null ? (dc.needME ?? 0) : (constraints.needME ?? 0);
+    const needE    = dc != null ? (dc.needE  ?? 0) : (constraints.needE  ?? 0);
+    const budgetCap = dc?.budget != null ? dc.budget
+                    : constraints.dailyBudget != null ? constraints.dailyBudget : null;
+    const chatCap = constraints.chatPerAgent ?? null;
+
+    // Total brand chat load for this day
+    let totalDailyChats = 0;
+    brands.forEach(b =>
+      (b.platforms || []).forEach(p => { totalDailyChats += b.chats?.[p] || 0; })
+    );
+
+    // Split agents into available (can work today) and unavailable (forced off)
+    const unavail = t1.filter(a => !a.days.includes(d.wd) || forcedOff[`${a.id}_${d.date}`]);
+    const avail   = t1.filter(a =>  a.days.includes(d.wd) && !forcedOff[`${a.id}_${d.date}`]);
+
+    unavail.forEach(ag => { nxt[`${ag.id}_${d.date}`] = "Off"; });
+    if (!avail.length) return;
+
+    // Sort available agents by ascending day count (fewest days worked first = fairest)
+    // Tie-break: stable original order (preserves roster order for same count)
+    const pool = [...avail].sort((a, b) => dayCount[a.id] - dayCount[b.id]);
+
+    const minNeeded = Math.max(
+      1, // always schedule at least 1 agent per day
+      needM + needME + needE,
+      chatCap != null && chatCap > 0 ? Math.ceil(totalDailyChats / chatCap) : 0
+    );
+
+    let budgetUsed = 0;
+    let assigned   = 0;
+    let coveredM = 0, coveredME = 0, coveredE = 0;
+
+    // Pass 1: fill required shift slots — match agents to shifts they can do
+    // First fill ME slots (most restrictive), then M, then E
+    const unassigned = [...pool];
+
+    // Fill ME slots first
+    for (let i = 0; i < unassigned.length && coveredME < needME; i++) {
+      const ag = unassigned[i];
+      const k = `${ag.id}_${d.date}`;
+      if (nxt[k]) continue;
+      if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
+      if (!ag.shifts.includes("ME")) continue;
+      nxt[k] = "ME"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; coveredME++;
+      unassigned.splice(i, 1); i--;
+    }
+
+    // Fill M slots — prefer agents who can ONLY do M (or M+ME but not E)
+    const mPool = unassigned.filter(a => a.shifts.includes("M")).sort((a,b) => a.shifts.length - b.shifts.length);
+    for (const ag of mPool) {
+      if (coveredM + coveredME >= needM) break;
+      const k = `${ag.id}_${d.date}`;
+      if (nxt[k]) continue;
+      if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
+      nxt[k] = "M"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; coveredM++;
+      const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
+    }
+
+    // Fill E slots — prefer agents who can ONLY do E
+    const ePool = unassigned.filter(a => a.shifts.includes("E")).sort((a,b) => a.shifts.length - b.shifts.length);
+    for (const ag of ePool) {
+      if (coveredE + coveredME >= needE) break;
+      const k = `${ag.id}_${d.date}`;
+      if (nxt[k]) continue;
+      if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
+      nxt[k] = "E"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; coveredE++;
+      const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
+    }
+
+    // If still short on M, try ME-capable agents for M coverage
+    const mFill = unassigned.filter(a => a.shifts.includes("ME") || a.shifts.includes("M"));
+    for (const ag of mFill) {
+      if (coveredM + coveredME >= needM) break;
+      const k = `${ag.id}_${d.date}`;
+      if (nxt[k]) continue;
+      if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
+      const shift = ag.shifts.includes("M") ? "M" : "ME";
+      nxt[k] = shift; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++;
+      if (shift === "ME") coveredME++; else coveredM++;
+      const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
+    }
+
+    // If still short on E, try ME-capable agents for E coverage
+    const eFill = unassigned.filter(a => a.shifts.includes("ME") || a.shifts.includes("E"));
+    for (const ag of eFill) {
+      if (coveredE + coveredME >= needE) break;
+      const k = `${ag.id}_${d.date}`;
+      if (nxt[k]) continue;
+      if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
+      const shift = ag.shifts.includes("E") ? "E" : "ME";
+      nxt[k] = shift; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++;
+      if (shift === "ME") coveredME++; else coveredE++;
+      const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
+    }
+
+    // Pass 2: remaining agents — assign or give Off
+    const stillLeft = pool.filter(ag => !nxt[`${ag.id}_${d.date}`])
+                          .sort((a, b) => dayCount[a.id] - dayCount[b.id]);
+
+    stillLeft.forEach(ag => {
+      const k = `${ag.id}_${d.date}`;
+      if (assigned >= minNeeded)                              { nxt[k] = "Off"; return; }
+      if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) { nxt[k] = "Off"; return; }
+
+      // Rotate through agent's available shifts
+      const s = ag.shifts;
+      const shift = s[shiftIdx[ag.id] % s.length];
+      nxt[k] = shift;
+      budgetUsed += ag.costDay;
+      assigned++;
+      dayCount[ag.id]++;
+      shiftIdx[ag.id]++;
+    });
+
+    // Any still-unassigned available agents → Off
+    avail.forEach(ag => {
+      const k = `${ag.id}_${d.date}`;
+      if (!nxt[k]) nxt[k] = "Off";
+    });
+  });
+
+  return nxt;
+}
+
+
+// ── Month Picker Component ───────────────────────────────────────────────────
+function MonthPicker({ rosterYear, setRosterYear, rosterMonth, setRosterMonth, MONTHS }) {
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:6}}>
+      <button onClick={()=>{let m=rosterMonth-1,y=rosterYear;if(m<1){m=12;y--;}setRosterMonth(m);setRosterYear(y);}}
+        style={{width:28,height:28,borderRadius:7,border:"1px solid #E2E8F0",background:"#fff",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+      <div style={{background:"#fff",border:"1px solid #E2E8F0",borderRadius:8,padding:"6px 16px",fontSize:13,fontWeight:600,color:"#0F172A",minWidth:110,textAlign:"center"}}>
+        {MONTHS[rosterMonth-1]} {rosterYear}
+      </div>
+      <button onClick={()=>{let m=rosterMonth+1,y=rosterYear;if(m>12){m=1;y++;}setRosterMonth(m);setRosterYear(y);}}
+        style={{width:28,height:28,borderRadius:7,border:"1px solid #E2E8F0",background:"#fff",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────
+export default function AllocationPanel({ isAdmin = true }) {
+  const [allocTab, setAllocTab]     = useState("roster");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [agents, setAgents]         = useState(ALLOC_AGENTS_INIT);
+  
+  const [budget, setBudget]         = useState(ALLOC_BUDGET);
+  const [fulltimeSalary, setFulltimeSalary] = useState(0); // Total T2 monthly salary (manager fills in)
+  
+  const [editAgent, setEditAgent]   = useState(null);
+  const [agentModal, setAgentModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteSending, setInviteSending] = useState(false);
+  const [inviteSent, setInviteSent] = useState(false); // false | "sent" | "error"
+  const [inviteFormModal, setInviteFormModal] = useState(false); // agent self-fill form
+  const [inviteFormData, setInviteFormData] = useState({fullName:"",phone:"",idCard:"",bankName:"",bankAccount:"",bankAccountName:"",startDate:"",costDay:""});
+  const [inviteFormAgentId, setInviteFormAgentId] = useState(null);
+  const [cellKey, setCellKey]       = useState(null);
+  const [addFlagDate,  setAddFlagDate]  = useState("");
+  const [addFlagType,  setAddFlagType]  = useState("holiday");
+  const [addFlagLabel, setAddFlagLabel] = useState("");
+
+  // ── Change Requests (viewer requests, approved by fulltime/manager) ─────
+  const [changeRequests, setChangeRequests] = useState([]);
+  // {id, agentId, agentName, date, requestedShift, currentShift, reason, status:"pending"|"approved"|"rejected", requestedBy, timestamp}
+
+  // ── User Profiles ─────────────────────────────────────────────────────────
+  const [userProfiles, setUserProfiles] = useState({});
+  // keyed by lowercase username: { fullName, preferName, bookbank, idCard, lineId, emergencyContact, personalEmail, workEmail }
+  const [showProfile, setShowProfile] = useState(false);
+  const [reportGroupFilter, setReportGroupFilter] = useState("all");
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
+
+  // ── Role-based access (login screen) ──────────────────────────────────────
+  const [role, setRole]             = useState(null); // null = not logged in yet
+  const [loginUser, setLoginUser]   = useState("");
+  const [loginPass, setLoginPass]   = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loggedIn, setLoggedIn]     = useState(false);
+  const [showUserMgmt, setShowUserMgmt] = useState(false);
+  const [editingUser, setEditingUser] = useState(null); // {username,password,role} or null
+
+  // Role definitions
+  const ROLES = {
+    viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget","analytics"],                          canEdit:false },
+    fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","analytics"],              canEdit:true  },
+    manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true },
+  };
+
+  // User accounts — stored in state, persisted to storage
+  const [userAccounts, setUserAccounts] = useState([
+    { username: "admin", password: "mgr9999", role: "manager" },
+  ]);
+
+  const handleLogin = () => {
+    const account = userAccounts.find(u => u.username.toLowerCase() === loginUser.toLowerCase() && u.password === loginPass);
+    if (!account) { setLoginError("Incorrect username or password."); return; }
+    setRole(account.role);
+    setLoginUser(account.username);
+    setLoggedIn(true);
+    setLoginError("");
+  };
+
+  const handleLogout = () => {
+    // If running under the Supabase wrapper, sign out of Supabase too
+    if (typeof window !== "undefined" && window.__nirmSignOut) {
+      window.__nirmSignOut();
+    }
+    setRole(null); setLoggedIn(false); setLoginUser(""); setLoginPass(""); setLoginError("");
+    setAllocTab("roster");
+  };
+
+  const canEdit = role ? (ROLES[role]?.canEdit ?? false) : false;
+  const allowedTabs = role ? (ROLES[role]?.tabs ?? []) : [];
+
+  const [rosterYear,   setRosterYear]   = useState(2026);
+  const [rosterMonth,  setRosterMonth]  = useState(4);
+  const [rosterSearch, setRosterSearch] = useState("");
+  const [rosterTeam,   setRosterTeam]   = useState("all");
+  const [agentSearch,  setAgentSearch]  = useState("");
+  const [agentTeamF,   setAgentTeamF]   = useState("all");
+
+  // Auto-Fill inquiry modal
+  const [fillModal,     setFillModal]     = useState(false);
+  const [fillMode,      setFillMode]      = useState("fill");
+  const [fillNeedM,     setFillNeedM]     = useState(3);
+  const [fillNeedME,    setFillNeedME]    = useState(1);
+  const [fillNeedE,     setFillNeedE]     = useState(3);
+  const [fillBudget,    setFillBudget]    = useState("");
+  const [fillChatCap,   setFillChatCap]   = useState("");
+  const [fillDateOverrides, setFillDateOverrides] = useState({});
+  const [ovDate,   setOvDate]   = useState("");
+  const [ovM,      setOvM]      = useState(0);
+  const [ovME,     setOvME]     = useState(0);
+  const [ovE,      setOvE]      = useState(0);
+  const [ovBudget, setOvBudget] = useState("");
+
+  // Allocation tab state
+  const [brands, setBrands]           = useState(CS_BRANDS_INIT);
+  
+  const [brandSearch, setBrandSearch] = useState("");
+  const [allocShiftF, setAllocShiftF] = useState("M");
+  const [allocDateIdx, setAllocDateIdx] = useState(0);
+  const [allocAgentFilter, setAllocAgentFilter] = useState(""); // "" = all agents
+  const [brandModal, setBrandModal]   = useState(false);
+  const [editBrand, setEditBrand]     = useState(null);
+  // Volume tab
+  const [volMonth,  setVolMonth]    = useState(3);
+  const [volYear,   setVolYear]     = useState(2026);
+  const [volViewMode, setVolViewMode] = useState("chats");
+
+  // Lock: prevents edits to roster & allocation for a given month
+  const [lockedMonths, setLockedMonths] = useState({});
+
+  // Payment period: pay cycle runs 24th of prev month → 23rd of this month
+  const [payMonth, setPayMonth] = useState(4);
+  const [payYear,  setPayYear]  = useState(2026);
+  const [monthlyVol, setMonthlyVol] = useState(() => {
+    const seed = {};
+    CS_BRANDS_INIT.forEach(b => { seed[b.id] = {...(b.chats||{})}; });
+    return {"2026-03": seed};
+  });
+
+  // ── Storage: flag to avoid writing before initial load completes ──────────
+  const [storageLoaded, setStorageLoaded] = useState(false);
+
+  // ── Month key helper ──────────────────────────────────────────────────────
+  const mkKey = (y, m) => `${y}-${String(m).padStart(2,"0")}`;
+  const currentMK = mkKey(rosterYear, rosterMonth);
+  const isLocked = !!lockedMonths[currentMK];
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // STORAGE — single key "nirm-all" holds EVERYTHING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const [allAsgn, setAllAsgn] = useState({});
+  const [allBrandAsgn, setAllBrandAsgn] = useState({});
+  const [globalFlags, setGlobalFlags] = useState(ALLOC_FLAGS_INIT);
+
+  const asgn = allAsgn[currentMK] || {};
+  const brandAsgn = allBrandAsgn[currentMK] || {};
+  const flags = globalFlags;
+
+  // ── Master ref — always holds latest state for saving ─────────────────────
+  const stateRef = useRef({});
+  stateRef.current = {
+    agents, brands, budget, fulltimeSalary, monthlyVol, lockedMonths, role, changeRequests, userProfiles, userAccounts,
+    prefs: { rosterYear, rosterMonth, allocTab, volYear, volMonth, loginUser },
+    allAsgn, allBrandAsgn, globalFlags,
+  };
+
+  // ── Save: write stateRef.current to storage ───────────────────────────────
+  const saveTimer = useRef(null);
+  const needsSave = useRef(false);
+
+  const flushSave = () => {
+    if (!window.storage) return;
+    needsSave.current = false;
+    window.storage.set("nirm-all", JSON.stringify(stateRef.current)).catch(e => console.error("SAVE FAIL:", e));
+  };
+
+  const scheduleSave = () => {
+    needsSave.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(flushSave, 300);
+  };
+
+  // ── Setters — pure state updates, no side effects ─────────────────────────
+  const safeSetAsgn = (updater) => {
+    setAllAsgn(prev => {
+      const old = prev[currentMK] || {};
+      const next = typeof updater === "function" ? updater(old) : updater;
+      return {...prev, [currentMK]: next};
+    });
+  };
+  const safeSetBrandAsgn = (updater) => {
+    setAllBrandAsgn(prev => {
+      const old = prev[currentMK] || {};
+      const next = typeof updater === "function" ? updater(old) : updater;
+      return {...prev, [currentMK]: next};
+    });
+  };
+  const safeSetFlags = (updater) => {
+    setGlobalFlags(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      return next;
+    });
+  };
+  const toggleLock = () => {
+    setLockedMonths(p => ({...p, [currentMK]: !p[currentMK]}));
+  };
+
+  // ── Load on first mount ───────────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      if (!window.storage) { setStorageLoaded(true); return; }
+      try {
+        const r = await window.storage.get("nirm-all");
+        if (r && r.value) {
+          const d = JSON.parse(r.value);
+          if (d.agents) setAgents(d.agents);
+          if (d.brands) setBrands(d.brands);
+          if (d.budget) setBudget(d.budget);
+          if (d.fulltimeSalary != null) setFulltimeSalary(d.fulltimeSalary);
+          if (d.monthlyVol) setMonthlyVol(d.monthlyVol);
+          if (d.lockedMonths) setLockedMonths(d.lockedMonths);
+          if (d.role && ROLES[d.role]) { setRole(d.role); setLoggedIn(true); }
+          if (d.allAsgn) setAllAsgn(d.allAsgn);
+          if (d.allBrandAsgn) setAllBrandAsgn(d.allBrandAsgn);
+          if (d.globalFlags) setGlobalFlags(d.globalFlags);
+          if (d.changeRequests) setChangeRequests(d.changeRequests);
+          if (d.userProfiles) setUserProfiles(d.userProfiles);
+          if (d.userAccounts?.length) setUserAccounts(d.userAccounts);
+          if (d.prefs) {
+            if (d.prefs.rosterYear) setRosterYear(d.prefs.rosterYear);
+            if (d.prefs.rosterMonth) setRosterMonth(d.prefs.rosterMonth);
+            if (d.prefs.allocTab) setAllocTab(d.prefs.allocTab);
+            if (d.prefs.volYear) setVolYear(d.prefs.volYear);
+            if (d.prefs.volMonth) setVolMonth(d.prefs.volMonth);
+            if (d.prefs.loginUser) setLoginUser(d.prefs.loginUser);
+          }
+        }
+      } catch(e) { console.error("Load failed:", e); }
+      setStorageLoaded(true);
+    })();
+  }, []);
+
+  // ── Auto-save AFTER every render that changes data ─────────────────────────
+  // This useEffect runs AFTER render, so stateRef.current is guaranteed up-to-date
+  useEffect(() => {
+    if (storageLoaded) scheduleSave();
+  }, [agents, brands, budget, fulltimeSalary, monthlyVol, lockedMonths, role, changeRequests, userProfiles, userAccounts, rosterYear, rosterMonth, allocTab, volYear, volMonth, allAsgn, allBrandAsgn, globalFlags, storageLoaded]);
+
+  // Flush save on unmount
+  useEffect(() => {
+    return () => { if (needsSave.current) flushSave(); };
+  }, []);
+
+  // Detect invite link (?invite=agentId) and open the payroll form
+  useEffect(() => {
+    if (!storageLoaded) return;
+    const params = new URLSearchParams(window.location.search);
+    const invId = params.get("invite");
+    const invName = params.get("name");
+    if (invId) {
+      setInviteFormAgentId(invId);
+      setInviteFormData(d => ({...d, fullName: invName ? decodeURIComponent(invName) : ""}));
+      setInviteFormModal(true);
+      // Clean URL
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [storageLoaded]);
+
+  // If current tab not allowed for this role, bounce to roster
+  useEffect(() => {
+    if (loggedIn && role && !allowedTabs.includes(allocTab)) {
+      setAllocTab("roster");
+    }
+  }, [role, allocTab, loggedIn]);
+
+  const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  // Close cell popup when clicking outside
+  useEffect(() => {
+    if (!cellKey) return;
+    const handler = () => setCellKey(null);
+    const timer = setTimeout(() => document.addEventListener("click", handler), 10);
+    return () => { clearTimeout(timer); document.removeEventListener("click", handler); };
+  }, [cellKey]);
+
+  const dates = useMemo(() => {
+    return allocMkDates(rosterYear, rosterMonth);
+  }, [rosterYear, rosterMonth]);
+
+  const active = agents.filter(a => a.active);
+  const CW = 58;
+
+  const rosterAgents = active.filter(a =>
+    a.team !== "T2" &&
+    (rosterTeam==="all" || a.team===rosterTeam) &&
+    (rosterSearch==="" || a.name.toLowerCase().includes(rosterSearch.toLowerCase()))
+  );
+
+  const hdBg = d => {
+    const fl=flags[d.date];
+    if(fl?.type==="holiday") return "#FEF3C7";
+    if(fl?.type==="campaign") return "#F0FDFA";
+    if(d.isWE) return "#FFF5F5";
+    return "#FFFFFF";
+  };
+  const cBg = d => {
+    const fl=flags[d.date];
+    if(fl?.type==="holiday") return "#FFFBEB";
+    if(fl?.type==="campaign") return "#F0FDFA";
+    if(d.isWE) return "#FFF9F9";
+    return "#FAFBFC";
+  };
+
+  const daySummary = dates.map(d => {
+    let m=0,me=0,e=0,other=0;
+    active.filter(a => a.team !== "T2").forEach(ag => {
+      const v=asgn[`${ag.id}_${d.date}`];
+      if(!v || v==="Off") return;
+      if(v==="M") m++;
+      else if(v==="ME") me++;
+      else if(v==="E") e++;
+      else other++; // OT, TOIL, etc.
+    });
+    return {m, me, e, total: m+me+e+other};
+  });
+  const t2Agents       = agents.filter(a => a.active && a.team==="T2");
+  const t2MonthlyCost  = fulltimeSalary;
+  const t2DailyShare   = dates.length > 0 ? t2MonthlyCost / dates.length : 0;
+
+  const dayCosts = dates.map(d => {
+    // T1 + Return: cost per worked day
+    let c = 0;
+    active.filter(a => a.team !== "T2").forEach(ag => {
+      const v=asgn[`${ag.id}_${d.date}`];
+      if(v&&v!=="Off") c+=ag.costDay*(v==="OT"?1.5:1);
+    });
+    // T2: spread monthly salary evenly across all days in period
+    c += t2DailyShare;
+    return Math.round(c);
+  });
+  const totalCost = active.filter(a=>a.team!=="T2").reduce((s,a)=>{
+    let d=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off")d++;});
+    return s+d*a.costDay;
+  },0) + t2MonthlyCost;
+  const t1ReturnAgents = agents.filter(a => a.active && (a.team==="T1"||a.team==="Return"));
+  const t1ReturnCost   = t1ReturnAgents.reduce((s,a) => {
+    let days=0; dates.forEach(d=>{const v=asgn[`${a.id}_${d.date}`];if(v&&v!=="Off")days++;}); return s+days*a.costDay;
+  }, 0);
+  const totalBudget = Object.values(budget).reduce((s,v)=>s+v,0);
+
+  const openAgent = ag => { setEditAgent({...ag,days:[...ag.days]}); setInviteEmail(""); setInviteSent(false); setInviteSending(false); setAgentModal(true); };
+  const saveAgent = () => {
+    setAgents(p => {
+      const i=p.findIndex(a=>a.id===editAgent.id);
+      if(i>=0){const n=[...p];n[i]=editAgent;return n;}
+      return [...p,editAgent];
+    });
+    setAgentModal(false);
+  };
+
+  // ── EmailJS configuration — replace with your own keys ────────────────────
+  // Setup guide: https://www.emailjs.com/docs/tutorial/overview/
+  // 1. Sign up free at emailjs.com
+  // 2. Add a service (Gmail / Outlook / etc)
+  // 3. Create a template — use variables: {{to_email}}, {{agent_name}}, {{form_link}}, {{from_name}}
+  // 4. Paste your keys below
+  const EMAILJS_SERVICE_ID  = "NiRM";
+  const EMAILJS_TEMPLATE_ID = "template_9zz3oeg";
+  const EMAILJS_PUBLIC_KEY  = "2qnq2ya-IZ0mYPM-U";
+
+  const getInviteLink = (ag) => {
+    // FIX (audit #7): match the detector below — same path, param name `invite`
+    return `${window.location.origin}${window.location.pathname}?invite=${encodeURIComponent(ag.id)}&name=${encodeURIComponent(ag.name)}`;
+  };
+
+  const sendInvite = async () => {
+    if (!inviteEmail || !editAgent) return;
+    setInviteSending(true);
+    try {
+      const res = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          service_id:  EMAILJS_SERVICE_ID,
+          template_id: EMAILJS_TEMPLATE_ID,
+          user_id:     EMAILJS_PUBLIC_KEY,
+          template_params: {
+            to_email:   inviteEmail,
+            agent_name: editAgent.name || "Team Member",
+            from_name:  loginUser || "Your Manager",
+            team:       editAgent.team,
+            form_link:  getInviteLink(editAgent),
+          },
+        }),
+      });
+      setInviteSent(res.ok ? "sent" : "error");
+    } catch {
+      setInviteSent("error");
+    }
+    setInviteSending(false);
+  };
+
+  // Save payroll info submitted by agent
+  const savePayrollInfo = () => {
+    if (!inviteFormAgentId) return;
+    setAgents(p => p.map(a => a.id === inviteFormAgentId
+      ? { ...a,
+          fullName:        inviteFormData.fullName || a.name,
+          phone:           inviteFormData.phone,
+          idCard:          inviteFormData.idCard,
+          bankName:        inviteFormData.bankName,
+          bankAccount:     inviteFormData.bankAccount,
+          bankAccountName: inviteFormData.bankAccountName,
+          startDate:       inviteFormData.startDate,
+          costDay:         Number(inviteFormData.costDay) || a.costDay,
+        }
+      : a
+    ));
+    setInviteFormModal(false);
+    setInviteFormData({fullName:"",phone:"",idCard:"",bankName:"",bankAccount:"",bankAccountName:"",startDate:"",costDay:""});
+    setInviteFormAgentId(null);
+  };
+
+  const openBrand = b => { setEditBrand({...b, platforms:[...(b.platforms||[])]}); setBrandModal(true); };
+  const saveBrand = () => {
+    setBrands(p => {
+      const i=p.findIndex(b=>b.id===editBrand.id);
+      if(i>=0){const n=[...p];n[i]=editBrand;return n;}
+      return [...p,editBrand];
+    });
+    setBrandModal(false);
+  };
+  const deleteBrand = (id) => {
+    setBrands(p=>p.filter(b=>b.id!==id));
+    setBrandModal(false);
+  };
+
+  // ── Pure-JS download helper ─────────────────────────────────────────────────
+  const dlBlob = (content, filename, mime) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 300);
+  };
+
+  // ── Export to real .xlsx (pure JS, no library) ─────────────────────────────
+  const dlXLSX = (rows, filename) => {
+    const esc = s => String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+    // FIX (audit #6): proper base-26 column reference (AA, AB, …, AZ, BA, …)
+    const colRef = (n) => {
+      let s = "", x = n + 1;
+      while (x > 0) { const r = (x - 1) % 26; s = String.fromCharCode(65 + r) + s; x = Math.floor((x - 1) / 26); }
+      return s;
+    };
+    let sheetData = "";
+    rows.forEach((row, ri) => {
+      sheetData += "<row r=\""+(ri+1)+"\">";
+      row.forEach((cell, ci) => {
+        const ref = colRef(ci) + (ri+1);
+        const v = cell == null ? "" : cell;
+        if (typeof v === "number" && !isNaN(v)) {
+          sheetData += "<c r=\""+ref+"\"><v>"+v+"</v></c>";
+        } else {
+          sheetData += "<c r=\""+ref+"\" t=\"inlineStr\"><is><t>"+esc(v)+"</t></is></c>";
+        }
+      });
+      sheetData += "</row>";
+    });
+    const sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'+sheetData+'</sheetData></worksheet>';
+    const workbook = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>';
+    const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="sheet1.xml"/></Relationships>';
+    const rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="workbook.xml"/></Relationships>';
+    const ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>';
+    // Build ZIP manually (store method, no compression)
+    const te = new TextEncoder();
+    const files = [
+      {name:"[Content_Types].xml", data:te.encode(ct)},
+      {name:"_rels/.rels", data:te.encode(rootRels)},
+      {name:"workbook.xml", data:te.encode(workbook)},
+      {name:"_rels/workbook.xml.rels", data:te.encode(rels)},
+      {name:"sheet1.xml", data:te.encode(sheet)},
+    ];
+    const z = [];
+    const entries = [];
+    let offset = 0;
+    files.forEach(f => {
+      const nameBytes = te.encode(f.name);
+      // Local file header
+      const lh = new Uint8Array(30 + nameBytes.length);
+      const lv = new DataView(lh.buffer);
+      lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true);
+      lv.setUint16(8, 0, true); lv.setUint32(14, 0, true);
+      lv.setUint32(18, f.data.length, true); lv.setUint32(22, f.data.length, true);
+      lv.setUint16(26, nameBytes.length, true);
+      lh.set(nameBytes, 30);
+      entries.push({offset, nameBytes, data:f.data});
+      z.push(lh, f.data);
+      offset += lh.length + f.data.length;
+    });
+    const cdStart = offset;
+    entries.forEach(e => {
+      const cd = new Uint8Array(46 + e.nameBytes.length);
+      const cv = new DataView(cd.buffer);
+      cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
+      cv.setUint32(20, e.data.length, true); cv.setUint32(24, e.data.length, true);
+      cv.setUint16(28, e.nameBytes.length, true);
+      cv.setUint32(42, e.offset, true);
+      cd.set(e.nameBytes, 46);
+      z.push(cd);
+      offset += cd.length;
+    });
+    const eocd = new Uint8Array(22);
+    const ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(8, entries.length, true); ev.setUint16(10, entries.length, true);
+    ev.setUint32(12, offset - cdStart, true); ev.setUint32(16, cdStart, true);
+    z.push(eocd);
+    const blob = new Blob(z, {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href=url; a.download=filename.replace(/\.csv$/,".xlsx");
+    document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},300);
+  };
+
+  // Export as printable HTML (PDF via browser print dialog) ───────────────────
+  const printHTML = (htmlContent, title) => {
+    const win = window.open("", "_blank", "width=1200,height=800");
+    if (!win) { alert("Please allow pop-ups to export PDF"); return; }
+    win.document.write(`<!DOCTYPE html><html><head><title>${title}</title><style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:Arial,sans-serif;font-size:10px;color:#111;background:#fff;padding:12px}
+      h1{font-size:15px;margin-bottom:8px;color:#F1F5F9}
+      h2{font-size:12px;margin:12px 0 6px;color:#444}
+      table{width:100%;border-collapse:collapse;margin-bottom:16px;page-break-inside:auto}
+      th{background:#0D9488;color:#fff;padding:5px 7px;text-align:center;font-size:9px;border:1px solid #E2E8F0}
+      td{padding:4px 6px;text-align:center;border:1px solid #ddd;font-size:9px}
+      tr:nth-child(even) td{background:#f5f5f5}
+      .M{background:#dbeafe;color:#1d4ed8;font-weight:700}
+      .ME{background:#ede9fe;color:#14b8a6;font-weight:700}
+      .E{background:#d1fae5;color:#065f46;font-weight:700}
+      .Off{background:#fee2e2;color:#991b1b}
+      .TOIL{background:#fef3c7;color:#92400e}
+      .OT{background:#fce7f3;color:#9d174d;font-weight:700}
+      .name-col{text-align:left;font-weight:600;min-width:80px}
+      .team-col{font-size:8px;font-weight:700}
+      @media print{body{padding:4px}@page{size:A3 landscape;margin:8mm}}
+    </style></head><body>${htmlContent}
+    <script>window.onload=()=>{window.print();}<\/script></body></html>`);
+    win.document.close();
+  };
+
+  // ── Export Roster to Excel (CSV) ───────────────────────────────────────────
+  const exportRosterXLSX = () => {
+    const header = ["Team","Agent", ...dates.map(d=>`${d.dd}/${d.mm} ${d.day}`)];
+    const rows = [header, ...rosterAgents.map(ag => [
+      ag.team, ag.name,
+      ...dates.map(d => asgn[`${ag.id}_${d.date}`] || "")
+    ])];
+    rows.push(["","Working", ...dates.map(d =>
+      rosterAgents.filter(ag => { const v=asgn[`${ag.id}_${d.date}`]; return v&&v!=="Off"&&v!=="TOIL"; }).length
+    )]);
+    dlXLSX(rows, `Roster_${MONTHS[rosterMonth-1]}${rosterYear}.xlsx`);
+  };
+
+  // ── Export Roster to PDF (print) ───────────────────────────────────────────
+  const exportRosterPDF = () => {
+    const label = `${MONTHS[rosterMonth-1]} ${rosterYear}`;
+    const shiftClass = {M:"M",ME:"ME",E:"E",Off:"Off",TOIL:"TOIL",OT:"OT"};
+    let html = `<h1>Roster — ${label}</h1><table>`;
+    html += `<thead><tr><th>Team</th><th>Agent</th>${dates.map(d=>`<th>${d.dd}/${d.mm}<br/>${d.day}</th>`).join('')}</tr></thead>`;
+    html += `<tbody>`;
+    rosterAgents.forEach(ag => {
+      html += `<tr><td class="team-col">${ag.team}</td><td class="name-col">${ag.name}</td>`;
+      dates.forEach(d => {
+        const v = asgn[`${ag.id}_${d.date}`] || "";
+        html += `<td class="${shiftClass[v]||''}">${v||""}</td>`;
+      });
+      html += `</tr>`;
+    });
+    // Summary row
+    html += `<tr style="border-top:2px solid #F1F5F9"><td></td><td class="name-col" style="font-weight:700">Working</td>`;
+    dates.forEach(d => {
+      const n = rosterAgents.filter(ag => { const v=asgn[`${ag.id}_${d.date}`]; return v&&v!=="Off"&&v!=="TOIL"; }).length;
+      html += `<td style="font-weight:700;background:#e0e7ff">${n}</td>`;
+    });
+    html += `</tr></tbody></table>`;
+    printHTML(html, `Roster ${label}`);
+  };
+
+  // ── Export Allocation to Excel (CSV) ──────────────────────────────────────
+  const exportAllocXLSX = () => {
+    const allRows = [["Shift","Brand","Group","Platform","Chats/mo","Assigned Agent(s)","Date"]];
+    ["M","E"].forEach(shift => {
+      const shiftLabel = shift==="M" ? "Morning" : "Evening";
+      dates.forEach(d => {
+        brands.forEach(b => {
+          (b.platforms||[]).forEach(plat => {
+            const k = `${b.id}_${d.date}_${shift}_${plat}`;
+            const raw = brandAsgn[k];
+            const names = [...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+            allRows.push([shiftLabel, b.name, b.wh||"", plat, b.chats?.[plat]||0, names.join(", ")||"Unassigned", `${d.dd}/${d.mm}`]);
+          });
+        });
+      });
+    });
+    dlXLSX(allRows, `Allocation_${MONTHS[rosterMonth-1]}${rosterYear}.xlsx`);
+  };
+
+  // ── Export Allocation to PDF (print) ─────────────────────────────────────
+  const exportAllocPDF = () => {
+    const selDate = dates[Math.min(allocDateIdx, dates.length-1)] || dates[0];
+    if (!selDate) return;
+    const dateLabel = `${selDate.dd}/${selDate.mm} ${selDate.day}`;
+    let html = `<h1>Allocation — ${dateLabel}</h1>`;
+    ["M","E"].forEach(shift => {
+      const shiftLabel = shift==="M" ? "AM" : "PM";
+      html += `<h2>${shiftLabel} Shift</h2><table>`;
+      html += `<thead><tr><th>#</th><th style="text-align:left;min-width:140px">Brand</th><th>Group</th><th>Platform</th><th>Chats/mo</th><th style="text-align:left;min-width:120px">Assigned Agent(s)</th><th>Status</th></tr></thead><tbody>`;
+      let n = 0;
+      brands.forEach(b => {
+        (b.platforms||[]).forEach(plat => {
+          const k = `${b.id}_${selDate.date}_${shift}_${plat}`;
+          const raw = brandAsgn[k];
+          const names = [...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+          n++;
+          const pc = PLATFORM_C[plat];
+          html += `<tr>
+            <td>${n}</td>
+            <td style="text-align:left;font-weight:600">${b.name}</td>
+            <td>${b.wh||"—"}</td>
+            <td style="font-weight:700">${plat}</td>
+            <td style="text-align:right">${(b.chats?.[plat]||0).toLocaleString()}</td>
+            <td style="text-align:left">${names.join(", ")||"—"}</td>
+            <td style="color:${names.length>0?"#065f46":"#991b1b"};font-weight:700">${names.length>0?"✓ Assigned":"Pending"}</td>
+          </tr>`;
+        });
+      });
+      html += `</tbody></table>`;
+    });
+    printHTML(html, `Allocation ${dateLabel}`);
+  };
+
+  // Get chat volume for a brand/platform, using monthly override if available, else brand default
+  const volKey = (y, m) => `${y}-${String(m).padStart(2,"0")}`;
+  const getVol = (brandId, platform, y=volYear, m=volMonth) => {
+    const mk = volKey(y, m);
+    const fromVol = monthlyVol[mk]?.[brandId]?.[platform];
+    if (fromVol !== undefined) return fromVol;
+    // Only fall back to brands.chats if viewing the current display month (no historical data yet)
+    const currentMk = volKey(volYear, volMonth);
+    if (mk === currentMk) return brands.find(b=>b.id===brandId)?.chats?.[platform] ?? 0;
+    return 0;
+  };
+  const setVol = (brandId, platform, value, y=volYear, m=volMonth) => {
+    const mk = volKey(y, m);
+    setMonthlyVol(prev => ({
+      ...prev,
+      [mk]: {
+        ...(prev[mk]||{}),
+        [brandId]: {
+          ...(prev[mk]?.[brandId]||{}),
+          [platform]: Number(value)||0
+        }
+      }
+    }));
+    // Also update the brand's chats directly so allocation uses latest values
+    setBrands(p => p.map(b => b.id===brandId ? {...b, chats:{...(b.chats||{}), [platform]: Number(value)||0}} : b));
+  };
+
+  // Allocation: working T1 agents on a given date+shift
+  const getWorkingAgents = (date, shift) => {
+    return agents.filter(a => {
+      if(!a.active || a.team!=="T1") return false;
+      const v = asgn[`${a.id}_${date}`];
+      if(!v || v==="Off" || v==="TOIL") return false;
+      if(shift==="ME") return v==="ME"; // ME view: only ME-rostered agents
+      if(v==="ME") return true; // ME agents appear in both M and E views
+      return v===shift;
+    });
+  };
+
+  const inpS = {
+    padding:"8px 12px", borderRadius:8, border:"1px solid #E2E8F0",
+    background:"#fff", color:"#1A1D2E", fontSize:13, fontFamily:"inherit", outline:"none",
+    transition:"border 0.15s",
+  };
+
+  const dateLabel = `${MONTHS[rosterMonth-1]} ${rosterYear}`;
+
+  // Sidebar collapsed state
+  const SW = sidebarOpen ? 220 : 64;
+
+  // ── Personal view data (for T1/viewer agents) ─────────────────────────────
+  const myAgent = (role==="fulltime" || role==="viewer") ? agents.find(a => a.name.toLowerCase() === loginUser.toLowerCase()) : null;
+  const myBrands = [];
+  if (myAgent) {
+    // FIX (audit #1): scan ALL dates, not just dates[0]
+    const seen = new Set();
+    dates.forEach(dt => {
+      brands.forEach(b => {
+        (b.platforms||[]).forEach(plat => {
+          ["M","E"].forEach(shift => {
+            const k = `${b.id}_${dt.date}_${shift}_${plat}`;
+            const raw = brandAsgn[k];
+            const assigned = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+            if (assigned.includes(myAgent.name)) {
+              const key = `${b.id}|${plat}|${shift}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                myBrands.push({brand:b.name, plat, shift:shift==="M"?"Morning":"Evening", wh:b.wh||""});
+              }
+            }
+          });
+        });
+      });
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // SINGLE RETURN
+  // ══════════════════════════════════════════════════════════════════════════
+  if (!loggedIn) {
+    return (
+      <div style={{minHeight:"100vh",background:"#FAFBFC",display:"flex",fontFamily:"'DM Sans',sans-serif"}}>
+        <style>{`
+          @keyframes spin{to{transform:rotate(360deg)}}
+          @keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+          .login-card{animation:fadeUp 0.4s ease}
+          .signin-btn:hover{opacity:0.9;transform:translateY(-1px);box-shadow:0 6px 20px #14B8A644}
+          .signin-btn{transition:all 0.2s}
+        `}</style>
+
+        {!storageLoaded ? (
+          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}>
+            <div style={{textAlign:"center"}}>
+              <div style={{width:40,height:40,border:"3px solid #E2E8F0",borderTop:"3px solid #14B8A6",borderRadius:"50%",animation:"spin 0.8s linear infinite",margin:"0 auto 12px"}}/>
+              <div style={{color:"#94A3B8",fontSize:13}}>Loading…</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:32}}>
+              <div className="login-card" style={{width:"100%",maxWidth:380}}>
+                <div style={{textAlign:"center",marginBottom:32}}>
+                  <NirmLogo size={48}/>
+                  <div style={{fontSize:22,fontWeight:700,color:"#0F172A",marginTop:16}}>NiRM</div>
+                  <div style={{fontSize:13,color:"#94A3B8",marginTop:4}}>Sign in to your workspace</div>
+                </div>
+
+                {/* Name */}
+                <div style={{marginBottom:16}}>
+                  <label style={{fontSize:11,fontWeight:600,color:"#94A3B8",textTransform:"uppercase",letterSpacing:0.5,display:"block",marginBottom:6}}>Username</label>
+                  <input value={loginUser} onChange={e=>setLoginUser(e.target.value)}
+                    onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+                    placeholder="e.g. April"
+                    autoFocus
+                    style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1.5px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box",transition:"border 0.15s"}}
+                    onFocus={e=>e.target.style.borderColor="#0D9488"}
+                    onBlur={e=>e.target.style.borderColor="#E2E8F0"}
+                  />
+                </div>
+
+                {/* Password */}
+                <div style={{marginBottom:24}}>
+                  <label style={{fontSize:11,fontWeight:600,color:"#94A3B8",textTransform:"uppercase",letterSpacing:0.5,display:"block",marginBottom:6}}>Password</label>
+                  <input type="password" value={loginPass}
+                    onChange={e=>{setLoginPass(e.target.value);setLoginError("");}}
+                    onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+                    placeholder="Enter your password"
+                    style={{width:"100%",padding:"12px 14px",borderRadius:10,border:`1.5px solid ${loginError?"#FCA5A5":"#E2E8F0"}`,background:"#fff",color:"#1A1D2E",fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box",transition:"border 0.15s"}}
+                    onFocus={e=>{ if(!loginError) e.target.style.borderColor="#0D9488"; }}
+                    onBlur={e=>{ if(!loginError) e.target.style.borderColor="#E2E8F0"; }}
+                  />
+                  {loginError && (
+                    <div style={{display:"flex",alignItems:"center",gap:5,marginTop:7}}>
+                      <span style={{fontSize:12,color:"#EF4444",fontWeight:600}}>{loginError}</span>
+                    </div>
+                  )}
+                </div>
+
+                <button className="signin-btn" onClick={handleLogin}
+                  style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:"#0D9488",color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                  Sign in
+                </button>
+              </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{background:"#F8FAFC",minHeight:"100vh",color:"#1A1D2E",fontFamily:"'DM Sans',sans-serif",display:"flex"}}>
+      {/* Loading overlay */}
+      {!storageLoaded && (
+        <div style={{position:"fixed",inset:0,zIndex:9999,background:"#F8FAFC",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{textAlign:"center"}}>
+            <div style={{width:36,height:36,border:"3px solid #E2E8F0",borderTop:"3px solid #14B8A6",borderRadius:"50%",animation:"spin 0.8s linear infinite",margin:"0 auto 12px"}}/>
+            <div style={{color:"#64748B",fontSize:12,fontWeight:500}}>Loading…</div>
+          </div>
+          <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        </div>
+      )}
+
+      {/* ═══ SIDEBAR ═══ */}
+      <div style={{width:SW,minHeight:"100vh",background:"#fff",borderRight:"1px solid #E2E8F0",display:"flex",flexDirection:"column",transition:"width 0.2s ease",flexShrink:0,position:"sticky",top:0,height:"100vh",overflow:"hidden",zIndex:50}}>
+        {/* Logo */}
+        <div style={{padding:sidebarOpen?"20px 20px 16px":"20px 12px 16px",display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid #F1F5F9"}}>
+          <NirmLogo size={sidebarOpen?30:36}/>
+          {sidebarOpen && <span style={{fontSize:16,fontWeight:700,letterSpacing:-0.3,color:"#0F172A"}}>NiRM</span>}
+        </div>
+
+        {/* Nav items */}
+        <div style={{flex:1,padding:"12px 8px",display:"flex",flexDirection:"column",gap:2}}>
+          {[["roster","Roster"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"]].map(([t,l])=>{
+            if(!allowedTabs.includes(t)) return null;
+            const active2 = allocTab===t;
+            const iconColor = active2?"#0D9488":"#94A3B8";
+            return (
+              <button key={t} onClick={()=>setAllocTab(t)} style={{
+                display:"flex",alignItems:"center",gap:10,padding:sidebarOpen?"9px 14px":"9px 0",
+                justifyContent:sidebarOpen?"flex-start":"center",
+                border:"none",cursor:"pointer",fontFamily:"inherit",
+                borderRadius:8,fontSize:13,fontWeight:active2?600:450,
+                background:active2?"#F0FDFA":"transparent",
+                color:active2?"#0D9488":"#64748B",
+                transition:"all 0.15s",width:"100%",
+              }}>
+                {t==="roster"&&<CalendarIcon size={18} color={iconColor}/>}
+                {t==="allocation"&&<IconGrid size={18} color={iconColor}/>}
+                {t==="dates"&&<CalendarIcon size={18} color={iconColor}/>}
+                {t==="volume"&&<IconBarChart size={18} color={iconColor}/>}
+                {t==="agents"&&<IconUsers size={18} color={iconColor}/>}
+                {t==="budget"&&<IconFileText size={18} color={iconColor}/>}
+                {t==="analytics"&&<IconBarChart size={18} color={iconColor}/>}
+                {sidebarOpen && l}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Sidebar footer — role + logout */}
+        <div style={{padding:"12px",borderTop:"1px solid #F1F5F9"}}>
+          {(() => {
+            const prof = userProfiles[(loginUser||"").toLowerCase()] || {};
+            const displayName = prof.preferName || loginUser || ROLES[role]?.label || "User";
+            const initial = displayName.charAt(0).toUpperCase();
+            return (<>
+          {role && sidebarOpen && (
+            <div onClick={()=>setShowProfile(true)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,background:ROLES[role].bg,marginBottom:8,cursor:"pointer",transition:"opacity 0.15s"}}
+              onMouseEnter={e=>e.currentTarget.style.opacity="0.8"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+              <div style={{width:28,height:28,borderRadius:7,background:ROLES[role].color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:ROLES[role].color}}>{initial}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,fontWeight:600,color:ROLES[role].color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{displayName}</div>
+                <div style={{fontSize:9,color:ROLES[role].color+"99"}}>{ROLES[role].label} · Tap to edit profile</div>
+              </div>
+            </div>
+          )}
+          {role && !sidebarOpen && (
+            <div onClick={()=>setShowProfile(true)} style={{display:"flex",justifyContent:"center",marginBottom:8,cursor:"pointer"}}>
+              <div style={{width:32,height:32,borderRadius:8,background:ROLES[role].bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:ROLES[role].color}}>{initial}</div>
+            </div>
+          )}
+            </>);
+          })()}
+          <div style={{display:"flex",gap:4,flexDirection:sidebarOpen?"row":"column",alignItems:"center",flexWrap:"wrap"}}>
+            <button onClick={()=>setShowUserMgmt(true)}
+              style={{padding:"6px 10px",borderRadius:7,border:"1px solid #3B82F622",background:"#EFF6FF",color:"#1D4ED8",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flex:sidebarOpen?1:"unset",display:"flex",alignItems:"center",gap:4,justifyContent:"center"}}>
+              <IconUsers size={12} color="#1D4ED8"/>{sidebarOpen?(role==="manager"?" Users":" Account"):""}
+            </button>
+            {role==="manager" && (
+              <button onClick={async ()=>{
+                if(!window.confirm("Reset ALL data to defaults? This cannot be undone.")) return;
+                if(window.storage) { try { await window.storage.delete("nirm-all"); } catch{} }
+                setAgents(ALLOC_AGENTS_INIT); setBrands(CS_BRANDS_INIT);
+                setBudget(ALLOC_BUDGET); setFulltimeSalary(0);
+                setAllAsgn({}); setAllBrandAsgn({}); setGlobalFlags(ALLOC_FLAGS_INIT);
+                const seed={}; CS_BRANDS_INIT.forEach(b=>{seed[b.id]={...(b.chats||{})};});
+                setMonthlyVol({"2026-03":seed});
+                setRosterYear(2026); setRosterMonth(4); setLockedMonths({});
+              }} style={{padding:"6px 10px",borderRadius:7,border:"1px solid #FCA5A533",background:"#FFF5F5",color:"#EF4444",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flex:sidebarOpen?1:"unset"}}>
+                <IconTrash size={12} color="#EF4444" style={{display:"inline",verticalAlign:"-2px"}}/>{sidebarOpen?" Reset":""}
+              </button>
+            )}
+            <button onClick={handleLogout}
+              style={{padding:"6px 10px",borderRadius:7,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:10,fontWeight:500,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4,justifyContent:"center",flex:sidebarOpen?1:"unset"}}>
+              <IconLogOut size={12} color="#64748B"/>{sidebarOpen?" Sign out":""}
+            </button>
+          </div>
+          <button onClick={()=>setSidebarOpen(!sidebarOpen)} style={{marginTop:8,width:"100%",padding:"5px",border:"none",background:"transparent",cursor:"pointer",color:"#CBD5E1",fontSize:16,borderRadius:6}}>
+            {sidebarOpen ? <IconChevL size={16} color="#CBD5E1"/> : <IconChevR size={16} color="#CBD5E1"/>}
+          </button>
+        </div>
+      </div>
+
+      {/* ═══ MAIN CONTENT ═══ */}
+      <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+        {/* ── Top Bar ── */}
+        <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"14px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap",position:"sticky",top:0,zIndex:40}}>
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
+                {allocTab==="roster"?"Roster":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":"Report"}
+              </div>
+              <div style={{fontSize:11,color:"#94A3B8",marginTop:1}}>{dateLabel} · {active.length} agents</div>
+            </div>
+          </div>
+
+          <MonthPicker
+            rosterYear={rosterYear} setRosterYear={setRosterYear}
+            rosterMonth={rosterMonth} setRosterMonth={setRosterMonth}
+            MONTHS={MONTHS}
+          />
+        </div>
+
+        {/* ── Content Area ── */}
+        <div style={{flex:1,padding:"24px 28px",overflowY:"auto"}}>
+
+        {/* ── KPI Bar — Report tab only ── */}
+        {allocTab==="budget" && role!=="viewer" && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:22}}>
+          <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
+            <div style={{fontSize:10,color:"#1D4ED8",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T2 — Fixed Salary</div>
+            <div style={{fontSize:22,fontWeight:700,color:"#1D4ED8"}}>฿{t2MonthlyCost.toLocaleString()}</div>
+            <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t2Agents.filter(a=>a.active).length} fulltime staff</div>
+          </div>
+          <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
+            <div style={{fontSize:10,color:"#0D9488",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T1 + Return</div>
+            <div style={{fontSize:22,fontWeight:700,color:"#0D9488"}}>฿{t1ReturnCost.toLocaleString()}</div>
+            <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t1ReturnAgents.length} agents × worked days</div>
+          </div>
+          <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:`1px solid ${totalCost>totalBudget?"#FCA5A5":"#BBF7D0"}`,boxShadow:"0 1px 3px #0001"}}>
+            <div style={{fontSize:10,color:"#64748B",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Grand Total</div>
+            <div style={{fontSize:22,fontWeight:700,color:totalCost>totalBudget?"#EF4444":"#059669"}}>฿{totalCost.toLocaleString()}</div>
+            <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>All teams</div>
+          </div>
+        </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            ROSTER TAB
+        ══════════════════════════════════════════ */}
+        {allocTab==="roster" && myAgent && (
+              <div>
+                {/* Personal header */}
+                <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"20px 24px",marginBottom:16,display:"flex",alignItems:"center",gap:16}}>
+                  <div style={{width:48,height:48,borderRadius:12,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#0D9488"}}>{myAgent.name.charAt(0)}</div>
+                  <div>
+                    <div style={{fontSize:18,fontWeight:700,color:"#0F172A"}}>{myAgent.name}</div>
+                    <div style={{fontSize:12,color:"#94A3B8",marginTop:2}}>
+                      <span style={{padding:"2px 8px",borderRadius:6,background:ALLOC_TEAM_C[myAgent.team]?.bg,color:ALLOC_TEAM_C[myAgent.team]?.color,fontWeight:700,fontSize:10,marginRight:8}}>{myAgent.team}</span>
+                      Shifts: {myAgent.shifts.join(", ")} · ฿{myAgent.costDay}/day
+                      {myAgent.rule && <span style={{marginLeft:8,color:"#D97706"}}>({myAgent.rule})</span>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* My Schedule */}
+                <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden",marginBottom:16}}>
+                  <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",fontSize:12,fontWeight:700,color:"#1A1D2E"}}>My Schedule — {dateLabel}</div>
+                  <div style={{overflowX:"auto"}}>
+                    <table style={{borderCollapse:"collapse",fontSize:11,width:"max-content",minWidth:"100%"}}>
+                      <thead><tr>
+                        {dates.map(d => {
+                          const fl = flags[d.date]; const isH = fl?.type==="holiday"; const isC = fl?.type==="campaign";
+                          return (
+                            <th key={d.date} style={{minWidth:44,padding:"6px 2px",textAlign:"center",borderBottom:"1px solid #F1F5F9",background:isH?"#FEF3C7":isC?"#F0FDFA":d.isWE?"#FFF5F5":"#fff"}}>
+                              <div style={{fontSize:10,fontWeight:700,color:d.isWE?"#EF4444":"#1A1D2E"}}>{d.dd}/{d.mm}</div>
+                              <div style={{fontSize:9,color:d.isWE?"#F87171":"#94A3B8"}}>{d.day}</div>
+                              {fl && <div style={{fontSize:7,fontWeight:700,color:isH?"#D97706":"#0D9488",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:42}}>{fl.label}</div>}
+                            </th>
+                          );
+                        })}
+                      </tr></thead>
+                      <tbody><tr>
+                        {dates.map(d => {
+                          const cellK = `${myAgent.id}_${d.date}`;
+                          const val = asgn[cellK];
+                          const cs = val ? ALLOC_SHIFT_C[val] : null;
+                          const editing = role==="viewer" && cellKey===cellK;
+                          const hasPending = changeRequests.some(r=>r.agentId===myAgent.id && r.date===d.date && r.status==="pending");
+                          return (
+                            <td key={d.date} style={{padding:6,textAlign:"center",borderBottom:"1px solid #F1F5F9",background:flags[d.date]?.type==="holiday"?"#FFFBEB":"transparent",cursor:role==="viewer"?"pointer":"default",position:"relative"}}
+                              onClick={()=>{if(role==="viewer") setCellKey(editing?null:cellK);}}>
+                              {cs ? <div style={{background:cs.bg,color:cs.color,borderRadius:6,padding:"6px 4px",fontWeight:700,fontSize:13}}>{cs.label}</div>
+                                : <div style={{color:"#E2E8F0",fontSize:11}}>—</div>}
+                              {hasPending && <div style={{position:"absolute",top:2,right:2,width:6,height:6,borderRadius:3,background:"#F59E0B"}}/>}
+                              {editing && (
+                                <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:-20,zIndex:50,background:"#fff",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px #00000022",padding:12,width:180,fontSize:12}}>
+                                  <div style={{fontWeight:700,color:"#1A1D2E",marginBottom:4,fontSize:11}}>Request Change</div>
+                                  <div style={{fontSize:10,color:"#94A3B8",marginBottom:8}}>{d.dd}/{d.mm} {d.day} · Currently: {val||"Unset"}</div>
+                                  {["M","E","ME","Off"].map(code => {
+                                    const cs2=ALLOC_SHIFT_C[code];
+                                    return (
+                                      <button key={code} onClick={()=>{
+                                        setChangeRequests(prev=>[...prev,{
+                                          id: Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+                                          agentId:myAgent.id, agentName:myAgent.name, date:d.date,
+                                          requestedShift:code, currentShift:val||"",
+                                          reason:"", status:"pending", requestedBy:loginUser,
+                                          timestamp:new Date().toISOString()
+                                        }]);
+                                        setCellKey(null);
+                                      }}
+                                        style={{display:"flex",alignItems:"center",gap:6,width:"100%",padding:"5px 8px",border:"1px solid #E2E8F0",borderRadius:5,cursor:"pointer",fontFamily:"inherit",fontWeight:600,fontSize:11,background:"transparent",color:cs2?.color||"#1A1D2E",marginBottom:2}}>
+                                        <span style={{width:24,height:16,borderRadius:3,background:cs2?.bg,color:cs2?.color,fontWeight:700,fontSize:9,textAlign:"center",lineHeight:"14px",flexShrink:0}}>{cs2?.label}</span>
+                                        {code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":"Day Off"}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Summary stats */}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10,marginBottom:16}}>
+                  {[
+                    ["Work Days", dates.filter(d=>{const v=asgn[`${myAgent.id}_${d.date}`];return v&&v!=="Off";}).length, "#0D9488"],
+                    ["Days Off", dates.filter(d=>{const v=asgn[`${myAgent.id}_${d.date}`];return v==="Off";}).length, "#EF4444"],
+                    ["Morning", dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="M").length, "#1D4ED8"],
+                    ["Evening", dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="E").length, "#065F46"],
+                  ].map(([label,count,color])=>(
+                    <div key={label} style={{background:"#fff",borderRadius:10,border:"1px solid #E2E8F0",padding:"12px 16px",textAlign:"center"}}>
+                      <div style={{fontSize:22,fontWeight:700,color}}>{count}</div>
+                      <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* My Brand Assignments */}
+                {myBrands.length > 0 ? (
+                  <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+                    <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",fontSize:12,fontWeight:700,color:"#1A1D2E"}}>My Brand Assignments</div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead><tr style={{background:"#F8FAFC"}}>
+                        {["Brand","Warehouse","Platform","Shift"].map(h=>(
+                          <th key={h} style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {myBrands.map((mb,i) => (
+                          // FIX (audit #34): stable key
+                          <tr key={`${mb.brand}|${mb.plat}|${mb.shift}`} style={{borderBottom:"1px solid #F1F5F9",background:i%2===0?"#FAFBFC":"transparent"}}>
+                            <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{mb.brand}</td>
+                            <td style={{padding:"8px 12px"}}><span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:"#F1F5F9",color:"#94A3B8",fontWeight:600}}>{mb.wh||"—"}</span></td>
+                            <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:PLATFORM_C[mb.plat]?.bg||"#F1F5F9",color:PLATFORM_C[mb.plat]?.color||"#64748B",fontWeight:700}}>{mb.plat}</span></td>
+                            <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:mb.shift==="Morning"?"#DBEAFE":"#D1FAE5",color:mb.shift==="Morning"?"#1D4ED8":"#065F46",fontWeight:700}}>{mb.shift}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:24,textAlign:"center",color:"#94A3B8",fontSize:13}}>No brand assignments found for this month.</div>
+                )}
+
+                {/* My Pending Requests */}
+                {changeRequests.filter(r=>r.agentId===myAgent.id).length > 0 && (
+                  <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden",marginTop:16}}>
+                    <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#FEF3C7",fontSize:12,fontWeight:700,color:"#92400E"}}>My Change Requests</div>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead><tr style={{background:"#F8FAFC"}}>
+                        {["Date","Current","Requested","Status"].map(h=>(
+                          <th key={h} style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {changeRequests.filter(r=>r.agentId===myAgent.id).sort((a,b)=>b.timestamp.localeCompare(a.timestamp)).map(r=>(
+                          <tr key={r.id} style={{borderBottom:"1px solid #F1F5F9"}}>
+                            <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:600}}>{r.date}</td>
+                            <td style={{padding:"8px 12px"}}>{r.currentShift ? <span style={{padding:"2px 8px",borderRadius:4,background:ALLOC_SHIFT_C[r.currentShift]?.bg,color:ALLOC_SHIFT_C[r.currentShift]?.color,fontWeight:700,fontSize:10}}>{r.currentShift}</span> : "—"}</td>
+                            <td style={{padding:"8px 12px"}}><span style={{padding:"2px 8px",borderRadius:4,background:ALLOC_SHIFT_C[r.requestedShift]?.bg,color:ALLOC_SHIFT_C[r.requestedShift]?.color,fontWeight:700,fontSize:10}}>{r.requestedShift}</span></td>
+                            <td style={{padding:"8px 12px"}}><span style={{padding:"2px 8px",borderRadius:6,fontSize:10,fontWeight:700,background:r.status==="pending"?"#FEF3C7":r.status==="approved"?"#D1FAE5":"#FEE2E2",color:r.status==="pending"?"#D97706":r.status==="approved"?"#059669":"#DC2626"}}>{r.status}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+        )}
+
+        {allocTab==="roster" && !myAgent && (
+          <div>
+            {/* ── Pending Change Requests (manager/fulltime approval) ── */}
+            {changeRequests.filter(r=>r.status==="pending").length > 0 && (
+              <div style={{background:"#fff",borderRadius:14,border:"1px solid #FCD34D",overflow:"hidden",marginBottom:16}}>
+                <div style={{padding:"12px 16px",borderBottom:"1px solid #FDE68A",background:"#FFFBEB",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#92400E"}}>Pending Change Requests ({changeRequests.filter(r=>r.status==="pending").length})</div>
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead><tr style={{background:"#FFFBEB"}}>
+                    {["Agent","Date","Current","Requested","Requested At","Actions"].map(h=>(
+                      <th key={h} style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #FDE68A",fontSize:10,fontWeight:700,color:"#92400E",textTransform:"uppercase"}}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {changeRequests.filter(r=>r.status==="pending").map(r=>(
+                      <tr key={r.id} style={{borderBottom:"1px solid #F1F5F9"}}>
+                        <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{r.agentName}</td>
+                        <td style={{padding:"8px 12px",fontFamily:"monospace"}}>{r.date}</td>
+                        <td style={{padding:"8px 12px"}}>{r.currentShift ? <span style={{padding:"2px 8px",borderRadius:4,background:ALLOC_SHIFT_C[r.currentShift]?.bg,color:ALLOC_SHIFT_C[r.currentShift]?.color,fontWeight:700,fontSize:10}}>{r.currentShift}</span> : "—"}</td>
+                        <td style={{padding:"8px 12px"}}><span style={{padding:"2px 8px",borderRadius:4,background:ALLOC_SHIFT_C[r.requestedShift]?.bg,color:ALLOC_SHIFT_C[r.requestedShift]?.color,fontWeight:700,fontSize:10}}>{r.requestedShift}</span></td>
+                        <td style={{padding:"8px 12px",fontSize:10,color:"#94A3B8"}}>{new Date(r.timestamp).toLocaleString()}</td>
+                        <td style={{padding:"8px 12px",display:"flex",gap:6}}>
+                          <button onClick={()=>{
+                            safeSetAsgn(p=>({...p,[`${r.agentId}_${r.date}`]:r.requestedShift}));
+                            setChangeRequests(prev=>prev.map(x=>x.id===r.id?{...x,status:"approved"}:x));
+                          }} style={{padding:"4px 10px",borderRadius:6,border:"none",background:"#D1FAE5",color:"#059669",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Approve</button>
+                          <button onClick={()=>{
+                            setChangeRequests(prev=>prev.map(x=>x.id===r.id?{...x,status:"rejected"}:x));
+                          }} style={{padding:"4px 10px",borderRadius:6,border:"none",background:"#FEE2E2",color:"#DC2626",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Reject</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Controls */}
+            <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+              <div style={{position:"relative",flex:1,minWidth:160}}>
+                <Search size={12} color="#94A3B8" style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)"}}/>
+                <input value={rosterSearch} onChange={e=>setRosterSearch(e.target.value)} placeholder="Search agent…"
+                  style={{...inpS,paddingLeft:28,width:"100%",boxSizing:"border-box"}}/>
+              </div>
+              <div style={{display:"flex",gap:4}}>
+                {[["all","All"],["T1","T1"],["Return","Return"]].map(([v,l])=>(
+                  <button key={v} onClick={()=>setRosterTeam(v)} style={{
+                    padding:"6px 12px",borderRadius:8,border:"none",fontSize:11,fontWeight:600,cursor:"pointer",
+                    background:rosterTeam===v?(v==="all"?"#14B8A6":ALLOC_TEAM_C[v]?.bg||"#F0FDFA"):"#F1F5F9",
+                    color:rosterTeam===v?(v==="all"?"#fff":ALLOC_TEAM_C[v]?.color||"#5EEAD4"):"#6B7280",
+                  }}>{l}</button>
+                ))}
+              </div>
+              <div style={{marginLeft:"auto",display:"flex",gap:6,alignItems:"center"}}>
+                {/* Lock/Unlock toggle — manager only */}
+                {role==="manager" && (
+                  <button onClick={toggleLock} style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${isLocked?"#F59E0B":"#E2E8F0"}`,background:isLocked?"#FEF3C7":"transparent",color:isLocked?"#D97706":"#94A3B8",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+                    {isLocked?"Locked":"Lock"}
+                  </button>
+                )}
+                {isLocked && (
+                  <span style={{fontSize:10,color:"#D97706",fontWeight:600,padding:"4px 10px",background:"#FEF3C7",borderRadius:6}}>Month is locked</span>
+                )}
+                <button onClick={()=>{if(isLocked){alert("This month is locked. Unlock it first to make changes.");return;}safeSetAsgn({});}} style={{padding:"6px 14px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
+                <button onClick={()=>{if(isLocked){alert("This month is locked. Unlock it first to make changes.");return;}setFillMode("all");setFillModal(true);}}
+                  style={{padding:"6px 14px",borderRadius:8,border:"none",background:isLocked?"#CBD5E1":"#0D9488",color:"#fff",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:700}}>Auto-Fill</button>
+                <div style={{width:1,background:"#E2E8F0",margin:"0 2px"}}/>
+                <button onClick={exportRosterXLSX}
+                  style={{padding:"6px 12px",borderRadius:8,border:"1px solid #06C75544",background:"#ECFDF5",color:"#065F46",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+                  Export
+                </button>
+                <button onClick={exportRosterPDF}
+                  style={{padding:"6px 12px",borderRadius:8,border:"1px solid #F87171",background:"#FFF5F5",color:"#B91C1C",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+                  📄 PDF
+                </button>
+              </div>
+            </div>
+
+            {/* ── Auto-Fill Inquiry Modal ── */}
+            {fillModal && (
+              <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.7)",backdropFilter:"blur(6px)"}} onClick={()=>setFillModal(false)}>
+                <div style={{background:"#FFFFFF",borderRadius:18,border:"1px solid #E2E8F0",padding:28,width:580,maxWidth:"95vw",maxHeight:"88vh",overflow:"auto",boxShadow:"0 24px 64px #00000099"}} onClick={e=>e.stopPropagation()}>
+                  {/* Modal header */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+                    <div>
+                      <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E",display:"flex",alignItems:"center",gap:8}}>
+                        Auto-Fill Setup
+                      </div>
+                      <div style={{fontSize:11,color:"#94A3B8",marginTop:3}}>
+                        {fillMode==="fill" ? "Fill only empty cells — existing assignments kept" : "Re-fill entire roster — all T1 assignments replaced"}
+                      </div>
+                    </div>
+                    <button onClick={()=>setFillModal(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#6B7280",fontSize:20,lineHeight:1}}>×</button>
+                  </div>
+
+                  {/* Mode toggle */}
+                  <div style={{display:"flex",gap:4,background:"#FAFBFC",borderRadius:10,padding:4,marginBottom:22}}>
+                    {[["all","🔄 Fill All T1"],["fill","➕ Fill Empty Only"]].map(([m,l])=>(
+                      <button key={m} onClick={()=>setFillMode(m)} style={{
+                        flex:1,padding:"8px 0",border:"none",cursor:"pointer",fontSize:12,fontWeight:700,borderRadius:8,fontFamily:"inherit",transition:"all 0.15s",
+                        background:fillMode===m?"#F0FDFA":"transparent",
+                        color:fillMode===m?"#5EEAD4":"#94A3B8",
+                        borderBottom:fillMode===m?"2px solid #14B8A6":"2px solid transparent"
+                      }}>{l}</button>
+                    ))}
+                  </div>
+
+                  {/* Section: Shift Requirements */}
+                  <div style={{marginBottom:22}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#0D9488",textTransform:"uppercase",letterSpacing:1,marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{width:3,height:14,background:"#5EEAD4",borderRadius:2,display:"inline-block"}}/>
+                      T1 Agents per Shift (Default — all dates)
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                      {[
+                        ["needM",  fillNeedM,  setFillNeedM,  "M",  "AM",  "#60A5FA"],
+                        ["needME", fillNeedME, setFillNeedME, "ME", "MID",      "#5EEAD4"],
+                        ["needE",  fillNeedE,  setFillNeedE,  "E",  "PM",  "#34D399"],
+                      ].map(([,val,setter,code,label,color])=>(
+                        <div key={code} style={{background:"#FAFBFC",borderRadius:10,padding:"12px 14px",border:`1px solid ${color}33`}}>
+                          <div style={{fontSize:11,fontWeight:700,color,marginBottom:8}}>{label}</div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <button onClick={()=>setter(Math.max(0,val-1))} style={{width:26,height:26,borderRadius:6,border:`1px solid ${color}44`,background:"transparent",color,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>−</button>
+                            <span style={{fontSize:20,fontWeight:700,color,fontFamily:"monospace",minWidth:24,textAlign:"center"}}>{val}</span>
+                            <button onClick={()=>setter(val+1)} style={{width:26,height:26,borderRadius:6,border:`1px solid ${color}44`,background:"transparent",color,fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700}}>+</button>
+                          </div>
+                          <div style={{fontSize:9,color:"#94A3B8",marginTop:6}}>agents minimum</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{marginTop:10,padding:"8px 12px",background:"#F1F5F9",borderRadius:8,fontSize:11,color:"#94A3B8"}}>
+                      Total: <strong style={{color:"#1A1D2E"}}>{fillNeedM+fillNeedME+fillNeedE}</strong> T1 agents required per day
+                      {fillNeedM+fillNeedME+fillNeedE > agents.filter(a=>a.active&&a.team==="T1").length && (
+                        <span style={{color:"#B91C1C",marginLeft:8}}>— Exceeds {agents.filter(a=>a.active&&a.team==="T1").length} available T1 agents</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Section: Budget & Chat Constraints */}
+                  <div style={{marginBottom:22}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#B45309",textTransform:"uppercase",letterSpacing:1,marginBottom:12,display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{width:3,height:14,background:"#F59E0B",borderRadius:2,display:"inline-block"}}/>
+                      Budget & Chat Constraints
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      {/* Daily budget cap */}
+                      <div style={{background:"#FAFBFC",borderRadius:10,padding:"14px"}}>
+                        <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:6}}>Daily Budget Cap (฿)</label>
+                        <div style={{position:"relative"}}>
+                          <span style={{position:"absolute",left:10,top:"50%",transform:"translateY(-50%)",color:"#94A3B8",fontSize:13}}>฿</span>
+                          <input type="number" min="0" value={fillBudget} onChange={e=>setFillBudget(e.target.value)}
+                            placeholder="Unlimited"
+                            style={{width:"100%",padding:"8px 10px 8px 24px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FFFFFF",color:"#B45309",fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+                        </div>
+                        <div style={{fontSize:9,color:"#94A3B8",marginTop:5}}>Max spend on T1 agents per day. Leave blank = no limit.</div>
+                        {fillBudget && (
+                          <div style={{fontSize:10,color:"#B45309",marginTop:4}}>
+                            ~{Math.floor(Number(fillBudget)/((agents.filter(a=>a.active&&a.team==="T1").reduce((s,a)=>s+a.costDay,0)/Math.max(1,agents.filter(a=>a.active&&a.team==="T1").length))))} agents can work / day at avg rate
+                          </div>
+                        )}
+                      </div>
+                      {/* Chat per agent cap */}
+                      <div style={{background:"#FAFBFC",borderRadius:10,padding:"14px"}}>
+                        <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:6}}>Max Chats per Agent / Day</label>
+                        <input type="number" min="0" value={fillChatCap} onChange={e=>setFillChatCap(e.target.value)}
+                          placeholder="Unlimited"
+                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FFFFFF",color:"#065F46",fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+                        <div style={{fontSize:9,color:"#94A3B8",marginTop:5}}>Sets min headcount from chat load. Leave blank = no limit.</div>
+                        {fillChatCap && (() => {
+                          const totalChats = brands.reduce((s,b)=>s+Object.values(b.chats||{}).reduce((a,v)=>a+v,0),0)/30;
+                          const needed = Math.ceil(totalChats/Number(fillChatCap));
+                          return <div style={{fontSize:10,color:"#065F46",marginTop:4}}>~{needed} agents needed for avg {Math.round(totalChats)} chats/day</div>;
+                        })()}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section: Per-date overrides */}
+                  <div style={{marginBottom:22}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#1D4ED8",textTransform:"uppercase",letterSpacing:1,marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{width:3,height:14,background:"#60A5FA",borderRadius:2,display:"inline-block"}}/>
+                      Per-Date Overrides <span style={{fontWeight:400,color:"#94A3B8",fontSize:9,textTransform:"none"}}>(optional — override specific dates)</span>
+                    </div>
+                    <div style={{display:"flex",gap:8,marginBottom:10,alignItems:"flex-end",flexWrap:"wrap"}}>
+                      <div>
+                        <label style={{fontSize:9,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:3}}>Date</label>
+                        <input type="date" value={ovDate} onChange={e=>setOvDate(e.target.value)}
+                          style={{padding:"6px 8px",borderRadius:7,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                      </div>
+                      {[["M","AM","#60A5FA",ovM,setOvM],["ME","MID","#5EEAD4",ovME,setOvME],["E","PM","#34D399",ovE,setOvE]].map(([code,label,color,val,setter])=>(
+                        <div key={code}>
+                          <label style={{fontSize:9,color:color,textTransform:"uppercase",display:"block",marginBottom:3}}>{label}</label>
+                          <input type="number" min="0" value={val} onChange={e=>setter(Number(e.target.value))}
+                            style={{width:52,padding:"6px 8px",borderRadius:7,border:`1px solid ${color}44`,background:"#FAFBFC",color,fontSize:12,fontFamily:"monospace",fontWeight:700,outline:"none",textAlign:"center"}}/>
+                        </div>
+                      ))}
+                      <div>
+                        <label style={{fontSize:9,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:3}}>Budget ฿</label>
+                        <input type="number" min="0" value={ovBudget} onChange={e=>setOvBudget(e.target.value)}
+                          placeholder="—"
+                          style={{width:80,padding:"6px 8px",borderRadius:7,border:"1px solid #F59E0B33",background:"#FAFBFC",color:"#B45309",fontSize:12,fontFamily:"monospace",outline:"none"}}/>
+                      </div>
+                      <button onClick={()=>{
+                        if(!ovDate) return;
+                        setFillDateOverrides(p=>({...p,[ovDate]:{needM:ovM,needME:ovME,needE:ovE,...(ovBudget?{budget:Number(ovBudget)}:{})}}));
+                        setOvDate(""); setOvM(0); setOvME(0); setOvE(0); setOvBudget("");
+                      }} style={{padding:"7px 14px",borderRadius:8,border:"none",background:"#F0FDFA",color:"#0D9488",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",alignSelf:"flex-end"}}>
+                        + Add Override
+                      </button>
+                    </div>
+                    {Object.keys(fillDateOverrides).length > 0 && (
+                      <div style={{background:"#FAFBFC",borderRadius:10,overflow:"hidden",border:"1px solid #F1F5F9"}}>
+                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                          <thead><tr style={{background:"#F1F5F9"}}>
+                            {["Date","In Range","M","ME","E","Budget",""].map(h=><th key={h} style={{padding:"6px 10px",textAlign:"left",color:"#94A3B8",fontWeight:700,fontSize:9,textTransform:"uppercase"}}>{h}</th>)}
+                          </tr></thead>
+                          <tbody>
+                            {Object.entries(fillDateOverrides).sort(([a],[b])=>a.localeCompare(b)).map(([dt,ov])=>{
+                              const inRange = dates.some(d=>d.date===dt);
+                              return (
+                                <tr key={dt} style={{borderBottom:"1px solid #F1F5F9"}}>
+                                  <td style={{padding:"6px 10px",fontFamily:"monospace",color:"#1A1D2E",fontWeight:700}}>{dt}</td>
+                                  <td style={{padding:"6px 10px"}}>
+                                    <span style={{fontSize:9,padding:"2px 7px",borderRadius:5,fontWeight:700,
+                                      background:inRange?"#D1FAE5":"#FEE2E2",
+                                      color:inRange?"#06C755":"#F87171"}}>
+                                      {inRange?"✓ Yes":"✗ Outside range"}
+                                    </span>
+                                  </td>
+                                  <td style={{padding:"6px 10px",color:"#1D4ED8",fontWeight:700}}>{ov.needM}</td>
+                                  <td style={{padding:"6px 10px",color:"#0D9488",fontWeight:700}}>{ov.needME}</td>
+                                  <td style={{padding:"6px 10px",color:"#065F46",fontWeight:700}}>{ov.needE}</td>
+                                  <td style={{padding:"6px 10px",color:"#B45309",fontFamily:"monospace"}}>{ov.budget?`฿${ov.budget.toLocaleString()}`:"—"}</td>
+                                  <td style={{padding:"6px 10px"}}>
+                                    <button onClick={()=>setFillDateOverrides(p=>{const n={...p};delete n[dt];return n;})}
+                                      style={{padding:"2px 8px",border:"none",background:"#FEE2E2",color:"#B91C1C",borderRadius:5,cursor:"pointer",fontSize:10,fontFamily:"inherit"}}>×</button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        {Object.entries(fillDateOverrides).some(([dt])=>!dates.some(d=>d.date===dt)) && (
+                          <div style={{padding:"8px 12px",background:"#FFF5F5",borderTop:"1px solid #F1F5F9",fontSize:10,color:"#B91C1C"}}>
+                            — Some override dates are outside the current roster range and won't be applied. Change the month/date range to include them.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Constraint summary */}
+                  <div style={{padding:"12px 16px",background:"#F0FDFA",borderRadius:10,border:"1px solid #14B8A633",marginBottom:20,fontSize:11,color:"#475569",lineHeight:1.8}}>
+                    <strong style={{color:"#0D9488"}}>Summary: </strong>
+                    Each day schedule <strong style={{color:"#1A1D2E"}}>{fillNeedM}M + {fillNeedME}ME + {fillNeedE}E</strong> T1 agents
+                    {fillBudget ? <>, budget cap <strong style={{color:"#B45309"}}>฿{Number(fillBudget).toLocaleString()}/day</strong></> : ", no budget cap"}
+                    {fillChatCap ? <>, max <strong style={{color:"#065F46"}}>{Number(fillChatCap).toLocaleString()} chats/agent</strong></> : ", no chat limit"}
+                    {Object.keys(fillDateOverrides).length>0 ? <>, with <strong style={{color:"#1D4ED8"}}>{Object.keys(fillDateOverrides).length} date override{Object.keys(fillDateOverrides).length>1?"s":""}</strong></> : ""}.
+                  </div>
+
+                  {/* Action buttons */}
+                  <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+                    <button onClick={()=>setFillModal(false)} style={{padding:"10px 20px",borderRadius:9,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:13,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Cancel</button>
+                    <button onClick={()=>{
+                      const constraints = {
+                        needM:        fillNeedM,
+                        needME:       fillNeedME,
+                        needE:        fillNeedE,
+                        dailyBudget:  fillBudget  ? Number(fillBudget)  : null,
+                        chatPerAgent: fillChatCap ? Number(fillChatCap) : null,
+                        dateOverrides: fillDateOverrides,
+                      };
+                      const filled = allocAutoFillConstrained(agents, dates, flags, constraints, brands);
+
+                      if (fillMode === "fill") {
+                        // Fill Empty: only write cells that have no existing assignment
+                        safeSetAsgn(prev => {
+                          const merged = {...prev};
+                          Object.entries(filled).forEach(([k, v]) => {
+                            if (!prev[k]) merged[k] = v;
+                          });
+                          return merged;
+                        });
+                      } else {
+                        safeSetAsgn(filled);
+                      }
+                      setFillModal(false);
+                    }} style={{padding:"10px 28px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 16px #14B8A644"}}>
+                      Apply
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Legend */}
+            <div style={{display:"flex",gap:8,marginBottom:10,flexWrap:"wrap"}}>
+              {Object.entries(ALLOC_SHIFT_C).map(([k,v])=>(
+                <div key={k} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#6B7280"}}>
+                  <span style={{display:"inline-block",width:26,height:16,borderRadius:3,background:v.bg,color:v.color,fontWeight:700,fontSize:9,textAlign:"center",lineHeight:"16px"}}>{v.label}</span>
+                  {k==="M"?"Morning":k==="ME"?"Mid":k==="E"?"Evening":k==="Off"?"Day Off":k}
+                </div>
+              ))}
+            </div>
+
+            {dates.length===0 ? (
+              <div style={{textAlign:"center",padding:48,color:"#94A3B8",fontSize:13}}>
+                "No dates in this month."
+              </div>
+            ) : (
+            <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden"}}>
+              <div style={{overflowX:"auto",maxHeight:"62vh",overflowY:"auto"}}>
+                <table style={{borderCollapse:"collapse",fontFamily:"inherit",fontSize:12}}>
+                  <thead>
+                    <tr>
+                      <th style={{position:"sticky",left:0,zIndex:20,background:"#F1F5F9",minWidth:34,padding:"6px 3px",borderBottom:"1px solid #E2E8F0",borderRight:"1px solid #E2E8F0"}}/>
+                      <th style={{position:"sticky",left:34,zIndex:20,background:"#F1F5F9",minWidth:100,padding:"6px 10px",borderBottom:"1px solid #E2E8F0",borderRight:"1px solid #E2E8F0",textAlign:"left",fontSize:10,fontWeight:700,color:"#94A3B8"}}>Name</th>
+                      {dates.map(d => {
+                        const fl=flags[d.date];const isH=fl?.type==="holiday";const isC=fl?.type==="campaign";
+                        return (
+                          <th key={d.date} style={{minWidth:CW,maxWidth:CW,padding:"3px 2px",textAlign:"center",borderBottom:"1px solid #E2E8F0",borderRight:"1px solid #F1F5F9",background:hdBg(d),fontWeight:700}}>
+                            <div style={{fontSize:8,color:d.isWE||isH?"#F87171":isC?"#5EEAD4":"#94A3B8",fontWeight:700}}>{d.dd}/{d.mm}</div>
+                            <div style={{fontSize:10,color:d.isWE||isH?"#F87171":"#475569",fontWeight:600}}>{d.day}</div>
+                            {fl && <div style={{fontSize:7,fontWeight:700,color:isH?"#F59E0B":"#5EEAD4",lineHeight:1.1,marginTop:1}}>{fl.label.slice(0,8)}</div>}
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {["T1","Return"].map(team => {
+                      const ta=rosterAgents.filter(a=>a.team===team);
+                      if(!ta.length) return null;
+                      const tc=ALLOC_TEAM_C[team];
+                      return ta.map((ag,idx) => (
+                        <tr key={ag.id}>
+                          {idx===0 && (
+                            <td rowSpan={ta.length} style={{position:"sticky",left:0,zIndex:10,background:tc.bg,color:tc.color,fontWeight:700,fontSize:10,textAlign:"center",writingMode:"vertical-rl",padding:"6px 3px",minWidth:34,borderBottom:"1px solid #F1F5F9",borderRight:"1px solid #E2E8F0",letterSpacing:".05em"}}>{team}</td>
+                          )}
+                          <td style={{position:"sticky",left:34,zIndex:10,background:ag.rule?"#FFFBEB":"#FFFFFF",padding:"5px 8px",fontWeight:600,fontSize:11,borderBottom:"1px solid #F1F5F9",borderRight:"1px solid #E2E8F0",whiteSpace:"nowrap"}}>
+                            {ag.name}{ag.rule&&<span style={{fontSize:8,color:"#B45309",marginLeft:3}}>★</span>}
+                          </td>
+                          {dates.map(d => {
+                            const k=`${ag.id}_${d.date}`;
+                            const val=asgn[k];const cs=val?ALLOC_SHIFT_C[val]:null;
+                            const editing=cellKey===k;const avail=ag.days.includes(d.wd);
+                            return (
+                              <td key={d.date}
+                                style={{minWidth:CW,maxWidth:CW,padding:2,textAlign:"center",borderBottom:"1px solid #F1F5F9",borderRight:"1px solid #F1F5F9",background:cBg(d),cursor:isLocked?"default":"pointer",position:"relative",opacity:isLocked?0.85:1}}
+                                onClick={()=>{if(isLocked)return;setCellKey(editing?null:k);}}>
+                                {cs
+                                  ? <div style={{background:cs.bg,color:cs.color,borderRadius:3,padding:"3px 0",fontWeight:700,fontSize:11}}>{cs.label}</div>
+                                  : <div style={{color:avail?"#E2E8F0":"#F1F5F9",fontSize:10,padding:"3px 0"}}>{avail?"·":"—"}</div>
+                                }
+                                {editing && (
+                                  <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#1A1D38",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px #00000088",padding:10,width:150,fontSize:12}}>
+                                    <div style={{fontWeight:700,color:"#6B7280",marginBottom:6,fontSize:10}}>{d.dd}/{d.mm} {d.day} · {ag.name}</div>
+                                    {[...(ag.team==="T1"?ag.shifts:["M","ME","E"].filter(s=>ag.shifts.includes(s))),"Off",...((ag.team==="T2"||ag.team==="Return")?["TOIL","OT"]:[])].map(code => {
+                                      const cs2=ALLOC_SHIFT_C[code];const act=val===code;
+                                      return (
+                                        <button key={code} onClick={()=>{safeSetAsgn(p=>({...p,[k]:code}));setCellKey(null);}}
+                                          style={{display:"flex",alignItems:"center",gap:6,width:"100%",padding:"5px 8px",border:act?`2px solid ${cs2?.color}`:"1px solid #E2E8F0",borderRadius:5,cursor:"pointer",fontFamily:"inherit",fontWeight:600,fontSize:11,background:act?cs2?.bg:"transparent",color:cs2?.color||"#1A1D2E",marginBottom:2}}>
+                                          <span style={{width:24,height:16,borderRadius:3,background:cs2?.bg,color:cs2?.color,fontWeight:700,fontSize:9,textAlign:"center",lineHeight:"14px",flexShrink:0}}>{cs2?.label}</span>
+                                          {code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":code==="Off"?"Day Off":code}
+                                        </button>
+                                      );
+                                    })}
+                                    {val && <button onClick={()=>{safeSetAsgn(p=>{const n={...p};delete n[k];return n;});setCellKey(null);}} style={{width:"100%",padding:"4px",border:"1px solid #E2E8F0",borderRadius:5,cursor:"pointer",fontFamily:"inherit",fontSize:10,background:"#FEE2E2",color:"#B91C1C",fontWeight:600,marginTop:2}}>Clear</button>}
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ));
+                    })}
+
+                    {/* Summary rows */}
+                    {rosterTeam==="all" && rosterSearch==="" && [
+                      ["Total Working", daySummary.map(s=>s.total), "#EE4D2D", "2px solid #EE4D2D", true],
+                      ["Morning",       daySummary.map(s=>s.m),     "#60A5FA", "", false],
+                      ["Mid",           daySummary.map(s=>s.me),    "#5EEAD4", "", false],
+                      ["Evening",       daySummary.map(s=>s.e),     "#34D399", "", false],
+                    ].map(([label,vals,color,bt,bold]) => (
+                      <tr key={label} style={{background:"#FAFBFC"}}>
+                        <td style={{position:"sticky",left:0,zIndex:10,background:"#FAFBFC",borderRight:"1px solid #E2E8F0",borderTop:bt||"none"}}/>
+                        <td style={{position:"sticky",left:34,zIndex:10,background:"#FAFBFC",padding:"4px 8px",fontWeight:700,fontSize:10,color,borderRight:"1px solid #E2E8F0",borderTop:bt||"none"}}>{label}</td>
+                        {dates.map((d,i) => (
+                          <td key={d.date} style={{minWidth:CW,maxWidth:CW,padding:"3px 2px",textAlign:"center",fontSize:12,fontWeight:bold?800:600,color,background:cBg(d),borderTop:bt||"none",borderRight:"1px solid #F1F5F9",fontFamily:"monospace"}}>{vals[i]}</td>
+                        ))}
+                      </tr>
+                    ))}
+
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            )}
+
+
+            {/* ── Agent Brand Assignment — live from Allocation ── */}
+            {(() => {
+              const wkldShift = allocShiftF;
+              const wkldDate  = dates[Math.min(allocDateIdx, dates.length-1)] || dates[0];
+              if (!wkldDate) return null;
+
+              // Show ALL active T1 agents (not just those with a roster assignment)
+              const allT1 = agents.filter(a => a.active && a.team === "T1");
+              const wkldPool = getWorkingAgents(wkldDate.date, wkldShift);
+              const workingIds = new Set(wkldPool.map(a => a.id));
+
+              const agentLoads = allT1.map(ag => {
+                const myAssigned = [];
+                let totalVol = 0;
+                brands.forEach(b => {
+                  (b.platforms||[]).forEach(plat => {
+                    const k = `${b.id}_${wkldDate.date}_${wkldShift}_${plat}`;
+                    const raw = brandAsgn[k];
+                    const names = [...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+                    if (names.includes(ag.name)) {
+                      const vol = Math.round((b.chats?.[plat]||0) / 30 / 2 / Math.max(names.length,1));
+                      myAssigned.push({brand:b.name, plat, vol, brandId:b.id});
+                      totalVol += vol;
+                    }
+                  });
+                });
+                const isWorking = workingIds.has(ag.id);
+                const shift = asgn[`${ag.id}_${wkldDate.date}`];
+                return {ag, myAssigned, totalVol, isWorking, shift};
+              });
+
+              const totalAssigned = agentLoads.reduce((s,r)=>s+r.myAssigned.length,0);
+              const totalBrandSlots = brands.reduce((s,b)=>(b.platforms||[]).length>0?s+(b.platforms||[]).length:s,0);
+
+              return (
+                <div style={{marginTop:20}}>
+                  {/* Header */}
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,flexWrap:"wrap"}}>
+                    <div style={{fontSize:13,fontWeight:700,color:"#1A1D2E"}}>Agent Assigned Brands</div>
+                    <div style={{fontSize:11,color:"#94A3B8"}}>{wkldDate.dd}/{wkldDate.mm} {wkldDate.day}</div>
+                    {/* Shift toggle */}
+                    <div style={{display:"flex",gap:3,background:"#F1F5F9",borderRadius:8,padding:3,marginLeft:4}}>
+                      {[["M","AM"],["E","PM"]].map(([s,l])=>(
+                        <button key={s} onClick={()=>setAllocShiftF(s)} style={{
+                          padding:"4px 12px",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,borderRadius:6,
+                          background:wkldShift===s?ALLOC_SHIFT_C[s].bg:"transparent",
+                          color:wkldShift===s?ALLOC_SHIFT_C[s].color:"#94A3B8",fontFamily:"inherit"
+                        }}>{l}</button>
+                      ))}
+                    </div>
+                    {/* Date nav */}
+                    <button onClick={()=>setAllocDateIdx(Math.max(0,allocDateIdx-1))} style={{width:24,height:24,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+                    <button onClick={()=>setAllocDateIdx(Math.min(dates.length-1,allocDateIdx+1))} style={{width:24,height:24,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+                    {/* Coverage badge */}
+                    <span style={{fontSize:11,padding:"3px 10px",borderRadius:20,fontWeight:700,
+                      background:totalAssigned>=totalBrandSlots?"#D1FAE5":"#FEF3C7",
+                      color:totalAssigned>=totalBrandSlots?"#065F46":"#92400E"}}>
+                      {totalAssigned}/{totalBrandSlots*2} slots filled
+                    </span>
+                    <button onClick={()=>setAllocTab("allocation")}
+                      style={{padding:"4px 12px",borderRadius:8,border:"1px solid #5EEAD4",background:"#F0FDFA",color:"#0D9488",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginLeft:"auto"}}>
+                      Open Allocation
+                    </button>
+                  </div>
+
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))",gap:10}}>
+                    {agentLoads.map(({ag, myAssigned, totalVol, isWorking, shift}) => {
+                      const sc = shift ? ALLOC_SHIFT_C[shift] : null;
+                      return (
+                        <div key={ag.id} style={{background:"#FFFFFF",borderRadius:12,padding:"12px 14px",
+                          border:`1px solid ${isWorking?ALLOC_SHIFT_C[wkldShift].color+"44":"#E2E8F0"}`,
+                          opacity: isWorking ? 1 : 0.55}}>
+                          {/* Agent header */}
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                            <div style={{display:"flex",alignItems:"center",gap:6}}>
+                              <span style={{fontWeight:700,color:"#1A1D2E",fontSize:13}}>{ag.name}</span>
+                              {/* Roster shift badge */}
+                              {sc
+                                ? <span style={{fontSize:9,padding:"1px 6px",borderRadius:5,background:sc.bg,color:sc.color,fontWeight:700}}>{sc.label}</span>
+                                : <span style={{fontSize:9,padding:"1px 6px",borderRadius:5,background:"#F1F5F9",color:"#94A3B8",fontWeight:700}}>Off</span>
+                              }
+                            </div>
+                            <span style={{fontSize:11,fontWeight:700,
+                              color:myAssigned.length>0?ALLOC_SHIFT_C[wkldShift].color:"#94A3B8",
+                              background:myAssigned.length>0?ALLOC_SHIFT_C[wkldShift].bg:"#F1F5F9",
+                              padding:"2px 7px",borderRadius:6}}>
+                              {myAssigned.length} brands
+                            </span>
+                          </div>
+
+                          {/* Brand list */}
+                          {myAssigned.length === 0 ? (
+                            <div style={{fontSize:10,color:"#94A3B8",fontStyle:"italic"}}>
+                              {isWorking ? "No brands assigned — go to Allocation tab" : "Not scheduled this shift"}
+                            </div>
+                          ) : (
+                            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                              {myAssigned.map(({brand,plat},i) => {
+                                const pc=PLATFORM_C[plat];
+                                return (
+                                  <div key={i} style={{display:"flex",alignItems:"center",gap:5,padding:"3px 0",borderBottom:"1px solid #F1F5F9"}}>
+                                    <span style={{fontSize:10,color:"#475569",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{brand}</span>
+                                    <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,background:pc?.bg,color:pc?.color,fontWeight:700,flexShrink:0}}>{pc?.icon} {plat}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {wkldPool.length === 0 && (
+                    <div style={{marginTop:10,padding:"8px 14px",borderRadius:8,background:"#FEF3C7",fontSize:11,color:"#92400E"}}>
+                      — No agents are scheduled for {wkldDate.dd}/{wkldDate.mm} {wkldShift==="M"?"Morning":"Evening"} in the roster. Run Auto-Fill or assign shifts manually first.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            TEAMS TAB
+        ══════════════════════════════════════════ */}
+        {allocTab==="agents" && (
+          <div>
+            <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+              <div style={{position:"relative",flex:1,minWidth:160}}>
+                <Search size={12} color="#94A3B8" style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)"}}/>
+                <input value={agentSearch} onChange={e=>setAgentSearch(e.target.value)} placeholder="Search agent…"
+                  style={{...inpS,paddingLeft:28,width:"100%",boxSizing:"border-box"}}/>
+              </div>
+              <div style={{display:"flex",gap:4}}>
+                {[["all","All"],["T2","T2"],["T1","T1"],["Return","Return"]].map(([v,l])=>(
+                  <button key={v} onClick={()=>setAgentTeamF(v)} style={{
+                    padding:"6px 12px",borderRadius:8,border:"none",fontSize:11,fontWeight:600,cursor:"pointer",
+                    background:agentTeamF===v?(v==="all"?"#14B8A6":ALLOC_TEAM_C[v]?.bg||"#F0FDFA"):"#F1F5F9",
+                    color:agentTeamF===v?(v==="all"?"#fff":ALLOC_TEAM_C[v]?.color||"#5EEAD4"):"#6B7280",
+                  }}>{l}</button>
+                ))}
+              </div>
+              <button onClick={()=>{setEditAgent({id:`A${String(agents.length+1).padStart(2,"0")}`,name:"",team:"T1",active:true,shifts:["M"],days:[...ALLOC_ALL],costDay:400,rule:""});setAgentModal(true);}}
+                style={{padding:"8px 16px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginLeft:"auto"}}>
+                + Add Agent
+              </button>
+            </div>
+
+            {/* T2 — Total Monthly Cost Input */}
+            {(agentTeamF==="all"||agentTeamF==="T2") && (
+              <div style={{marginBottom:20}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+                  <span style={{fontSize:11,padding:"3px 10px",borderRadius:8,background:"#DBEAFE",color:"#1D4ED8",fontWeight:700}}>T2</span>
+                  <span style={{fontSize:13,fontWeight:600,color:"#1A1D2E"}}>Fulltime Monthly Cost</span>
+                </div>
+                <div style={{background:"#fff",borderRadius:12,border:"1px solid #E2E8F0",padding:16,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+                  <div style={{flex:1,minWidth:200}}>
+                    <label style={{fontSize:11,fontWeight:600,color:"#64748B",display:"block",marginBottom:6}}>Total T2 salary this month (฿)</label>
+                    <div style={{position:"relative"}}>
+                      <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#94A3B8",fontWeight:700}}>฿</span>
+                      <input type="number" min="0" value={fulltimeSalary||""} placeholder="e.g. 171730"
+                        onChange={e=>setFulltimeSalary(Number(e.target.value)||0)}
+                        style={{width:"100%",padding:"10px 10px 10px 28px",borderRadius:8,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#1D4ED8",fontSize:15,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+                    </div>
+                  </div>
+                  <div style={{textAlign:"center",minWidth:120}}>
+                    <div style={{fontSize:10,color:"#94A3B8",marginBottom:4}}>Daily share ({dates.length} days)</div>
+                    <div style={{fontFamily:"monospace",fontWeight:700,fontSize:14,color:"#0D9488"}}>฿{Math.round(t2DailyShare).toLocaleString()}</div>
+                  </div>
+                  <div style={{fontSize:10,color:"#94A3B8",maxWidth:200}}>This amount is added to T1 costs daily and used in cost-per-chat calculation.</div>
+                </div>
+              </div>
+            )}
+
+            {/* T1 + Return */}
+            {(agentTeamF==="all"||agentTeamF==="T1"||agentTeamF==="Return") && (() => {
+              const teams=agentTeamF==="all"?["T1","Return"]:[agentTeamF];
+              const t1rList=agents.filter(a=>teams.includes(a.team)&&(agentSearch===""||a.name.toLowerCase().includes(agentSearch.toLowerCase())));
+              if(!t1rList.length) return null;
+              const t1rTotal=t1rList.filter(a=>a.active).reduce((s,a)=>{let d=0;dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off")d++;});return s+d*a.costDay;},0);
+              return (
+                <div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      {(agentTeamF==="all"||agentTeamF==="T1")&&<span style={{fontSize:11,padding:"3px 10px",borderRadius:8,background:"#14b8a622",color:"#0D9488",fontWeight:700}}>T1</span>}
+                      {(agentTeamF==="all"||agentTeamF==="Return")&&<span style={{fontSize:11,padding:"3px 10px",borderRadius:8,background:"#FEE2E2",color:"#B91C1C",fontWeight:700}}>Return</span>}
+                      <span style={{fontSize:13,fontWeight:700,color:"#1A1D2E"}}>Cost per Day — Actual Worked Days</span>
+                    </div>
+                    <div style={{fontFamily:"monospace",fontSize:15,fontWeight:700,color:"#0D9488"}}>฿{t1rTotal.toLocaleString()} this period</div>
+                  </div>
+                  <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                      <thead><tr style={{background:"#F1F5F9"}}>
+                        {["Team","Name","Full Name","Shifts","Days","Cost/Day","Days Worked","Period Cost","Status",""].map(h=>(
+                          <th key={h} style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {["T1","Return"].map(team => t1rList.filter(a=>a.team===team).map((a,idx) => {
+                          let dw=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off")dw++;});
+                          const pc=dw*a.costDay;
+                          const prof = userProfiles[(a.name||"").toLowerCase()] || {};
+                          return (
+                            <tr key={a.id} style={{borderBottom:"1px solid #F1F5F9",cursor:"pointer",opacity:a.active?1:0.5}} onClick={()=>openAgent(a)}>
+                              <td style={{padding:"8px 12px"}}>{idx===0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:ALLOC_TEAM_C[team].bg,color:ALLOC_TEAM_C[team].color,fontWeight:700}}>{team}</span>}</td>
+                              <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{a.name}</td>
+                              <td style={{padding:"8px 12px",fontSize:11,color:"#64748B"}}>{prof.fullName||<span style={{color:"#CBD5E1"}}>—</span>}</td>
+                              <td style={{padding:"8px 12px"}}><div style={{display:"flex",gap:3}}>{a.shifts.map(s=><span key={s} style={{fontSize:10,padding:"2px 6px",borderRadius:6,background:ALLOC_SHIFT_C[s]?.bg,color:ALLOC_SHIFT_C[s]?.color,fontWeight:700}}>{s}</span>)}</div></td>
+                              <td style={{padding:"8px 12px"}}><div style={{display:"flex",gap:2}}>{ALLOC_DAYS.map(dy=>{const on=a.days.includes(dy.wd);return(<span key={dy.code} style={{display:"inline-flex",width:22,height:18,borderRadius:3,fontSize:8,fontWeight:700,alignItems:"center",justifyContent:"center",background:on?"#DBEAFE":"#F1F5F9",color:on?"#60A5FA":"#94A3B8"}}>{dy.code.slice(0,2)}</span>);})}</div></td>
+                              <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:11,color:"#94A3B8"}}>฿{a.costDay}</td>
+                              <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:12,fontWeight:700,color:dw>0?"#1A1D2E":"#94A3B8"}}>{dw}d</td>
+                              <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:13,fontWeight:700,color:ALLOC_TEAM_C[team].color}}>฿{pc.toLocaleString()}</td>
+                              <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:a.active?"#D1FAE5":"#94A3B822",color:a.active?"#06C755":"#6B7280",fontWeight:700}}>{a.active?"Active":"Off"}</span></td>
+                              <td style={{padding:"8px 12px"}}><button onClick={e=>{e.stopPropagation();openAgent(a);}} style={{padding:"3px 10px",borderRadius:7,border:"none",background:"transparent",color:"#0D9488",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Edit</button></td>
+                            </tr>
+                          );
+                        }))}
+                        <tr style={{background:"#14b8a611",borderTop:"2px solid #5EEAD4"}}>
+                          <td colSpan={7} style={{padding:"8px 12px",fontWeight:700,color:"#0D9488",fontSize:11}}>T1 + RETURN TOTAL ({t1rList.filter(a=>a.active).length} active)</td>
+                          <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:14,fontWeight:700,color:"#0D9488"}}>฿{t1rTotal.toLocaleString()}</td>
+                          <td colSpan={2}/>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Agent modal */}
+            {agentModal && editAgent && (
+              <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)"}} onClick={()=>setAgentModal(false)}>
+                <div style={{background:"#FFFFFF",borderRadius:16,border:"1px solid #E2E8F0",padding:24,width:520,maxWidth:"92vw",maxHeight:"90vh",overflow:"auto",boxShadow:"0 16px 48px #00000088"}} onClick={e=>e.stopPropagation()}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:20}}>
+                    <div style={{fontSize:15,fontWeight:700}}>{editAgent.name||"New Agent"}</div>
+                    <button onClick={()=>setAgentModal(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#6B7280",fontSize:18}}>×</button>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                      <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Name</label>
+                        <input value={editAgent.name} onChange={e=>setEditAgent({...editAgent,name:e.target.value})}
+                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                      <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Team</label>
+                        <select value={editAgent.team} onChange={e=>setEditAgent({...editAgent,team:e.target.value})}
+                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none"}}>
+                          <option>T1</option><option>T2</option><option>Return</option>
+                        </select></div>
+                    </div>
+                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Cost / Day (฿)</label>
+                      <input type="number" value={editAgent.costDay} onChange={e=>setEditAgent({...editAgent,costDay:Number(e.target.value)})}
+                        style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"monospace",outline:"none"}}/></div>
+                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:6}}>Shifts</label>
+                      <div style={{display:"flex",gap:6}}>{ALLOC_SHIFTS.map(s=>{const on=editAgent.shifts.includes(s.code);const cs=ALLOC_SHIFT_C[s.code];return(
+                        <button key={s.code} onClick={()=>{const sh=on?editAgent.shifts.filter(x=>x!==s.code):[...editAgent.shifts,s.code];setEditAgent({...editAgent,shifts:sh});}}
+                          style={{display:"flex",alignItems:"center",gap:5,padding:"6px 12px",borderRadius:6,border:on?`2px solid ${cs.color}`:"1px solid #E2E8F0",background:on?cs.bg:"transparent",color:on?cs.color:"#6B7280",fontWeight:600,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+                          <span style={{width:22,height:14,borderRadius:3,background:cs.bg,color:cs.color,fontWeight:700,fontSize:9,textAlign:"center",lineHeight:"14px"}}>{cs.label}</span>{s.label}
+                        </button>);})}</div></div>
+                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:6}}>Available Days</label>
+                      <div style={{display:"flex",gap:4}}>{ALLOC_DAYS.map(dy=>{const on=editAgent.days.includes(dy.wd);const we=dy.wd===0||dy.wd===6;return(
+                        <button key={dy.code} onClick={()=>{const days=on?editAgent.days.filter(x=>x!==dy.wd):[...editAgent.days,dy.wd];setEditAgent({...editAgent,days});}}
+                          style={{width:40,height:34,borderRadius:6,border:on?`2px solid ${we?"#EE4D2D":"#14B8A6"}`:"1px solid #E2E8F0",background:on?(we?"#FEE2E2":"#F0FDFA"):"transparent",color:on?(we?"#F87171":"#5EEAD4"):"#94A3B8",fontWeight:700,fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+                          {dy.code}</button>);})}
+                      </div>
+                      <div style={{display:"flex",gap:6,marginTop:6}}>
+                        <button onClick={()=>setEditAgent({...editAgent,days:[...ALLOC_WK]})} style={{padding:"3px 10px",borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>Mon–Fri</button>
+                        <button onClick={()=>setEditAgent({...editAgent,days:[...ALLOC_ALL]})} style={{padding:"3px 10px",borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>All Days</button>
+                      </div></div>
+                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Special Rule</label>
+                      <input value={editAgent.rule} onChange={e=>setEditAgent({...editAgent,rule:e.target.value})}
+                        style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                    <label style={{display:"flex",alignItems:"center",gap:6,fontSize:13,cursor:"pointer",color:"#475569"}}>
+                      <input type="checkbox" checked={editAgent.active} onChange={e=>setEditAgent({...editAgent,active:e.target.checked})} style={{width:16,height:16}}/> Active
+                    </label>
+
+                    {/* ── Payroll info (filled by agent via invite) ── */}
+                    {editAgent.bankAccount && (
+                      <div style={{background:"#F0FDF4",borderRadius:10,border:"1px solid #BBF7D0",padding:"12px 14px"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#065F46",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                          Payroll Info Received
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,color:"#475569"}}>
+                          {editAgent.phone&&<div><span style={{color:"#94A3B8"}}>Phone: </span>{editAgent.phone}</div>}
+                          {editAgent.idCard&&<div><span style={{color:"#94A3B8"}}>ID: </span>{editAgent.idCard}</div>}
+                          {editAgent.bankName&&<div><span style={{color:"#94A3B8"}}>Bank: </span>{editAgent.bankName}</div>}
+                          {editAgent.bankAccount&&<div><span style={{color:"#94A3B8"}}>Account: </span>{editAgent.bankAccount}</div>}
+                          {editAgent.bankAccountName&&<div><span style={{color:"#94A3B8"}}>Acc Name: </span>{editAgent.bankAccountName}</div>}
+                          {editAgent.startDate&&<div><span style={{color:"#94A3B8"}}>Start: </span>{editAgent.startDate}</div>}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Send Invitation ── */}
+                    <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#0D9488",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
+                        ✉️ Send Invitation to Fill Personal & Payroll Info
+                      </div>
+
+                      {inviteSent === "sent" ? (
+                        <div style={{padding:"12px 14px",borderRadius:8,background:"#D1FAE5",border:"1px solid #6EE7B7",fontSize:12,fontWeight:600,color:"#065F46",display:"flex",alignItems:"center",gap:8}}>
+                          Invitation sent to <strong>{inviteEmail}</strong>!
+                          <button onClick={()=>{setInviteSent(false);setInviteEmail("");}} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#065F46",fontSize:11,fontWeight:600}}>Send again</button>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{display:"flex",gap:8,marginBottom:8}}>
+                            <input type="email" value={inviteEmail}
+                              onChange={e=>{setInviteEmail(e.target.value);setInviteSent(false);}}
+                              onKeyDown={e=>e.key==="Enter"&&sendInvite()}
+                              placeholder="agent@email.com"
+                              style={{flex:1,padding:"9px 12px",borderRadius:8,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+                            <button onClick={sendInvite} disabled={inviteSending||!inviteEmail}
+                              style={{padding:"9px 16px",borderRadius:8,border:"none",background:inviteEmail&&!inviteSending?"#0D9488":"#E2E8F0",color:"#fff",fontSize:12,fontWeight:700,cursor:inviteEmail&&!inviteSending?"pointer":"default",fontFamily:"inherit",whiteSpace:"nowrap",minWidth:110}}>
+                              {inviteSending?"Sending…":"📧 Send Email"}
+                            </button>
+                          </div>
+                          {inviteSent === "error" && (
+                            <div style={{padding:"8px 12px",borderRadius:7,background:"#FEF3C7",border:"1px solid #FDE68A",fontSize:11,color:"#92400E",marginBottom:8}}>
+                              — Email not sent — EmailJS keys not configured yet. Copy the link below to share manually.
+                            </div>
+                          )}
+                          {/* Always show link as fallback */}
+                          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                            <input readOnly value={getInviteLink(editAgent)}
+                              style={{flex:1,padding:"7px 10px",borderRadius:7,border:"1px solid #E2E8F0",background:"#F1F5F9",fontSize:10,fontFamily:"monospace",color:"#94A3B8",outline:"none"}}/>
+                            <button onClick={()=>navigator.clipboard.writeText(getInviteLink(editAgent)).then(()=>alert("Link copied!"))}
+                              style={{padding:"7px 12px",borderRadius:7,border:"1px solid #99F6E4",background:"#F0FDFA",color:"#0D9488",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                              🔗 Copy Link
+                            </button>
+                          </div>
+                          <div style={{fontSize:10,color:"#94A3B8",marginTop:5}}>Share the link via Line/WhatsApp if email isn't set up yet</div>
+                        </>
+                      )}
+                    </div>
+
+                    <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+                      <button onClick={()=>setAgentModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Cancel</button>
+                      <button onClick={saveAgent} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Agent Self-Fill Payroll Form (opened via invite link) ── */}
+            {inviteFormModal && (
+              <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.7)",backdropFilter:"blur(6px)"}} onClick={()=>setInviteFormModal(false)}>
+                <div style={{background:"#FFFFFF",borderRadius:18,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 64px #00000099"}} onClick={e=>e.stopPropagation()}>
+                  <div style={{textAlign:"center",marginBottom:22}}>
+                    <div style={{fontSize:28,marginBottom:8}}>👋</div>
+                    <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E"}}>Welcome to the Team!</div>
+                    <div style={{fontSize:13,color:"#94A3B8",marginTop:4}}>Please fill in your personal and payroll information</div>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                    {[
+                      ["fullName","Full Name (as on ID card)","text","e.g. Somchai Jaidee"],
+                      ["phone","Phone Number","tel","e.g. 081-234-5678"],
+                      ["idCard","ID Card Number","text","e.g. 1-1234-56789-01-2"],
+                      ["startDate","Start Date","date",""],
+                      ["costDay","Agreed Daily Rate (฿)","number","e.g. 480"],
+                    ].map(([field,label,type,placeholder])=>(
+                      <div key={field}>
+                        <label style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:5}}>{label}</label>
+                        <input type={type} value={inviteFormData[field]} placeholder={placeholder}
+                          onChange={e=>setInviteFormData(d=>({...d,[field]:e.target.value}))}
+                          style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                      </div>
+                    ))}
+                    <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E",marginTop:4}}>Bank Account for Payroll</div>
+                    {[
+                      ["bankName","Bank Name","text","e.g. Kasikorn Bank"],
+                      ["bankAccount","Account Number","text","e.g. 123-4-56789-0"],
+                      ["bankAccountName","Account Holder Name","text","e.g. Somchai Jaidee"],
+                    ].map(([field,label,type,placeholder])=>(
+                      <div key={field}>
+                        <label style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:5}}>{label}</label>
+                        <input type={type} value={inviteFormData[field]} placeholder={placeholder}
+                          onChange={e=>setInviteFormData(d=>({...d,[field]:e.target.value}))}
+                          style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                      </div>
+                    ))}
+                    <div style={{padding:"10px 14px",borderRadius:8,background:"#FEF3C7",border:"1px solid #FDE68A",fontSize:11,color:"#92400E"}}>
+                      🔒 Your information is stored securely on this device and only accessible by your manager.
+                    </div>
+                    <button onClick={savePayrollInfo}
+                      style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:"#0D9488",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
+                      Submit My Information
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            ALLOCATION TAB — Brands × Platforms × T1 Agents
+        ══════════════════════════════════════════ */}
+        {allocTab==="allocation" && (() => {
+          const t1Active = agents.filter(a => a.active && a.team==="T1");
+          const selDate = dates[Math.min(allocDateIdx, dates.length-1)] || dates[0];
+          if(!selDate) return <div style={{textAlign:"center",padding:48,color:"#94A3B8"}}>No dates in range. Set a date range first.</div>;
+
+          const workingM = getWorkingAgents(selDate.date,"M");
+          const workingME = getWorkingAgents(selDate.date,"ME");
+          const workingE = getWorkingAgents(selDate.date,"E");
+          const pool = allocShiftF==="M" ? workingM : allocShiftF==="ME" ? workingME : workingE;
+
+          // For ME view: only show high-volume brands (top 30%)
+          const brandVolSorted = [...brands].sort((a,b) => {
+            const va = (a.platforms||[]).reduce((s,p)=>s+(a.chats?.[p]||0),0);
+            const vb = (b.platforms||[]).reduce((s,p)=>s+(b.chats?.[p]||0),0);
+            return vb - va;
+          });
+          const highVolCount = Math.max(3, Math.ceil(brands.length * 0.3));
+          const highVolIds = new Set(brandVolSorted.slice(0, highVolCount).map(b=>b.id));
+
+          // Filter brands by search + agent filter + ME high-vol filter
+          const filteredBrands = brands.filter(b => {
+            // ME shift: only show high-volume brands
+            if (allocShiftF==="ME" && !highVolIds.has(b.id)) return false;
+            const matchesSearch = brandSearch==="" || b.name.toLowerCase().includes(brandSearch.toLowerCase());
+            if (!matchesSearch) return false;
+            if (!allocAgentFilter) return true;
+            return (b.platforms||[]).some(plat => {
+              const k = `${b.id}_${selDate.date}_${allocShiftF}_${plat}`;
+              const raw = brandAsgn[k];
+              const names = [...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+              return names.includes(allocAgentFilter);
+            });
+          });
+
+          return (
+            <div>
+              {/* Controls */}
+              <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
+                <div style={{position:"relative",flex:1,minWidth:160}}>
+                  <Search size={12} color="#94A3B8" style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)"}}/>
+                  <input value={brandSearch} onChange={e=>setBrandSearch(e.target.value)} placeholder="Search brand…"
+                    style={{...inpS,paddingLeft:28,width:"100%",boxSizing:"border-box"}}/>
+                </div>
+                {/* Shift toggle */}
+                <div style={{display:"flex",gap:3,background:"#F1F5F9",borderRadius:8,padding:3}}>
+                  {[["M","AM"],["ME","MID"],["E","PM"]].map(([s,l])=>(
+                    <button key={s} onClick={()=>{setAllocShiftF(s);setAllocAgentFilter("");}} style={{
+                      padding:"6px 14px",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,borderRadius:6,
+                      background:allocShiftF===s?ALLOC_SHIFT_C[s].bg:"transparent",
+                      color:allocShiftF===s?ALLOC_SHIFT_C[s].color:"#94A3B8",fontFamily:"inherit"
+                    }}>{l}</button>
+                  ))}
+                </div>
+                <button onClick={()=>{
+                  const newId=`b${String(brands.length+1).padStart(2,"0")}`;
+                  setEditBrand({id:newId,name:"",group:"",wh:"",platforms:[]});
+                  setBrandModal(true);
+                }} style={{padding:"8px 14px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                  + Add Brand
+                </button>
+                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}safeSetBrandAsgn(autoAllocateBrands(brands,agents,asgn,dates,brandAsgn));}}
+                  style={{padding:"8px 14px",borderRadius:9,border:"none",background:isLocked?"#CBD5E1":"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit"}}>
+                  Auto-Allocate All
+                </button>
+                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}safeSetBrandAsgn({});}} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
+                {role==="manager" && (
+                  <button onClick={toggleLock} style={{padding:"8px 12px",borderRadius:9,border:`1px solid ${isLocked?"#F59E0B":"#E2E8F0"}`,background:isLocked?"#FEF3C7":"transparent",color:isLocked?"#D97706":"#94A3B8",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+                    {isLocked?"Unlock":"Lock"}
+                  </button>
+                )}
+                <div style={{width:1,background:"#E2E8F0",margin:"0 2px"}}/>
+                <button onClick={exportAllocXLSX}
+                  style={{padding:"7px 12px",borderRadius:9,border:"1px solid #06C75544",background:"#ECFDF5",color:"#065F46",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                  Export
+                </button>
+                <button onClick={exportAllocPDF}
+                  style={{padding:"7px 12px",borderRadius:9,border:"1px solid #F87171",background:"#FFF5F5",color:"#B91C1C",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+                  📄 PDF
+                </button>
+              </div>
+
+              {/* Agent filter chips */}
+              {pool.length > 0 && (
+                <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+                  <span style={{fontSize:11,color:"#94A3B8",fontWeight:600}}>Filter by agent:</span>
+                  <button onClick={()=>setAllocAgentFilter("")}
+                    style={{padding:"4px 12px",borderRadius:20,border:`1px solid ${!allocAgentFilter?"#5EEAD4":"#E2E8F0"}`,background:!allocAgentFilter?"#F0FDFA":"transparent",color:!allocAgentFilter?"#0D9488":"#94A3B8",fontSize:11,fontWeight:!allocAgentFilter?700:400,cursor:"pointer",fontFamily:"inherit"}}>
+                    All
+                  </button>
+                  {pool.map(ag => {
+                    const active = allocAgentFilter===ag.name;
+                    // Count unique brands and total avg chats/day/shift for this agent
+                    let count = 0, totalChats = 0;
+                    const assignedBrands = new Set();
+                    brands.forEach(b => {
+                      (b.platforms||[]).forEach(plat => {
+                        const k=`${b.id}_${selDate.date}_${allocShiftF}_${plat}`;
+                        const raw=brandAsgn[k];
+                        const names=[...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+                        if(names.includes(ag.name)) {
+                          assignedBrands.add(b.id);
+                          totalChats += Math.round((b.chats?.[plat]||0) / 30 / 2 / Math.max(names.length,1));
+                        }
+                      });
+                    });
+                    count = assignedBrands.size;
+                    return (
+                      <button key={ag.id} onClick={()=>setAllocAgentFilter(active?"":ag.name)}
+                        style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:active?700:400,
+                          border:`1px solid ${active?"#5EEAD4":"#E2E8F0"}`,
+                          background:active?"#F0FDFA":"transparent",
+                          color:active?"#0D9488":"#475569"}}>
+                        {ag.name}
+                        {count>0 && (
+                          <span style={{fontSize:10,fontWeight:700,padding:"1px 5px",borderRadius:8,background:active?"#99F6E4":"#F1F5F9",color:active?"#0D9488":"#94A3B8"}}>{count}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                  {allocAgentFilter && (
+                    <span style={{fontSize:11,color:"#94A3B8",marginLeft:4}}>
+                      — showing <strong style={{color:"#1A1D2E"}}>{filteredBrands.length}</strong> brand{filteredBrands.length!==1?"s":""} assigned to <strong style={{color:"#0D9488"}}>{allocAgentFilter}</strong>
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Date navigator */}
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+                <span style={{fontSize:12,color:"#94A3B8",fontWeight:700}}>Date:</span>
+                <button onClick={()=>setAllocDateIdx(Math.max(0,allocDateIdx-1))} style={{width:26,height:26,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+                <div style={{background:"#FFFFFF",border:"1px solid #E2E8F0",borderRadius:8,padding:"5px 14px",fontSize:12,fontWeight:700,color:"#1A1D2E",minWidth:100,textAlign:"center"}}>
+                  {selDate.dd}/{selDate.mm} {selDate.day}
+                </div>
+                <button onClick={()=>setAllocDateIdx(Math.min(dates.length-1,allocDateIdx+1))} style={{width:26,height:26,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+                {/* Working agents indicator */}
+                <div style={{marginLeft:8,display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {[["M","Morning",workingM],["E","Evening",workingE]].map(([s,label,p])=>(
+                    <div key={s} style={{display:"flex",alignItems:"center",gap:5,background:ALLOC_SHIFT_C[s].bg,borderRadius:8,padding:"4px 10px",border:`1px solid ${ALLOC_SHIFT_C[s].color}33`}}>
+                      <span style={{fontSize:10,fontWeight:700,color:ALLOC_SHIFT_C[s].color}}>{label}: {p.length}</span>
+                      <span style={{fontSize:10,color:"#94A3B8"}}>{p.map(a=>a.name).join(", ")||"—"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Brand allocation table — per platform rows */}
+              <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden",marginBottom:16}}>
+                <div style={{padding:"10px 16px",background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E"}}>
+                    Brand × Platform → Agent  <span style={{color:"#94A3B8",fontWeight:400,fontSize:11}}>({allocShiftF==="M"?"Morning":"Evening"} shift)</span>
+                  </div>
+                  <div style={{fontSize:11,color:"#94A3B8"}}>{filteredBrands.length} brands · {pool.length} agents on shift</div>
+                </div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{background:"#E4EAF5"}}>
+                        <th style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:28}}>#</th>
+                        <th style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:160}}>Brand</th>
+                        <th style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:70}}>Group</th>
+                        <th style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#B45309",textTransform:"uppercase",minWidth:80}}>Total Chats</th>
+                        <th style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:90}}>Platform</th>
+                        <th style={{padding:"8px 12px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:70}}>Avg/Day/Shift</th>
+                        <th style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:160}}>Assigned Agent</th>
+                        <th style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:80}}>Status</th>
+                        <th style={{padding:"8px 12px",borderBottom:"1px solid #E2E8F0",minWidth:50}}/>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredBrands.map((b, bi) => {
+                        const allPlats = b.platforms && b.platforms.length > 0 ? b.platforms : ["—"];
+                        // When filtering by agent, only show platforms assigned to that agent
+                        const visPlats = allocAgentFilter
+                          ? allPlats.filter(plat => {
+                              if(plat==="—") return false;
+                              const k = `${b.id}_${selDate.date}_${allocShiftF}_${plat}`;
+                              const raw = brandAsgn[k];
+                              const names = [...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+                              return names.includes(allocAgentFilter);
+                            })
+                          : allPlats;
+                        if(visPlats.length===0) return null;
+                        return visPlats.map((plat, pi) => {
+                          const isRealPlat = plat !== "—";
+                          const k = isRealPlat ? `${b.id}_${selDate.date}_${allocShiftF}_${plat}` : null;
+                          const pc = isRealPlat ? PLATFORM_C[plat] : null;
+                          const rowBg = bi%2===0 ? "#FAFBFC" : "transparent";
+                          return (
+                            <tr key={`${b.id}_${plat}`} style={{borderBottom:"1px solid #F1F5F9",background:rowBg}}>
+                              {/* Brand name — only on first visible platform row */}
+                              {pi===0 && (
+                                <td rowSpan={visPlats.length} style={{padding:"8px 12px",fontFamily:"monospace",fontSize:10,color:"#94A3B8",verticalAlign:"top",paddingTop:12}}>{bi+1}</td>
+                              )}
+                              {pi===0 && (
+                                <td rowSpan={visPlats.length} style={{padding:"8px 12px",verticalAlign:"top",paddingTop:12,borderRight:"1px solid #F1F5F9"}}>
+                                  <div style={{fontWeight:700,color:"#1A1D2E",fontSize:12}}>{b.name}</div>
+                                </td>
+                              )}
+                              {pi===0 && (
+                                <td rowSpan={visPlats.length} style={{padding:"8px 12px",verticalAlign:"top",paddingTop:12,borderRight:"1px solid #F1F5F9"}}>
+                                  <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:"#F1F5F9",color:"#94A3B8",fontWeight:600}}>{b.wh||"—"}</span>
+                                </td>
+                              )}
+                              {/* Total chats — only on first row */}
+                              {pi===0 && (() => {
+                                const total = Object.values(b.chats||{}).reduce((s,v)=>s+(v||0),0);
+                                const avgDay = Math.round(total / 30 / 2);
+                                const maxTotal = Math.max(...filteredBrands.map(x=>Object.values(x.chats||{}).reduce((s,v)=>s+(v||0),0)),1);
+                                const pct = Math.round((total/maxTotal)*100);
+                                return (
+                                  <td rowSpan={visPlats.length} style={{padding:"8px 12px",verticalAlign:"top",paddingTop:12,borderRight:"1px solid #F1F5F9",textAlign:"right"}}>
+                                    <div style={{fontFamily:"monospace",fontWeight:700,fontSize:13,color:"#B45309"}}>{total.toLocaleString()}</div>
+                                    <div style={{fontFamily:"monospace",fontSize:9,color:"#94A3B8",marginTop:2}}>~{avgDay}/day/shift</div>
+                                    <div style={{marginTop:4,height:4,borderRadius:2,background:"#F1F5F9",overflow:"hidden",width:60,marginLeft:"auto"}}>
+                                      <div style={{height:"100%",width:`${pct}%`,background:"#F59E0B",borderRadius:2}}/>
+                                    </div>
+                                  </td>
+                                );
+                              })()}
+                              {/* Platform cell */}
+                              <td style={{padding:"6px 12px",borderRight:"1px solid #F1F5F9"}}>
+                                {isRealPlat && pc ? (
+                                  <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,padding:"3px 8px",borderRadius:6,background:pc.bg,color:pc.color,fontWeight:700}}>
+                                    {pc.icon} {plat}
+                                  </span>
+                                ) : (
+                                  <span style={{fontSize:10,color:"#94A3B8"}}>No platforms</span>
+                                )}
+                              </td>
+                              {/* Per-platform chats — avg per day per shift ÷ shared agents */}
+                              <td style={{padding:"6px 12px",borderRight:"1px solid #F1F5F9",textAlign:"right"}}>
+                                {isRealPlat ? (() => {
+                                  const monthly = b.chats?.[plat] || 0;
+                                  const raw = brandAsgn[k];
+                                  const agentCount = Math.max([...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))].length, 1);
+                                  const avgTotal = Math.round(monthly / 30 / 2);
+                                  const avgPerAgent = Math.round(avgTotal / agentCount);
+                                  return (
+                                    <div style={{textAlign:"right"}}>
+                                      <span style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:avgPerAgent>50?"#F87171":avgPerAgent>20?"#F59E0B":"#6B7280"}}>
+                                        {avgPerAgent.toLocaleString()}
+                                      </span>
+                                      {agentCount > 1 && (
+                                        <div style={{fontSize:9,color:"#94A3B8",fontFamily:"monospace"}}>
+                                          {avgTotal}÷{agentCount}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })() : <span style={{color:"#E2E8F0"}}>—</span>}
+                              </td>
+                              {/* Assigned agents — chips + add dropdown */}
+                              <td style={{padding:"5px 10px",borderRight:"1px solid #F1F5F9",minWidth:180}}>
+                                {isRealPlat ? (() => {
+                                  const raw = brandAsgn[k];
+                                  const assigned = [...new Set(Array.isArray(raw) ? raw : (raw ? [raw] : []))];
+                                  const allOnShift = pool.map(a=>a.name);
+                                  const available = [...pool, ...t1Active.filter(a=>!pool.some(p=>p.id===a.id))];
+                                  const unassigned = available.filter(a=>!assigned.includes(a.name));
+                                  const removeAgent = (name) => { if(isLocked) return; safeSetBrandAsgn(p=>({...p,[k]:assigned.filter(n=>n!==name)})); };
+                                  const addAgent = (name) => { if(isLocked) return; if(name && !assigned.includes(name)) safeSetBrandAsgn(p=>({...p,[k]:[...assigned,name]})); };
+                                  return (
+                                    <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
+                                      {assigned.map(name => {
+                                        const onShift = allOnShift.includes(name);
+                                        return (
+                                          <span key={name} style={{display:"inline-flex",alignItems:"center",gap:3,padding:"2px 6px 2px 8px",borderRadius:6,fontSize:11,fontWeight:700,
+                                            background:onShift?"#F0FDFA":"#FEE2E2",
+                                            border:`1px solid ${onShift?"#5EEAD455":"#F8717155"}`,
+                                            color:onShift?"#5EEAD4":"#F87171"}}>
+                                            {name}
+                                            <button onClick={()=>removeAgent(name)} style={{background:"none",border:"none",cursor:"pointer",color:"inherit",fontSize:11,padding:"0 0 0 2px",lineHeight:1,opacity:0.7}}>×</button>
+                                          </span>
+                                        );
+                                      })}
+                                      {unassigned.length > 0 && (
+                                        <select value="" onChange={e=>{addAgent(e.target.value);e.target.value="";}}
+                                          style={{padding:"2px 6px",borderRadius:6,border:"1px dashed #E2E8F0",background:"transparent",color:"#94A3B8",fontSize:11,fontFamily:"inherit",outline:"none",cursor:"pointer",maxWidth:100}}>
+                                          <option value="">+ Add</option>
+                                          {pool.filter(a=>!assigned.includes(a.name)).map(a=><option key={a.id} value={a.name}>{a.name}</option>)}
+                                          {t1Active.filter(a=>!pool.some(p=>p.id===a.id)&&!assigned.includes(a.name)).map(a=><option key={a.id} value={a.name}>{a.name} ↓</option>)}
+                                        </select>
+                                      )}
+                                    </div>
+                                  );
+                                })() : <span style={{fontSize:10,color:"#E2E8F0"}}>—</span>}
+                              </td>
+                              {/* Status */}
+                              <td style={{padding:"6px 12px",borderRight:"1px solid #F1F5F9"}}>
+                                {isRealPlat && (() => {
+                                  const raw = brandAsgn[k];
+                                  const assigned = [...new Set(Array.isArray(raw) ? raw : (raw ? [raw] : []))];
+                                  const count = assigned.length;
+                                  const allOnShift = assigned.every(n => pool.some(a=>a.name===n));
+                                  return (
+                                    <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,fontWeight:700,
+                                      background:count>0?(allOnShift?"#D1FAE5":"#FEF3C7"):"#94A3B822",
+                                      color:count>0?(allOnShift?"#06C755":"#F59E0B"):"#94A3B8"}}>
+                                      {count>0 ? `✓ ${count}` : "Pending"}
+                                    </span>
+                                  );
+                                })()}
+                              </td>
+                              {/* Edit brand button — only on first platform row */}
+                              {pi===0 && (
+                                <td rowSpan={visPlats.length} style={{padding:"8px 10px",verticalAlign:"top",paddingTop:10,textAlign:"center"}}>
+                                  <button onClick={()=>openBrand(b)}
+                                    style={{padding:"3px 10px",borderRadius:7,border:"none",background:"transparent",color:"#0D9488",fontSize:11,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
+                                    Edit
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        });
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* ── Brand Add/Edit Modal ── */}
+              {brandModal && editBrand && (
+                <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.65)",backdropFilter:"blur(4px)"}} onClick={()=>setBrandModal(false)}>
+                  <div style={{background:"#FFFFFF",borderRadius:16,border:"1px solid #E2E8F0",padding:24,width:480,maxWidth:"92vw",maxHeight:"85vh",overflow:"auto",boxShadow:"0 16px 48px #00000099"}} onClick={e=>e.stopPropagation()}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+                      <div style={{fontSize:15,fontWeight:700}}>{editBrand.name||"New Brand"}</div>
+                      <button onClick={()=>setBrandModal(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#6B7280",fontSize:18}}>×</button>
+                    </div>
+                    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                      {/* Name */}
+                      <div>
+                        <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Brand Name</label>
+                        <input value={editBrand.name} onChange={e=>setEditBrand({...editBrand,name:e.target.value})}
+                          placeholder="e.g. Casio-CMG"
+                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                      </div>
+                      {/* WH + Group */}
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                        <div>
+                          <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Warehouse (WH)</label>
+                          <input value={editBrand.wh} onChange={e=>setEditBrand({...editBrand,wh:e.target.value})}
+                            placeholder="e.g. CMG, Inh, PVH"
+                            style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                        </div>
+                        <div>
+                          <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Group</label>
+                          <input value={editBrand.group} onChange={e=>setEditBrand({...editBrand,group:e.target.value})}
+                            placeholder="e.g. 1, 2 (optional)"
+                            style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                        </div>
+                      </div>
+                      {/* Platforms multi-select */}
+                      <div>
+                        <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:8}}>
+                          Platforms <span style={{fontWeight:400,color:"#94A3B8",fontSize:9,textTransform:"none"}}>(select all that apply)</span>
+                        </label>
+                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                          {PLATFORMS.map(p => {
+                            const on = (editBrand.platforms||[]).includes(p);
+                            const pc = PLATFORM_C[p];
+                            return (
+                              <button key={p} onClick={()=>{
+                                const cur = editBrand.platforms||[];
+                                setEditBrand({...editBrand, platforms: on ? cur.filter(x=>x!==p) : [...cur,p]});
+                              }} style={{
+                                display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,
+                                border:on?`2px solid ${pc.color}`:"1px solid #E2E8F0",
+                                background:on?pc.bg:"transparent",
+                                color:on?pc.color:"#94A3B8",
+                                transition:"all 0.15s"
+                              }}>
+                                <span style={{fontSize:14}}>{pc.icon}</span>
+                                {p}
+                                {on && <span style={{fontSize:10,marginLeft:2}}>✓</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {(editBrand.platforms||[]).length === 0 && (
+                          <div style={{marginTop:6,fontSize:10,color:"#B45309"}}>— No platforms selected — brand won't appear in allocation</div>
+                        )}
+                      </div>
+                      {/* Chat volumes per platform */}
+                      {(editBrand.platforms||[]).length > 0 && (
+                        <div>
+                          <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:8}}>
+                            Monthly Chat Volume <span style={{fontWeight:400,color:"#94A3B8",fontSize:9,textTransform:"none"}}>(chats / month per platform)</span>
+                          </label>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+                            {(editBrand.platforms||[]).map(p => {
+                              const pc = PLATFORM_C[p];
+                              const val = editBrand.chats?.[p] || 0;
+                              return (
+                                <div key={p} style={{background:"#FAFBFC",borderRadius:8,padding:"10px 12px",border:`1px solid ${pc.color}33`}}>
+                                  <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6}}>
+                                    <span style={{fontSize:13}}>{pc.icon}</span>
+                                    <span style={{fontSize:11,fontWeight:700,color:pc.color}}>{p}</span>
+                                  </div>
+                                  <input type="number" min="0" value={val}
+                                    onChange={e=>setEditBrand({...editBrand,chats:{...(editBrand.chats||{}), [p]:Number(e.target.value)}})}
+                                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${pc.color}44`,background:"#FFFFFF",color:pc.color,fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{marginTop:8,display:"flex",justifyContent:"flex-end"}}>
+                            <span style={{fontSize:11,color:"#94A3B8"}}>Total: </span>
+                            <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#B45309",marginLeft:4}}>
+                              {(editBrand.platforms||[]).reduce((s,p)=>s+(editBrand.chats?.[p]||0),0).toLocaleString()} chats/mo
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                      {/* Actions */}
+                      <div style={{display:"flex",gap:8,justifyContent:"space-between",marginTop:4}}>
+                        <div>
+                          {brands.find(b=>b.id===editBrand.id) && (
+                            <button onClick={()=>deleteBrand(editBrand.id)}
+                              style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#FEE2E2",color:"#B91C1C",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+                              Delete
+                            </button>
+                          )}
+                        </div>
+                        <div style={{display:"flex",gap:8}}>
+                          <button onClick={()=>setBrandModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Cancel</button>
+                          <button onClick={saveBrand} style={{padding:"8px 20px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save Brand</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* ══════════════════════════════════════════
+            DATES TAB
+        ══════════════════════════════════════════ */}
+        {allocTab==="dates" && (
+          <div>
+            <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",padding:18,marginBottom:16}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:12,color:"#1A1D2E"}}>Add Date Flag</div>
+              <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
+                <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Date</label>
+                  <input type="date" value={addFlagDate} onChange={e=>setAddFlagDate(e.target.value)}
+                    style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none"}}/></div>
+                <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Type</label>
+                  <select value={addFlagType} onChange={e=>setAddFlagType(e.target.value)}
+                    style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none"}}>
+                    <option value="holiday">Public Holiday</option>
+                    <option value="campaign">Campaign</option>
+                  </select></div>
+                <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Label</label>
+                  <input value={addFlagLabel} onChange={e=>setAddFlagLabel(e.target.value)} placeholder="e.g. Songkran"
+                    style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none"}}/></div>
+                <button onClick={()=>{
+                  if(!addFlagDate) return;
+                  safeSetFlags(p=>({...p,[addFlagDate]:{type:addFlagType,label:addFlagLabel||(addFlagType==="holiday"?"Public Holiday":"Campaign")}}));
+                  setAddFlagDate(""); setAddFlagLabel("");
+                }} style={{padding:"8px 16px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                  + Add
+                </button>
+              </div>
+            </div>
+            <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr style={{background:"#F1F5F9"}}>
+                  {["Date","Type","Label","In Roster",""].map(h=>(
+                    <th key={h} style={{padding:"9px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {Object.entries(flags).sort(([a],[b])=>a.localeCompare(b)).map(([dt,fl])=>{
+                    const inP=dates.some(d=>d.date===dt); const isH=fl.type==="holiday";
+                    return (
+                      <tr key={dt} style={{borderBottom:"1px solid #F1F5F9",background:isH?"#F59E0B08":"#14B8A608"}}>
+                        <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:600,color:"#1A1D2E"}}>{dt}</td>
+                        <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:isH?"#FEF3C7":"#F0FDFA",color:isH?"#F59E0B":"#5EEAD4",fontWeight:700}}>{isH?"Holiday":"Campaign"}</span></td>
+                        <td style={{padding:"8px 12px",fontWeight:600,color:"#475569"}}>{fl.label}</td>
+                        <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:inP?"#D1FAE5":"#94A3B822",color:inP?"#06C755":"#6B7280",fontWeight:700}}>{inP?"✓ Yes":"Outside"}</span></td>
+                        <td style={{padding:"8px 12px"}}>
+                          <button onClick={()=>safeSetFlags(p=>{const n={...p};delete n[dt];return n;})}
+                            style={{padding:"3px 10px",borderRadius:7,border:"none",background:"#FEE2E2",color:"#B91C1C",fontSize:10,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Remove</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {Object.keys(flags).length===0 && (
+                    <tr><td colSpan={5} style={{padding:24,textAlign:"center",color:"#94A3B8",fontSize:13}}>No dates flagged yet</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            BUDGET TAB
+        ══════════════════════════════════════════ */}
+        {allocTab==="budget" && (
+          <div>
+            {/* ── Cost / Chat Report (top of report) — manager only ── */}
+            {role!=="viewer" && (() => {
+              // ── Date range logic ──────────────────────────────────
+              // Determine which months are in range
+              const rangeStart = reportStartDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-01`;
+              const rangeEnd = reportEndDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-${new Date(rosterYear, rosterMonth, 0).getDate()}`;
+              const startD = new Date(rangeStart + "T00:00:00");
+              const endD = new Date(rangeEnd + "T00:00:00");
+
+              // Collect all months in range
+              const rangeMonths = [];
+              let cur = new Date(startD.getFullYear(), startD.getMonth(), 1);
+              while (cur <= endD) {
+                rangeMonths.push(`${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,"0")}`);
+                cur.setMonth(cur.getMonth()+1);
+              }
+
+              // Sum chats across all months in range
+              const rangeBrandChats = {}; // brandId → {platform → totalChats}
+              rangeMonths.forEach(mk => {
+                const vol = monthlyVol[mk];
+                if (!vol) return;
+                Object.entries(vol).forEach(([bid, platVol]) => {
+                  if (!rangeBrandChats[bid]) rangeBrandChats[bid] = {};
+                  Object.entries(platVol).forEach(([p, c]) => {
+                    rangeBrandChats[bid][p] = (rangeBrandChats[bid][p]||0) + (c||0);
+                  });
+                });
+              });
+
+              // If no monthlyVol data found, fall back to current month brands.chats
+              const hasRangeData = Object.keys(rangeBrandChats).length > 0;
+              if (!hasRangeData) {
+                brands.forEach(b => {
+                  rangeBrandChats[b.id] = {};
+                  (b.platforms||[]).forEach(p => { rangeBrandChats[b.id][p] = b.chats?.[p]||0; });
+                });
+              }
+
+              const grandTotalChats = Object.values(rangeBrandChats).reduce((s, pv) => s + Object.values(pv).reduce((a,b)=>a+b,0), 0);
+
+              // Calculate costs for days in range
+              // Get all roster dates that fall within range
+              const allRangeDates = [];
+              rangeMonths.forEach(mk => {
+                const [y,m] = mk.split("-").map(Number);
+                const daysInMonth = new Date(y, m, 0).getDate();
+                for (let d=1; d<=daysInMonth; d++) {
+                  const ds = `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+                  const dt = new Date(ds+"T00:00:00");
+                  if (dt >= startD && dt <= endD) allRangeDates.push({date:ds, y, m});
+                }
+              });
+
+              // Cost: T1/Return worked days across range
+              let rangeTotalCost = 0;
+              const isSingleMonth = rangeMonths.length === 1 && rangeMonths[0] === `${rosterYear}-${String(rosterMonth).padStart(2,"0")}`;
+
+              if (isSingleMonth) {
+                // Use the already-computed totalCost for current month (accurate)
+                rangeTotalCost = totalCost;
+              } else {
+                // Multi-month: compute per-month costs
+                rangeMonths.forEach(mk => {
+                  const monthAsgn = allAsgn[mk] || {};
+                  // T1/Return worked days in this month
+                  const t1r = agents.filter(a=>a.active && a.team!=="T2");
+                  t1r.forEach(ag => {
+                    allRangeDates.filter(d => `${d.y}-${String(d.m).padStart(2,"0")}` === mk).forEach(({date}) => {
+                      const v = monthAsgn[`${ag.id}_${date}`];
+                      if (v && v!=="Off") rangeTotalCost += ag.costDay;
+                    });
+                  });
+                  // T2 salary for this month (pro-rated if partial month)
+                  const [my, mm] = mk.split("-").map(Number);
+                  const daysInMonth = new Date(my, mm, 0).getDate();
+                  const daysInRange = allRangeDates.filter(d => d.y===my && d.m===mm).length;
+                  rangeTotalCost += fulltimeSalary * (daysInRange / daysInMonth);
+                });
+              }
+
+              const costPerChatAll = grandTotalChats > 0 ? rangeTotalCost / grandTotalChats : 0;
+
+              const allBrandRows = brands
+                .map(b => {
+                  const bChats = rangeBrandChats[b.id] || {};
+                  const totalBrandChats = Object.values(bChats).reduce((s,v)=>s+v, 0);
+                  const pct = grandTotalChats > 0 ? totalBrandChats / grandTotalChats : 0;
+                  const allocatedCost = Math.round(pct * rangeTotalCost);
+                  const costPerChat = totalBrandChats > 0 ? allocatedCost / totalBrandChats : 0;
+                  const cpcColor = costPerChat > 0 ? (costPerChat <= 3 ? "#059669" : costPerChat <= 8 ? "#D97706" : "#EF4444") : "#94A3B8";
+                  const platBreakdown = (b.platforms||[]).map(p => ({plat:p, chats:bChats[p]||0})).filter(x=>x.chats>0);
+                  return {b, totalBrandChats, pct, allocatedCost, costPerChat, cpcColor, platBreakdown};
+                })
+                .filter(r => r.totalBrandChats > 0)
+                .sort((a,b) => b.totalBrandChats - a.totalBrandChats);
+
+              // Get unique groups for filter
+              const groups = [...new Set(allBrandRows.map(r=>r.b.wh||"").filter(Boolean))].sort();
+              const brandRows = reportGroupFilter==="all" ? allBrandRows : allBrandRows.filter(r=>(r.b.wh||"")===reportGroupFilter);
+
+              const exportChatCSV = () => {
+                const rows = [["Brand","Group","Total Chats","Volume %","Allocated Cost (฿)","Cost/Chat (฿)","Platform","Platform Chats"]];
+                brandRows.forEach(({b,totalBrandChats,pct,allocatedCost,costPerChat,platBreakdown}) => {
+                  platBreakdown.forEach((pd,i) => {
+                    rows.push(i===0 ? [b.name,b.wh||"",totalBrandChats,(pct*100).toFixed(1)+"%",allocatedCost,costPerChat.toFixed(2),pd.plat,pd.chats] : ["","","","","","",pd.plat,pd.chats]);
+                  });
+                  if(!platBreakdown.length) rows.push([b.name,b.wh||"",totalBrandChats,(pct*100).toFixed(1)+"%",allocatedCost,costPerChat.toFixed(2),"",""]);
+                });
+                rows.push(["TOTAL","",grandTotalChats,"100%",Math.round(rangeTotalCost),costPerChatAll.toFixed(2),"",""]);
+                dlXLSX(rows, `CostPerChat_${rangeStart}_to_${rangeEnd}.xlsx`);
+              };
+
+              return (
+                <div>
+                  {/* Date range picker */}
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16,flexWrap:"wrap"}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"#64748B"}}>Date Range:</div>
+                    <input type="date" value={reportStartDate||rangeStart} onChange={e=>setReportStartDate(e.target.value)}
+                      style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit",color:"#1A1D2E",outline:"none"}}/>
+                    <span style={{color:"#94A3B8"}}>→</span>
+                    <input type="date" value={reportEndDate||rangeEnd} onChange={e=>setReportEndDate(e.target.value)}
+                      style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit",color:"#1A1D2E",outline:"none"}}/>
+                    {(reportStartDate||reportEndDate) && (
+                      <button onClick={()=>{setReportStartDate("");setReportEndDate("");}} style={{padding:"4px 10px",borderRadius:6,border:"none",background:"#FEF2F2",color:"#EF4444",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Reset</button>
+                    )}
+                    <div style={{fontSize:10,color:"#94A3B8",marginLeft:"auto"}}>{rangeMonths.length} month{rangeMonths.length>1?"s":""} · {allRangeDates.length} days</div>
+                  </div>
+
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:16}}>
+                    <div style={{background:"#fff",borderRadius:12,padding:"14px 18px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
+                      <div style={{fontSize:10,color:"#0D9488",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Total Chats</div>
+                      <div style={{fontSize:20,fontWeight:700,color:"#0D9488"}}>{grandTotalChats.toLocaleString()}</div>
+                    </div>
+                    <div style={{background:"#fff",borderRadius:12,padding:"14px 18px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
+                      <div style={{fontSize:10,color:"#065F46",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Total Cost</div>
+                      <div style={{fontSize:20,fontWeight:700,color:"#065F46"}}>฿{Math.round(rangeTotalCost).toLocaleString()}</div>
+                    </div>
+                    <div style={{background:"#fff",borderRadius:12,padding:"14px 18px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
+                      <div style={{fontSize:10,color:"#B45309",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Cost / Chat</div>
+                      <div style={{fontSize:20,fontWeight:700,color:"#B45309"}}>฿{costPerChatAll.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <div style={{background:"#fff",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden"}}>
+                    <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E"}}>Cost per Chat — Brand Breakdown</div>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
+                          <button onClick={()=>setReportGroupFilter("all")} style={{padding:"3px 10px",borderRadius:6,border:"none",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:reportGroupFilter==="all"?"#0D9488":"#E2E8F0",color:reportGroupFilter==="all"?"#fff":"#64748B"}}>All</button>
+                          {groups.map(g=>(
+                            <button key={g} onClick={()=>setReportGroupFilter(g)} style={{padding:"3px 10px",borderRadius:6,border:"none",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:reportGroupFilter===g?"#0D9488":"#E2E8F0",color:reportGroupFilter===g?"#fff":"#64748B"}}>{g}</button>
+                          ))}
+                        </div>
+                        <button onClick={exportChatCSV} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #06C75544",background:"#ECFDF5",color:"#065F46",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Export Excel</button>
+                      </div>
+                    </div>
+                    <div style={{overflowX:"auto"}}>
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead><tr style={{background:"#F8FAFC"}}>
+                          {["#","Brand","Group","Platforms","Chats","Share","Cost","฿/Chat"].map(h=>(
+                            <th key={h} style={{padding:"8px 12px",textAlign:["Chats","Share","Cost","฿/Chat"].includes(h)?"right":"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody>
+                        {brandRows.map((row,ri) => (
+                          <tr key={row.b.id} style={{borderBottom:"1px solid #F1F5F9",background:ri%2===0?"#FAFBFC":"transparent"}}>
+                            <td style={{padding:"8px 12px",color:"#94A3B8",fontSize:10}}>{ri+1}</td>
+                            <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{row.b.name}</td>
+                            <td style={{padding:"8px 12px"}}><span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:"#F1F5F9",color:"#94A3B8",fontWeight:600}}>{row.b.wh||"—"}</span></td>
+                            <td style={{padding:"8px 12px"}}>{row.platBreakdown.map(pd=><span key={pd.plat} style={{fontSize:9,marginRight:3,padding:"1px 5px",borderRadius:4,background:"#F1F5F9",color:"#64748B",fontWeight:600}}>{pd.plat} {pd.chats.toLocaleString()}</span>)}</td>
+                            <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:"#0D9488"}}>{row.totalBrandChats.toLocaleString()}</td>
+                            <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",fontWeight:600,color:"#0D9488",fontSize:11}}>{(row.pct*100).toFixed(1)}%</td>
+                            <td style={{padding:"8px 12px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:"#065F46"}}>฿{row.allocatedCost.toLocaleString()}</td>
+                            <td style={{padding:"8px 12px",textAlign:"right"}}><span style={{fontFamily:"monospace",fontWeight:700,fontSize:13,color:row.cpcColor,background:`${row.cpcColor}11`,padding:"2px 8px",borderRadius:6}}>฿{row.costPerChat.toFixed(2)}</span></td>
+                          </tr>
+                        ))}
+                        <tr style={{background:"#F0FDFA",borderTop:"2px solid #0D9488"}}>
+                          <td colSpan={4} style={{padding:"10px 12px",fontWeight:700,color:"#0D9488",fontSize:12}}>TOTAL</td>
+                          <td style={{padding:"10px 12px",fontFamily:"monospace",fontWeight:700,color:"#0D9488",textAlign:"right",fontSize:14}}>{grandTotalChats.toLocaleString()}</td>
+                          <td style={{padding:"10px 12px",fontFamily:"monospace",fontWeight:700,color:"#0D9488",textAlign:"right"}}>100%</td>
+                          <td style={{padding:"10px 12px",fontFamily:"monospace",fontWeight:700,color:"#065F46",textAlign:"right",fontSize:14}}>฿{Math.round(totalCost).toLocaleString()}</td>
+                          <td style={{padding:"10px 12px",fontFamily:"monospace",fontWeight:700,color:"#065F46",textAlign:"right",fontSize:13}}>฿{costPerChatAll.toFixed(2)}</td>
+                        </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Daily Cost Breakdown — manager only */}
+            {role!=="viewer" && <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden",marginTop:18}}>
+              <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E"}}>Daily Cost Breakdown</div>
+                <div style={{fontSize:11,color:"#94A3B8"}}>
+                  Total: <span style={{fontFamily:"monospace",fontWeight:700,color:"#0D9488"}}>฿{totalCost.toLocaleString()}</span>
+                  {totalBudget>0 && <span style={{marginLeft:8,color:totalCost>totalBudget?"#F87171":"#06C755"}}>({totalBudget>0?((totalCost/totalBudget)*100).toFixed(1):0}% of budget)</span>}
+                </div>
+              </div>
+              <div style={{overflowX:"auto"}}>
+                <table style={{borderCollapse:"collapse",fontFamily:"inherit",fontSize:11,width:"100%"}}>
+                  <thead>
+                    <tr style={{background:"#E4EAF5"}}>
+                      <th style={{position:"sticky",left:0,zIndex:5,background:"#E4EAF5",padding:"6px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:100}}>Agent</th>
+                      <th style={{position:"sticky",left:100,zIndex:5,background:"#E4EAF5",padding:"6px 8px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",minWidth:50,borderRight:"1px solid #E2E8F0"}}>Team</th>
+                      {dates.map(d=>{
+                        const fl=flags[d.date];
+                        return (
+                          <th key={d.date} style={{minWidth:52,padding:"4px 2px",textAlign:"center",borderBottom:"1px solid #E2E8F0",borderRight:"1px solid #F1F5F9",fontWeight:700,background:fl?.type==="holiday"?"#FEF3C7":d.isWE?"#FFF5F5":"#E4EAF5"}}>
+                            <div style={{fontSize:8,color:d.isWE||fl?.type==="holiday"?"#F87171":"#94A3B8"}}>{d.dd}/{d.mm}</div>
+                            <div style={{fontSize:9,color:d.isWE||fl?.type==="holiday"?"#F87171":"#475569"}}>{d.day}</div>
+                          </th>
+                        );
+                      })}
+                      <th style={{padding:"6px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",borderLeft:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#B45309",minWidth:80}}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {active.filter(ag => ag.team !== "T2").map((ag,ri)=>{
+                      const agCost = dates.map(d=>{
+                        const v=asgn[`${ag.id}_${d.date}`];
+                        if(!v||v==="Off") return 0;
+                        return ag.costDay*(v==="OT"?1.5:1);
+                      });
+                      const agTotal = agCost.reduce((s,v)=>s+v,0);
+                      const rowBg = ri%2===0?"#FAFBFC":"transparent";
+                      return (
+                        <tr key={ag.id} style={{borderBottom:"1px solid #F1F5F9"}}>
+                          <td style={{position:"sticky",left:0,zIndex:3,background:rowBg,padding:"5px 12px",fontWeight:600,color:"#1A1D2E",minWidth:100}}>{ag.name}</td>
+                          <td style={{position:"sticky",left:100,zIndex:3,background:rowBg,padding:"5px 8px",borderRight:"1px solid #E2E8F0",minWidth:50}}>
+                            <span style={{fontSize:9,padding:"1px 6px",borderRadius:6,background:ALLOC_TEAM_C[ag.team]?.bg,color:ALLOC_TEAM_C[ag.team]?.color,fontWeight:700}}>{ag.team}</span>
+                          </td>
+                          {dates.map((d,i)=>{
+                            const c = agCost[i];
+                            const v = asgn[`${ag.id}_${d.date}`];
+                            const fl=flags[d.date];
+                            return (
+                              <td key={d.date} style={{minWidth:52,padding:"3px 2px",textAlign:"center",borderRight:"1px solid #F1F5F9",background:fl?.type==="holiday"?"#F59E0B08":d.isWE?"#EE4D2D06":rowBg}}>
+                                {c>0
+                                  ? <span style={{fontFamily:"monospace",fontSize:9,fontWeight:700,color:"#0D9488"}}>฿{c.toLocaleString()}</span>
+                                  : <span style={{fontSize:9,color:v==="Off"?"#EE4D2D33":"#E2E8F0"}}>{v==="Off"?"—":""}</span>
+                                }
+                              </td>
+                            );
+                          })}
+                          <td style={{padding:"5px 10px",textAlign:"right",borderLeft:"1px solid #E2E8F0",fontFamily:"monospace",fontWeight:700,fontSize:12,color:"#F59E0B"}}>
+                            ฿{agTotal.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {/* Daily total row */}
+                    <tr style={{background:"#F0FDFA",borderTop:"2px solid #0D9488"}}>
+                      <td style={{position:"sticky",left:0,zIndex:3,background:"#F0FDFA",padding:"5px 12px",fontWeight:700,fontSize:10,color:"#0D9488"}}>DAILY TOTAL</td>
+                      <td style={{position:"sticky",left:100,zIndex:3,background:"#F0FDFA",borderRight:"1px solid #E2E8F0"}}/>
+                      {dates.map((d,i)=>(
+                        <td key={d.date} style={{minWidth:52,padding:"3px 2px",textAlign:"center",borderRight:"1px solid #F1F5F9",background:"#F0FDFA"}}>
+                          <span style={{fontFamily:"monospace",fontSize:9,fontWeight:700,color:dayCosts[i]>0?"#5EEAD4":"#E2E8F0"}}>
+                            {dayCosts[i]>0?"฿"+dayCosts[i].toLocaleString():"—"}
+                          </span>
+                        </td>
+                      ))}
+                      <td style={{padding:"5px 10px",textAlign:"right",borderLeft:"1px solid #E2E8F0",fontFamily:"monospace",fontWeight:700,fontSize:13,color:totalCost>totalBudget?"#F87171":"#06C755"}}>฿{totalCost.toLocaleString()}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>}
+
+            {/* ── Payment Period Summary ── */}
+            {(() => {
+              const prevM = payMonth === 1 ? 12 : payMonth - 1;
+              const prevY = payMonth === 1 ? payYear - 1 : payYear;
+              const periodStart = `${prevY}-${String(prevM).padStart(2,"0")}-24`;
+              const periodEnd   = `${payYear}-${String(payMonth).padStart(2,"0")}-23`;
+              const periodDates = mkDateRange(periodStart, periodEnd);
+              const periodLabel = `24 ${MONTHS[prevM-1]} ${prevY} – 23 ${MONTHS[payMonth-1]} ${payYear}`;
+
+              const allPayRows = active.filter(a => a.team !== "T2").map(ag => {
+                let workDays=0, normalDays=0, otDays=0, toilDays=0;
+                periodDates.forEach(d => {
+                  const v = asgn[`${ag.id}_${d.date}`];
+                  if (!v || v==="Off") return;
+                  if (v==="TOIL") { toilDays++; return; }
+                  workDays++;
+                  if (v==="OT") otDays++; else normalDays++;
+                });
+                const totalPay = normalDays * ag.costDay + otDays * ag.costDay * 1.5;
+                return { ag, workDays, normalDays, otDays, toilDays, totalPay };
+              });
+              // Viewer sees only their own payroll — if no match, show nothing
+              const payRows = role==="viewer" ? allPayRows.filter(r=>myAgent && r.ag.id===myAgent.id) : allPayRows;
+              const grandTotal = payRows.reduce((s,r)=>s+r.totalPay,0);
+
+              // Viewer with no matching agent — show instruction
+              if (role==="viewer" && !myAgent) return (
+                <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:32,textAlign:"center"}}>
+                  <div style={{fontSize:14,fontWeight:600,color:"#64748B",marginBottom:8}}>No payroll data found</div>
+                  <div style={{fontSize:12,color:"#94A3B8"}}>Your login name does not match any agent. Please sign in with your agent name (e.g. "Ohm", "Joy", "Boo").</div>
+                </div>
+              );
+
+              const exportPayCSV = () => {
+                const rows = [["Agent","Team","Period","Work Days","Cost/Day (฿)","Total Pay (฿)"]];
+                payRows.forEach(({ag,workDays,totalPay}) => {
+                  rows.push([ag.name,ag.team,periodLabel,workDays,ag.costDay,Math.round(totalPay)]);
+                });
+                rows.push(["","","","TOTAL","",Math.round(grandTotal)]);
+                dlXLSX(rows, `Payment_${MONTHS[payMonth-1]}${payYear}.xlsx`);
+              };
+
+              const exportPayPDF = () => {
+                const win = window.open("","_blank","width=900,height=700");
+                if(!win){alert("Allow pop-ups to export PDF");return;}
+                const rowsHtml = payRows.map(({ag,workDays,totalPay})=>`
+                  <tr><td style="font-weight:700">${ag.name}</td>
+                  <td><span style="padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;background:${ag.team==="T1"?"#ede9fe":"#fee2e2"};color:${ag.team==="T1"?"#14b8a6":"#991b1b"}">${ag.team}</span></td>
+                  <td style="text-align:center">${workDays}</td>
+                  <td style="text-align:right;font-family:monospace">฿${ag.costDay.toLocaleString()}</td>
+                  <td style="text-align:right;font-weight:800;font-family:monospace">฿${Math.round(totalPay).toLocaleString()}</td></tr>`).join("");
+                win.document.write(`<!DOCTYPE html><html><head><title>Payment ${MONTHS[payMonth-1]} ${payYear}</title>
+                  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:11px;padding:20px}
+                  h1{font-size:16px;margin-bottom:4px}p{font-size:11px;color:#666;margin-bottom:14px}
+                  table{width:100%;border-collapse:collapse}th{background:#0D9488;color:#fff;padding:7px 10px;text-align:left;font-size:10px}
+                  td{padding:6px 10px;border-bottom:1px solid #eee}tr:nth-child(even) td{background:#f9f9f9}
+                  .tot td{background:#ede9fe;font-weight:800;border-top:2px solid #14b8a6}
+                  @media print{@page{size:A4 landscape;margin:10mm}}</style></head><body>
+                  <h1>💰 Payment Summary — ${MONTHS[payMonth-1]} ${payYear}</h1>
+                  <p>Period: ${periodLabel} &nbsp;·&nbsp; ${periodDates.length} days</p>
+                  <table><thead><tr><th>Agent</th><th>Team</th><th>Work Days</th>
+                  <th style="text-align:right">Cost/Day</th><th style="text-align:right">Total Pay</th></tr></thead>
+                  <tbody>${rowsHtml}
+                  <tr class="tot"><td colspan="4" style="padding:8px 10px">GRAND TOTAL</td>
+                  <td style="text-align:right;font-family:monospace;font-size:14px">฿${Math.round(grandTotal).toLocaleString()}</td></tr>
+                  </tbody></table>
+                  <script>window.onload=()=>window.print()<\/script></body></html>`);
+                win.document.close();
+              };
+
+              return (
+                <div style={{marginTop:18,background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden"}}>
+                  {/* Header */}
+                  <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+                    <div>
+                      <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E"}}>💰 {role==="viewer" && myAgent ? `My Payroll — ${myAgent.name}` : "Payment Period Summary"}</div>
+                      <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>{periodLabel} · {periodDates.length} days</div>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:6}}>
+                      <button onClick={()=>{let m=payMonth-1,y=payYear;if(m<1){m=12;y--;}setPayMonth(m);setPayYear(y);}}
+                        style={{width:26,height:26,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+                      <div style={{background:"#FAFBFC",border:"1px solid #E2E8F0",borderRadius:8,padding:"4px 14px",fontSize:12,fontWeight:700,color:"#1A1D2E",minWidth:110,textAlign:"center"}}>
+                        {MONTHS[payMonth-1]} {payYear}
+                      </div>
+                      <button onClick={()=>{let m=payMonth+1,y=payYear;if(m>12){m=1;y++;}setPayMonth(m);setPayYear(y);}}
+                        style={{width:26,height:26,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+                      <div style={{width:1,background:"#E2E8F0",margin:"0 4px"}}/>
+                      {role!=="viewer" && <button onClick={exportPayCSV} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #06C75544",background:"#ECFDF5",color:"#065F46",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Excel</button>}
+                      {role!=="viewer" && <button onClick={exportPayPDF} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #F87171",background:"#FFF5F5",color:"#B91C1C",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>📄 PDF</button>}
+                    </div>
+                  </div>
+                  {/* Table */}
+                  {role==="viewer" && myAgent ? (
+                    /* ── Viewer: simple personal payslip ── */
+                    (() => {
+                      const myRow = payRows[0];
+                      if (!myRow) return <div style={{padding:24,textAlign:"center",color:"#94A3B8"}}>No payroll data for this period.</div>;
+                      return (
+                        <div style={{padding:"20px 24px"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
+                            <div style={{width:44,height:44,borderRadius:10,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0D9488"}}>{myRow.ag.name.charAt(0)}</div>
+                            <div>
+                              <div style={{fontSize:16,fontWeight:700,color:"#0F172A"}}>{myRow.ag.name}</div>
+                              <div style={{fontSize:11,color:"#94A3B8"}}><span style={{padding:"2px 8px",borderRadius:6,background:ALLOC_TEAM_C[myRow.ag.team]?.bg,color:ALLOC_TEAM_C[myRow.ag.team]?.color,fontWeight:700,fontSize:10}}>{myRow.ag.team}</span> · ฿{myRow.ag.costDay}/day</div>
+                            </div>
+                          </div>
+                          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:12,marginBottom:16}}>
+                            <div style={{background:"#F0FDFA",borderRadius:10,padding:"14px 16px",textAlign:"center"}}>
+                              <div style={{fontSize:24,fontWeight:700,color:"#0D9488"}}>{myRow.workDays}</div>
+                              <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>Work Days</div>
+                            </div>
+                            <div style={{background:"#F8FAFC",borderRadius:10,padding:"14px 16px",textAlign:"center"}}>
+                              <div style={{fontSize:24,fontWeight:700,color:"#64748B"}}>฿{myRow.ag.costDay.toLocaleString()}</div>
+                              <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>Daily Rate</div>
+                            </div>
+                            <div style={{background:"#ECFDF5",borderRadius:10,padding:"14px 16px",textAlign:"center",border:"1px solid #A7F3D0"}}>
+                              <div style={{fontSize:24,fontWeight:700,color:"#059669"}}>฿{Math.round(myRow.totalPay).toLocaleString()}</div>
+                              <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>Total Pay</div>
+                            </div>
+                          </div>
+                          <div style={{fontSize:10,color:"#94A3B8",textAlign:"center"}}>Period: {periodLabel} · {myRow.workDays} days × ฿{myRow.ag.costDay} = ฿{Math.round(myRow.totalPay).toLocaleString()}</div>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    /* ── Manager: full team table with bookbank ── */
+                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{background:"#E4EAF5"}}>
+                        {["Agent","Team","Bank Details","Work Days","Cost/Day (฿)","Total Pay (฿)"].map(h=>(
+                          <th key={h} style={{padding:"8px 12px",textAlign:["Work Days","Cost/Day (฿)","Total Pay (฿)"].includes(h)?"right":"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {["T1","Return"].map(team => {
+                        const teamRows = payRows.filter(r=>r.ag.team===team);
+                        if(!teamRows.length) return null;
+                        const teamTotal = teamRows.reduce((s,r)=>s+r.totalPay,0);
+                        const tc = ALLOC_TEAM_C[team];
+                        return [
+                          <tr key={`${team}-hdr`} style={{background:tc.bg+"44"}}>
+                            <td colSpan={6} style={{padding:"5px 12px",fontSize:10,fontWeight:700,color:tc.color,letterSpacing:1}}>{team} — Daily Rate × Worked Days</td>
+                          </tr>,
+                          ...teamRows.map(({ag,workDays,normalDays,totalPay},ri) => {
+                            const prof = userProfiles[(ag.name||"").toLowerCase()] || {};
+                            return (
+                            <tr key={ag.id} style={{borderBottom:"1px solid #F1F5F9",background:ri%2===0?"#FAFBFC":"transparent"}}>
+                              <td style={{padding:"8px 12px"}}><div style={{fontWeight:700,color:"#1A1D2E"}}>{ag.name}</div>{prof.fullName && <div style={{fontSize:10,color:"#94A3B8"}}>{prof.fullName}</div>}</td>
+                              <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:tc.bg,color:tc.color,fontWeight:700}}>{team}</span></td>
+                              <td style={{padding:"8px 12px",fontSize:11,color:"#64748B"}}>{prof.bankName || prof.bankAccountNo ? <div>{prof.bankName && <div style={{fontWeight:600}}>{prof.bankName}</div>}{prof.bankAccountNo && <div style={{fontFamily:"monospace",fontSize:10,color:"#94A3B8"}}>{prof.bankAccountNo}</div>}</div> : <span style={{color:"#CBD5E1"}}>—</span>}</td>
+                              <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,color:"#0D9488",textAlign:"right"}}>{workDays}</td>
+                              <td style={{padding:"8px 12px",fontFamily:"monospace",color:"#94A3B8",textAlign:"right"}}>฿{ag.costDay.toLocaleString()}</td>
+                              <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,fontSize:14,color:"#065F46",textAlign:"right"}}>฿{Math.round(totalPay).toLocaleString()}</td>
+                            </tr>
+                            );
+                          }),
+                          <tr key={`${team}-sub`} style={{background:tc.bg+"22",borderTop:`1px solid ${tc.color}44`}}>
+                            <td colSpan={5} style={{padding:"6px 12px",fontWeight:700,color:tc.color,fontSize:11}}>{team} SUBTOTAL</td>
+                            <td style={{padding:"6px 12px",fontFamily:"monospace",fontWeight:700,color:tc.color,textAlign:"right"}}>฿{Math.round(teamTotal).toLocaleString()}</td>
+                          </tr>
+                        ];
+                      })}
+                      <tr style={{background:"#F0FDFA",borderTop:"2px solid #0D9488"}}>
+                        <td colSpan={5} style={{padding:"12px 12px",fontWeight:700,color:"#0D9488",fontSize:13}}>GRAND TOTAL</td>
+                        <td style={{padding:"12px 12px",fontFamily:"monospace",fontWeight:700,fontSize:16,color:"#065F46",textAlign:"right"}}>฿{Math.round(grandTotal).toLocaleString()}</td>
+                        <td/>
+                      </tr>
+                    </tbody>
+                  </table>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            VOLUME TAB — Monthly Chat Volume Data Entry
+        ══════════════════════════════════════════ */}
+        {allocTab==="volume" && (() => {
+          const mk      = volKey(volYear, volMonth);
+          const prevM   = volMonth===1 ? 12 : volMonth-1;
+          const prevY   = volMonth===1 ? volYear-1 : volYear;
+          const prevMk  = volKey(prevY, prevM);
+          const hasPrev = !!monthlyVol[prevMk];
+
+          // Platforms that are actually used by at least one brand
+          const activePlats = PLATFORMS.filter(p => brands.some(b=>(b.platforms||[]).includes(p)));
+
+          // Column totals
+          const platTotals = {};
+          activePlats.forEach(p => {
+            platTotals[p] = brands.reduce((s,b)=>(b.platforms||[]).includes(p)?s+getVol(b.id,p):s, 0);
+          });
+          const grandTotal = Object.values(platTotals).reduce((s,v)=>s+v,0);
+
+          return (
+            <div>
+              {/* Header controls */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:10}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:12,color:"#94A3B8",fontWeight:700}}>Month:</span>
+                  <button onClick={()=>{let m=volMonth-1,y=volYear;if(m<1){m=12;y--;}setVolMonth(m);setVolYear(y);}}
+                    style={{width:26,height:26,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>‹</button>
+                  <div style={{background:"#FFFFFF",border:"1px solid #E2E8F0",borderRadius:8,padding:"5px 14px",fontSize:12,fontWeight:700,color:"#1A1D2E",minWidth:110,textAlign:"center"}}>
+                    {MONTHS[volMonth-1]} {volYear}
+                  </div>
+                  <button onClick={()=>{let m=volMonth+1,y=volYear;if(m>12){m=1;y++;}setVolMonth(m);setVolYear(y);}}
+                    style={{width:26,height:26,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
+                  {hasPrev && (
+                    <button onClick={()=>{
+                      // Copy all values from previous month into current month
+                      setMonthlyVol(prev=>{
+                        const copied = {};
+                        brands.forEach(b=>{
+                          copied[b.id]={};
+                          PLATFORMS.forEach(p=>{copied[b.id][p]=getVol(b.id,p,prevY,prevM);});
+                        });
+                        const newState = {...prev,[mk]:{...(prev[mk]||{}),...copied}};
+                        // Sync into brands
+                        setBrands(bs=>bs.map(b=>({...b,chats:{...copied[b.id]}})));
+                        return newState;
+                      });
+                    }} style={{padding:"5px 12px",borderRadius:7,border:"1px solid #E2E8F0",background:"transparent",color:"#1D4ED8",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                      Copy from {MONTHS[prevM-1]}
+                    </button>
+                  )}
+                </div>
+                <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                  <div style={{fontSize:11,color:"#94A3B8"}}>
+                    Total: <span style={{fontFamily:"monospace",fontWeight:700,color:"#B45309",fontSize:14}}>{grandTotal.toLocaleString()}</span> chats
+                  </div>
+                  {/* Import file — using visible input for sandbox compatibility */}
+                  <div style={{position:"relative",display:"inline-block"}}>
+                    <input type="file" accept=".csv,.txt,.json"
+                      style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%",zIndex:2}}
+                      onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = "";
+                      if(!file) return;
+                      const isJSON = file.name.match(/\.json$/i);
+                      const isExcel = file.name.match(/\.xlsx?$/i);
+
+                      if (isExcel) {
+                        alert("Excel (.xlsx) files cannot be read directly.\n\nPlease save as CSV first:\n1. Open the file in Excel\n2. File → Save As → CSV (comma delimited)\n3. Import the .csv file here");
+                        return;
+                      }
+
+                      // ── Parse CSV ────────────────────────────────────────────
+                      const parseCSVText = (text) => {
+                        const lines = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n").filter(l=>l.trim());
+                        const parseRow = line => {
+                          const cells=[]; let cur="", inQ=false;
+                          for(let i=0;i<line.length;i++){
+                            const c=line[i];
+                            if(c==='"') inQ=!inQ;
+                            else if(c===','&&!inQ){ cells.push(cur.trim().replace(/^"|"$/g,'')); cur=""; }
+                            else cur+=c;
+                          }
+                          cells.push(cur.trim().replace(/^"|"$/g,'')); return cells;
+                        };
+                        return lines.map(parseRow);
+                      };
+
+                      // ── Process rows (shared logic for CSV & XLSX) ──────────
+                      const processRows = (rows) => {
+                        if(rows.length < 2){ alert("File appears empty or has no data rows."); return; }
+
+                        const storeKeywords = ["store name","store","brand","shop name","shop"];
+                        const platKeywords  = ["marketplace","platform","channel","market"];
+                        const chatsKeywords = ["chats","chat","# of chat","total chat","message","inbox"];
+
+                        let hdrIdx = rows.findIndex(r =>
+                          r.some(c => storeKeywords.some(k => String(c).toLowerCase().includes(k)))
+                        );
+                        if(hdrIdx < 0) hdrIdx = 0;
+
+                        const hdr = rows[hdrIdx].map(c => String(c).toLowerCase().trim().replace(/"/g,''));
+                        const storeCol = hdr.findIndex(h => storeKeywords.some(k => h.includes(k)));
+                        const platCol  = hdr.findIndex(h => platKeywords.some(k => h.includes(k)));
+                        const chatsCol = hdr.findIndex(h => chatsKeywords.some(k => h.includes(k)));
+
+                        // Extra performance columns (Duoke format)
+                        const repliedCol = hdr.findIndex(h => h.includes("replied chat"));
+                        const custCol    = hdr.findIndex(h => h==="customers" || h.includes("customer"));
+                        const avgRespCol = hdr.findIndex(h => h.includes("avg first resp") || h.includes("first response"));
+                        const convCol    = hdr.findIndex(h => h.includes("conversion"));
+                        const amountCol  = hdr.findIndex(h => h.includes("order amount") || h.includes("guide order amount"));
+                        const ratingCol  = hdr.findIndex(h => h.includes("store rating") || h.includes("rating"));
+
+                        if(storeCol<0 || platCol<0 || chatsCol<0){
+                          alert(`Could not detect columns.\n\nFound: ${hdr.filter(Boolean).slice(0,10).join(" | ")}\n\nNeed columns for: Store/Brand, Platform/Marketplace, Chats/Messages`);
+                          return;
+                        }
+
+                        const normPlat = raw => {
+                          const s = String(raw||"").toLowerCase().trim();
+                          if(s.includes("shopee"))  return "Shopee";
+                          if(s.includes("lazada"))  return "Lazada";
+                          if(s.includes("tiktok")||s.includes("tik tok")) return "Tiktok";
+                          if(s.includes("line")||s.includes("myshop")||s.includes("my shop")) return "Line MyShop";
+                          if(s.includes("amaze"))   return "Amaze";
+                          if(s.includes("brand.com")||s.includes("brandcom")||s.includes("brand com")) return "Brand.com";
+                          return s.charAt(0).toUpperCase()+s.slice(1);
+                        };
+
+                        const parseNum = v => Number(String(v||"").replace(/[^0-9.]/g,""))||0;
+
+                        const agg = {};
+                        const perfAgg = {}; // storeName → platform → {chats, replied, customers, avgResp, conv, amount, rating}
+                        rows.slice(hdrIdx+1).forEach(r => {
+                          const store = String(r[storeCol]||"").trim().replace(/"/g,'');
+                          const plat  = normPlat(r[platCol]);
+                          const chats = parseNum(r[chatsCol]);
+                          if(!store || !plat) return;
+                          if(!agg[store]) agg[store]={};
+                          agg[store][plat] = (agg[store][plat]||0) + chats;
+                          // Performance data
+                          if(!perfAgg[store]) perfAgg[store]={};
+                          perfAgg[store][plat.toLowerCase()] = {
+                            chats,
+                            replied: repliedCol>=0 ? parseNum(r[repliedCol]) : 0,
+                            customers: custCol>=0 ? parseNum(r[custCol]) : 0,
+                            avgResp: avgRespCol>=0 ? parseNum(r[avgRespCol]) : 0,
+                            conv: convCol>=0 ? parseNum(r[convCol]) : 0,
+                            amount: amountCol>=0 ? parseNum(r[amountCol]) : 0,
+                            rating: ratingCol>=0 ? String(r[ratingCol]||"").replace(/[^0-9.%]/g,"") : null,
+                          };
+                        });
+
+                        if(!Object.keys(agg).length){ alert("No data rows found. Check that the file has Store Name, Marketplace, and Chats columns."); return; }
+
+                        const normalise = s => s.toLowerCase().replace(/[^a-z0-9]/g,"");
+                        let matched=0; const newBrands=[];
+                        const updatedBrands = [...brands];
+
+                        Object.entries(agg).forEach(([storeName, platChats])=>{
+                          // Skip closed/offboarded stores
+                          const lower = storeName.toLowerCase();
+                          if(lower.startsWith("closed") || lower.startsWith("offboarded")) return;
+
+                          const norm = normalise(storeName);
+                          let idx = updatedBrands.findIndex(b=>normalise(b.name)===norm);
+                          if(idx<0) idx = updatedBrands.findIndex(b=>norm.includes(normalise(b.name))||normalise(b.name).includes(norm));
+                          if(idx>=0){
+                            const plats = [...new Set([...(updatedBrands[idx].platforms||[]),...Object.keys(platChats).filter(p=>platChats[p]>0)])];
+                            const newChats = {...(updatedBrands[idx].chats||{})};
+                            Object.entries(platChats).forEach(([p,v])=>{ newChats[p]=v; });
+                            const newPerf = {...(updatedBrands[idx].perf||{}), ...(perfAgg[storeName]||{})};
+                            updatedBrands[idx] = {...updatedBrands[idx], platforms:plats, chats:newChats, perf:newPerf};
+                            matched++;
+                          } else {
+                            const plats = Object.keys(platChats).filter(p=>platChats[p]>0);
+                            if(plats.length>0){
+                              newBrands.push({
+                                id:`imp${Date.now()}${Math.random().toString(36).slice(2,6)}`,
+                                name:storeName, group:"", wh: storeName.includes("-") ? storeName.split("-").pop().trim() : "",
+                                platforms:plats, perf:perfAgg[storeName]||{},
+                                chats:{...Object.fromEntries(PLATFORMS.map(p=>[p,0])),...platChats}
+                              });
+                            }
+                          }
+                        });
+
+                        setBrands([...updatedBrands,...newBrands]);
+                        setMonthlyVol(prev=>{
+                          const newVol = {};
+                          [...updatedBrands,...newBrands].forEach(b=>{
+                            newVol[b.id] = Object.fromEntries(PLATFORMS.map(p=>[p, b.chats?.[p]||0]));
+                          });
+                          return {...prev,[mk]:newVol};
+                        });
+                        const skipped = Object.keys(agg).filter(s=>s.toLowerCase().startsWith("closed")||s.toLowerCase().startsWith("offboarded")).length;
+                        alert(`Import successful!\n• ${matched} brands updated\n• ${newBrands.length} new brands added\n• ${skipped} closed/offboarded stores skipped\n• ${Object.keys(agg).length} total stores in file`);
+                      };
+
+                      // ── Handle Duoke JSON (multi-month) ──────────────────
+                      if (isJSON) {
+                        const reader = new FileReader();
+                        reader.onload = (evt) => {
+                          try {
+                            const allMonths = JSON.parse(evt.target.result);
+                            let totalStores = 0, monthCount = 0;
+                            const updBrands = [...brands];
+                            const updVol = {};
+                            const normalise = s => s.toLowerCase().replace(/[^a-z0-9]/g,"");
+                            const normPlat = p => {const s=String(p).toLowerCase();return s.includes("shopee")?"Shopee":s.includes("lazada")?"Lazada":s.includes("tiktok")?"Tiktok":s.includes("line")||s.includes("myshop")?"Line MyShop":s.includes("amaze")?"Amaze":s.includes("brand.com")||s.includes("brandcom")?"Brand.com":s.charAt(0).toUpperCase()+s.slice(1);};
+
+                            const nameMap = {};
+                            updBrands.forEach((b,i) => { nameMap[normalise(b.name)] = i; });
+                            const findBrand = (storeName) => {
+                              const norm = normalise(storeName);
+                              if (nameMap[norm] !== undefined) return nameMap[norm];
+                              for (let i=0; i<updBrands.length; i++) {
+                                const bn = normalise(updBrands[i].name);
+                                if (bn.length >= 6 && norm.length >= 6 && (norm.includes(bn) || bn.includes(norm))) return i;
+                              }
+                              return -1;
+                            };
+
+                            const allStores = new Set();
+                            for (const rows of Object.values(allMonths)) {
+                              rows.forEach(r => {
+                                const store = r.s || r.shopName || "";
+                                if (store && !store.toLowerCase().startsWith("closed") && !store.toLowerCase().startsWith("offboarded")) allStores.add(store);
+                              });
+                            }
+                            allStores.forEach(store => {
+                              if (findBrand(store) < 0) {
+                                const newId = "imp" + Date.now() + Math.random().toString(36).slice(2,6);
+                                const idx = updBrands.length;
+                                updBrands.push({ id:newId, name:store, group:"", wh:store.includes("-")?store.split("-").pop().trim():"", platforms:[], perf:{}, chats:Object.fromEntries(PLATFORMS.map(p=>[p,0])) });
+                                nameMap[normalise(store)] = idx;
+                              }
+                            });
+
+                            const sortedMonths = Object.keys(allMonths).sort();
+                            for (const monthKey of sortedMonths) {
+                              monthCount++;
+                              const rows = allMonths[monthKey];
+                              const volForMonth = {};
+                              updBrands.forEach(b => { volForMonth[b.id] = Object.fromEntries(PLATFORMS.map(p=>[p,0])); });
+                              rows.forEach(r => {
+                                const store = r.s || r.shopName || "";
+                                const plat = normPlat(r.p || r.platform || "");
+                                const chats = r.c || r.conversationNum || 0;
+                                if (!store || !plat || store.toLowerCase().startsWith("closed") || store.toLowerCase().startsWith("offboarded")) return;
+                                const idx = findBrand(store);
+                                if (idx >= 0) {
+                                  const bid = updBrands[idx].id;
+                                  volForMonth[bid][plat] = (volForMonth[bid][plat]||0) + chats;
+                                  if (chats > 0 && !(updBrands[idx].platforms||[]).includes(plat)) updBrands[idx] = {...updBrands[idx], platforms:[...(updBrands[idx].platforms||[]),plat]};
+                                  updBrands[idx] = {...updBrands[idx], perf:{...(updBrands[idx].perf||{}), [plat.toLowerCase()]:{chats, replied:r.rc||0, customers:r.cu||0, avgResp:r.afr||0, conv:r.cr||0, amount:r.loa||0, rating:r.rt}}};
+                                }
+                                totalStores++;
+                              });
+                              updVol[monthKey] = volForMonth;
+                            }
+
+                            const latestMk = sortedMonths[sortedMonths.length-1];
+                            const latestVol = updVol[latestMk] || {};
+                            const finalBrands = updBrands.map(b => ({...b, chats: latestVol[b.id] || b.chats}));
+                            setBrands(finalBrands);
+                            setMonthlyVol(prev => ({...prev, ...updVol}));
+
+                            const dbg = sortedMonths.map(mk => {
+                              const vol = updVol[mk];
+                              const tc = vol ? Object.values(vol).reduce((s,v)=>s+Object.values(v).reduce((a,b)=>a+b,0),0) : 0;
+                              return mk + ": " + tc.toLocaleString();
+                            }).join("\n");
+                            alert("Duoke JSON imported!\n\n" + monthCount + " months (" + sortedMonths[0] + " > " + latestMk + ")\n" + finalBrands.length + " brands\n\nChats per month:\n" + dbg);
+                          } catch(err) { alert("JSON import failed: " + err.message); }
+                        };
+                        reader.readAsText(file, "UTF-8");
+                        return;
+                      }
+
+                      // ── CSV import ─────────────────────────────────────────
+                      const reader = new FileReader();
+                      reader.onload = (evt) => {
+                        try {
+                          const rows = parseCSVText(evt.target.result);
+                          if (rows.length >= 2) { processRows(rows); }
+                          else { alert("File appears empty or has no data rows."); }
+                        } catch(err) { alert("CSV import failed: " + err.message); }
+                      };
+                      reader.onerror = () => alert("Could not read the file.");
+                      reader.readAsText(file, "UTF-8");
+                    }}/>
+                    <div style={{padding:"5px 12px",borderRadius:7,border:"1px solid #34D39944",background:"#ECFDF5",color:"#065F46",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",position:"relative",zIndex:1,pointerEvents:"none"}}>
+                      Import
+                    </div>
+                  </div>
+                  <button onClick={()=>{
+                    setMonthlyVol(prev=>{const n={...prev};delete n[mk];return n;});
+                    setBrands(bs=>bs.map(b=>({...b,chats:Object.fromEntries(PLATFORMS.map(p=>[p,0]))})));
+                  }} style={{padding:"5px 12px",borderRadius:7,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                    Clear Month
+                  </button>
+                </div>
+              </div>
+
+              {/* Volume grid */}
+              <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden"}}>
+                {/* View toggle */}
+                <div style={{padding:"10px 16px",background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
+                  <div style={{fontSize:11,color:"#94A3B8"}}>
+                    Source: <strong style={{color:"#1A1D2E"}}>duoke_shop_performance Feb 2026</strong>
+                    <span style={{marginLeft:8,fontSize:10,color:"#94A3B8"}}>· {brands.length} stores · edit chats to update allocation</span>
+                  </div>
+                  <div style={{display:"flex",gap:3,background:"#FAFBFC",borderRadius:8,padding:3}}>
+                    {[["chats","Chat Volume"],["perf","Performance"]].map(([m,l])=>(
+                      <button key={m} onClick={()=>setVolViewMode(m)} style={{
+                        padding:"5px 12px",border:"none",cursor:"pointer",fontSize:11,fontWeight:600,borderRadius:6,fontFamily:"inherit",
+                        background:volViewMode===m?"#F0FDFA":"transparent",
+                        color:volViewMode===m?"#5EEAD4":"#94A3B8",
+                      }}>{l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{overflowX:"auto"}}>
+                  {volViewMode==="chats" ? (
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{background:"#E4EAF5",position:"sticky",top:0,zIndex:10}}>
+                        <th style={{padding:"10px 14px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:180,position:"sticky",left:0,background:"#E4EAF5",zIndex:11}}>Brand</th>
+                        <th style={{padding:"10px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:60}}>Group</th>
+                        {activePlats.map(p=>{
+                          const pc=PLATFORM_C[p];
+                          return (
+                            <th key={p} style={{padding:"10px 12px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:pc.color,textTransform:"uppercase",minWidth:110,borderLeft:"1px solid #F1F5F9"}}>
+                              {pc.icon} {p}
+                            </th>
+                          );
+                        })}
+                        <th style={{padding:"10px 12px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#B45309",textTransform:"uppercase",minWidth:90,borderLeft:"1px solid #E2E8F0"}}>Total</th>
+                        {hasPrev && <th style={{padding:"10px 12px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:90,borderLeft:"1px solid #F1F5F9"}}>vs {MONTHS[prevM-1]}</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {brands.map((b, bi) => {
+                        const rowTotal = activePlats.reduce((s,p)=>(b.platforms||[]).includes(p)?s+getVol(b.id,p):s, 0);
+                        const prevTotal = hasPrev ? activePlats.reduce((s,p)=>(b.platforms||[]).includes(p)?s+getVol(b.id,p,prevY,prevM):s, 0) : 0;
+                        const diff = rowTotal - prevTotal;
+                        const rowBg = bi%2===0 ? "#FAFBFC" : "transparent";
+                        return (
+                          <tr key={b.id} style={{borderBottom:"1px solid #F1F5F9",background:rowBg}}>
+                            <td style={{padding:"6px 14px",fontWeight:600,color:"#1A1D2E",position:"sticky",left:0,background:rowBg,zIndex:1,borderRight:"1px solid #F1F5F9"}}>
+                              {b.name}
+                            </td>
+                            <td style={{padding:"6px 10px"}}>
+                              <span style={{fontSize:10,padding:"2px 6px",borderRadius:5,background:"#F1F5F9",color:"#94A3B8",fontWeight:600}}>{b.wh||"—"}</span>
+                            </td>
+                            {activePlats.map(p => {
+                              const pc = PLATFORM_C[p];
+                              const isActive = (b.platforms||[]).includes(p);
+                              const val = isActive ? getVol(b.id, p) : null;
+                              const prevVal = isActive && hasPrev ? getVol(b.id, p, prevY, prevM) : null;
+                              const platDiff = (val!=null && prevVal!=null) ? val-prevVal : null;
+                              return (
+                                <td key={p} style={{padding:"4px 8px",borderLeft:"1px solid #F1F5F9",textAlign:"right"}}>
+                                  {isActive ? (
+                                    <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
+                                      <input type="number" min="0" value={val} onChange={e=>setVol(b.id, p, e.target.value)}
+                                        style={{width:88, padding:"5px 8px", borderRadius:6, textAlign:"right",
+                                          border:`1px solid ${val>0?pc.color+"55":"#E2E8F0"}`,
+                                          background: val>0 ? pc.bg : "#FFFFFF",
+                                          color: val>0 ? pc.color : "#94A3B8",
+                                          fontSize:12, fontFamily:"monospace", fontWeight:700, outline:"none"}}/>
+                                      {hasPrev && platDiff!==null && (
+                                        <span style={{fontSize:9,color:platDiff>0?"#34D399":platDiff<0?"#F87171":"#94A3B8",fontFamily:"monospace"}}>
+                                          {platDiff>0?"+":""}{platDiff.toLocaleString()}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ) : <span style={{color:"#F1F5F9"}}>—</span>}
+                                </td>
+                              );
+                            })}
+                            <td style={{padding:"6px 12px",textAlign:"right",borderLeft:"1px solid #E2E8F0"}}>
+                              <span style={{fontFamily:"monospace",fontWeight:700,fontSize:13,color:"#B45309"}}>{rowTotal.toLocaleString()}</span>
+                            </td>
+                            {hasPrev && (
+                              <td style={{padding:"6px 12px",textAlign:"right",borderLeft:"1px solid #F1F5F9"}}>
+                                <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:2}}>
+                                  <span style={{fontFamily:"monospace",fontWeight:700,fontSize:12,color:diff>0?"#34D399":diff<0?"#F87171":"#94A3B8"}}>
+                                    {diff>0?"+":""}{diff.toLocaleString()}
+                                  </span>
+                                  {prevTotal>0 && <span style={{fontSize:9,color:"#94A3B8"}}>{((diff/prevTotal)*100).toFixed(1)}%</span>}
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{background:"#F0FDFA",borderTop:"2px solid #0D9488"}}>
+                        <td style={{padding:"10px 14px",fontWeight:700,color:"#0D9488",fontSize:11,position:"sticky",left:0,background:"#F0FDFA"}}>TOTAL</td>
+                        <td/>
+                        {activePlats.map(p=>(
+                          <td key={p} style={{padding:"10px 12px",textAlign:"right",borderLeft:"1px solid #E2E8F0",fontFamily:"monospace",fontWeight:700,fontSize:13,color:PLATFORM_C[p].color}}>
+                            {platTotals[p].toLocaleString()}
+                          </td>
+                        ))}
+                        <td style={{padding:"10px 12px",textAlign:"right",borderLeft:"1px solid #E2E8F0",fontFamily:"monospace",fontWeight:700,fontSize:14,color:"#B45309"}}>
+                          {grandTotal.toLocaleString()}
+                        </td>
+                        {hasPrev && (() => {
+                          const prevGrand = brands.reduce((s,b)=>s+activePlats.reduce((ss,p)=>(b.platforms||[]).includes(p)?ss+getVol(b.id,p,prevY,prevM):ss,0),0);
+                          const gDiff = grandTotal-prevGrand;
+                          return (
+                            <td style={{padding:"10px 12px",textAlign:"right",borderLeft:"1px solid #E2E8F0",fontFamily:"monospace",fontWeight:700,fontSize:12,color:gDiff>0?"#34D399":gDiff<0?"#F87171":"#94A3B8"}}>
+                              {gDiff>0?"+":""}{gDiff.toLocaleString()}
+                              {prevGrand>0&&<div style={{fontSize:9,color:"#94A3B8",fontWeight:400}}>{((gDiff/prevGrand)*100).toFixed(1)}%</div>}
+                            </td>
+                          );
+                        })()}
+                      </tr>
+                    </tfoot>
+                  </table>
+                  ) : (
+                  /* ── Performance view ── */
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+                    <thead>
+                      <tr style={{background:"#E4EAF5",position:"sticky",top:0,zIndex:10}}>
+                        <th style={{padding:"8px 14px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:180,position:"sticky",left:0,background:"#E4EAF5",zIndex:11}}>Brand</th>
+                        <th style={{padding:"8px 10px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",minWidth:50}}>Mkt</th>
+                        <th style={{padding:"8px 10px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",minWidth:50}}>Platform</th>
+                        <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#1D4ED8",minWidth:70}}>Chats</th>
+                        <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#0D9488",minWidth:80}}>Replied</th>
+                        <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#065F46",minWidth:90}}>Reply Rate</th>
+                        <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#B45309",minWidth:90}}>Avg 1st Resp</th>
+                        <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#EE4D2D",minWidth:80}}>Conv %</th>
+                        <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#065F46",minWidth:110}}>Order Amt (฿)</th>
+                        <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",minWidth:70}}>Rating</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {brands.filter(b=>b.perf && Object.keys(b.perf).length>0).map((b,bi) => {
+                        const rows = Object.entries(b.perf).filter(([,p])=>p.chats>0);
+                        if(!rows.length) return null;
+                        const rowBg = bi%2===0?"#FAFBFC":"transparent";
+                        return rows.map(([mkt, p], ri) => {
+                          const pc = PLATFORM_C[mkt.charAt(0).toUpperCase()+mkt.slice(1)];
+                          const replyRate = p.chats>0 ? ((p.replied/p.chats)*100).toFixed(1) : "—";
+                          const isFirst = ri===0;
+                          return (
+                            <tr key={`${b.id}_${mkt}`} style={{borderBottom:"1px solid #F1F5F9",background:rowBg}}>
+                              {isFirst && (
+                                <td rowSpan={rows.length} style={{padding:"8px 14px",fontWeight:600,color:"#1A1D2E",position:"sticky",left:0,background:rowBg,zIndex:1,borderRight:"1px solid #F1F5F9",verticalAlign:"top",paddingTop:10}}>
+                                  <div>{b.name}</div>
+                                  <div style={{fontSize:9,color:"#94A3B8",marginTop:2}}>{b.wh}</div>
+                                </td>
+                              )}
+                              <td style={{padding:"6px 10px"}}>
+                                <span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:"#F1F5F9",color:"#94A3B8",fontWeight:600,textTransform:"uppercase"}}>{b.wh}</span>
+                              </td>
+                              <td style={{padding:"6px 10px"}}>
+                                {pc ? <span style={{fontSize:10,padding:"2px 6px",borderRadius:5,background:pc.bg,color:pc.color,fontWeight:700}}>{pc.icon} {mkt}</span>
+                                     : <span style={{color:"#94A3B8",fontSize:10}}>{mkt}</span>}
+                              </td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:"#1D4ED8"}}>{p.chats.toLocaleString()}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:"#0D9488"}}>{p.replied.toLocaleString()}</td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:Number(replyRate)>=95?"#34D399":Number(replyRate)>=80?"#F59E0B":"#F87171"}}>
+                                {replyRate}{replyRate!=="—"?"%":""}
+                              </td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:p.avgResp==null?"#94A3B8":p.avgResp<=5?"#34D399":p.avgResp<=15?"#F59E0B":"#F87171"}}>
+                                {p.avgResp!=null ? `${p.avgResp} min` : "—"}
+                              </td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:p.conv>=12?"#34D399":p.conv>=6?"#F59E0B":"#F87171"}}>
+                                {p.conv>0?`${p.conv}%`:"—"}
+                              </td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:"#065F46",fontWeight:p.amount>500000?800:400}}>
+                                {p.amount>0?`฿${p.amount.toLocaleString()}`:"—"}
+                              </td>
+                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:p.rating&&Number(p.rating)>=95?"#34D399":p.rating&&Number(p.rating)>0?"#F59E0B":"#94A3B8"}}>
+                                {p.rating&&Number(p.rating)>0?`${p.rating}%`:"—"}
+                              </td>
+                            </tr>
+                          );
+                        });
+                      })}
+                    </tbody>
+                  </table>
+                  )}
+                </div>
+              </div>
+              <div style={{marginTop:10,fontSize:10,color:"#94A3B8"}}>
+                Values here update the chat volumes used in Allocation auto-assign and the Auto-Fill chat-per-agent constraint. Navigate months to build MoM history.
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* ══════════════════════════════════════════
+            CS ANALYTICS TAB — Customer Service Dashboard
+        ══════════════════════════════════════════ */}
+        {allocTab==="analytics" && (
+          <div style={{margin:"-24px -28px"}}>
+            <CSAnalyticsTab role={role} canEdit={role==="manager"}/>
+          </div>
+        )}
+
+        </div>
+      </div>
+
+      {/* ═══ PROFILE MODAL ═══ */}
+      {showProfile && (() => {
+        const uKey = (loginUser||"").toLowerCase();
+        const p = userProfiles[uKey] || {};
+        const fields = [
+          {key:"fullName",label:"Full Name",placeholder:"e.g. Somchai Jaidee"},
+          {key:"preferName",label:"Preferred Name",placeholder:"e.g. Ohm"},
+          {key:"bankName",label:"Bank Name",placeholder:"e.g. Kasikorn, SCB, Bangkok Bank"},
+          {key:"bankAccountNo",label:"Bank Account No.",placeholder:"e.g. 123-4-56789-0"},
+          {key:"idCard",label:"ID Card Number",placeholder:"e.g. 1-2345-67890-12-3"},
+          {key:"lineId",label:"Line ID",placeholder:"e.g. @ohm_work"},
+          {key:"emergencyContact",label:"Emergency Contact",placeholder:"e.g. Mom 081-234-5678"},
+          {key:"personalEmail",label:"Personal Email",placeholder:"e.g. ohm@gmail.com"},
+          {key:"workEmail",label:"Work Email",placeholder:"e.g. ohm@company.com"},
+        ];
+        const updateField = (key, val) => {
+          setUserProfiles(prev => ({...prev, [uKey]: {...(prev[uKey]||{}), [key]: val}}));
+        };
+        return (
+          <div onClick={()=>setShowProfile(false)} style={{position:"fixed",inset:0,zIndex:9999,background:"#00000044",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:480,maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px #00000022"}}>
+              <div style={{padding:"24px 24px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12}}>
+                  <div style={{width:44,height:44,borderRadius:11,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0D9488"}}>{(loginUser||"U").charAt(0).toUpperCase()}</div>
+                  <div>
+                    <div style={{fontSize:16,fontWeight:700,color:"#0F172A"}}>My Profile</div>
+                    <div style={{fontSize:11,color:"#94A3B8"}}>{loginUser} · {ROLES[role]?.label}</div>
+                  </div>
+                </div>
+                <button onClick={()=>setShowProfile(false)} style={{width:32,height:32,borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",cursor:"pointer",fontSize:16,color:"#94A3B8",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
+              </div>
+              <div style={{padding:"20px 24px 24px"}}>
+                {fields.map(f => (
+                  <div key={f.key} style={{marginBottom:14}}>
+                    <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:0.5,display:"block",marginBottom:5}}>{f.label}</label>
+                    <input value={p[f.key]||""} onChange={e=>updateField(f.key, e.target.value)}
+                      placeholder={f.placeholder}
+                      style={{width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box",transition:"border 0.15s"}}
+                      onFocus={e=>e.target.style.borderColor="#0D9488"}
+                      onBlur={e=>e.target.style.borderColor="#E2E8F0"}
+                    />
+                  </div>
+                ))}
+                <button onClick={()=>setShowProfile(false)} style={{width:"100%",padding:"11px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>Save & Close</button>
+                <div style={{fontSize:10,color:"#CBD5E1",textAlign:"center",marginTop:10}}>Profile saves automatically</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ══════════════════════════════════════════
+          USER MANAGEMENT MODAL (Manager only)
+      ══════════════════════════════════════════ */}
+      {showUserMgmt && role==="manager" && (
+        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)"}} onClick={()=>{setShowUserMgmt(false);setEditingUser(null);}}>
+          <div style={{background:"#fff",borderRadius:16,padding:24,width:520,maxWidth:"95vw",maxHeight:"90vh",overflow:"auto",boxShadow:"0 16px 48px #00000088"}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E"}}>User Accounts</div>
+              <button onClick={()=>{setShowUserMgmt(false);setEditingUser(null);}} style={{background:"none",border:"none",cursor:"pointer",color:"#94A3B8",fontSize:20}}>×</button>
+            </div>
+            <div style={{borderRadius:10,border:"1px solid #E2E8F0",overflow:"hidden",marginBottom:16}}>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <thead><tr style={{background:"#F1F5F9"}}>
+                  <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Username</th>
+                  <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Role</th>
+                  <th style={{padding:"8px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Actions</th>
+                </tr></thead>
+                <tbody>
+                  {userAccounts.map((u,i) => (
+                    <tr key={i} style={{borderTop:"1px solid #F1F5F9"}}>
+                      <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{u.username}</td>
+                      <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:ROLES[u.role]?.bg||"#F1F5F9",color:ROLES[u.role]?.color||"#64748B",fontWeight:700}}>{ROLES[u.role]?.label||u.role}</span></td>
+                      <td style={{padding:"8px 12px",textAlign:"center"}}>
+                        <button onClick={()=>setEditingUser({...u,_idx:i,_isNew:false})} style={{padding:"3px 10px",borderRadius:6,border:"none",background:"#EFF6FF",color:"#1D4ED8",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginRight:4}}>Edit</button>
+                        {u.username.toLowerCase()!==loginUser.toLowerCase() && <button onClick={()=>{if(window.confirm("Delete user '"+u.username+"'?"))setUserAccounts(prev=>prev.filter((_,j)=>j!==i));}} style={{padding:"3px 10px",borderRadius:6,border:"none",background:"#FEF2F2",color:"#EF4444",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <button onClick={()=>setEditingUser({username:"",password:"",role:"viewer",_isNew:true})} style={{padding:"8px 16px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add User</button>
+            {editingUser && (
+              <div style={{marginTop:16,padding:16,borderRadius:10,border:"1px solid #E2E8F0",background:"#FAFBFC"}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1A1D2E",marginBottom:12}}>{editingUser._isNew?"Add New User":"Edit User"}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                  <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Username</label>
+                    <input value={editingUser.username} onChange={e=>setEditingUser({...editingUser,username:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                  <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Password</label>
+                    <input value={editingUser.password} onChange={e=>setEditingUser({...editingUser,password:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                </div>
+                <div style={{marginBottom:12}}>
+                  <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Role</label>
+                  <div style={{display:"flex",gap:6}}>
+                    {Object.entries(ROLES).map(([key,r])=>(
+                      <button key={key} onClick={()=>setEditingUser({...editingUser,role:key})} style={{padding:"6px 14px",borderRadius:8,border:"none",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:editingUser.role===key?r.bg:"#F1F5F9",color:editingUser.role===key?r.color:"#94A3B8",outline:editingUser.role===key?`2px solid ${r.color}`:"none"}}>{r.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>{
+                    if(!editingUser.username.trim()||!editingUser.password.trim()){alert("Username and password required.");return;}
+                    if(editingUser._isNew){
+                      if(userAccounts.some(u=>u.username.toLowerCase()===editingUser.username.toLowerCase())){alert("Username already exists.");return;}
+                      setUserAccounts(prev=>[...prev,{username:editingUser.username.trim(),password:editingUser.password,role:editingUser.role}]);
+                    } else {
+                      setUserAccounts(prev=>prev.map((u,i)=>i===editingUser._idx?{username:editingUser.username.trim(),password:editingUser.password,role:editingUser.role}:u));
+                      if(userAccounts[editingUser._idx]?.username.toLowerCase()===loginUser.toLowerCase()) setRole(editingUser.role);
+                    }
+                    setEditingUser(null);
+                  }} style={{padding:"8px 20px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{editingUser._isNew?"Add":"Save"}</button>
+                  <button onClick={()=>setEditingUser(null)} style={{padding:"8px 20px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#64748B",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Change own password (non-manager) */}
+      {showUserMgmt && role && role!=="manager" && (
+        <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)"}} onClick={()=>setShowUserMgmt(false)}>
+          <div style={{background:"#fff",borderRadius:16,padding:24,width:400,maxWidth:"95vw",boxShadow:"0 16px 48px #00000088"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E",marginBottom:20}}>My Account</div>
+            {(()=>{const myAccount=userAccounts.find(u=>u.username.toLowerCase()===loginUser.toLowerCase());if(!myAccount)return <div style={{color:"#94A3B8"}}>Account not found</div>;const myIdx=userAccounts.indexOf(myAccount);return(
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Username</label>
+                  <input defaultValue={myAccount.username} id="__myUser" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Password</label>
+                  <input defaultValue={myAccount.password} id="__myPass" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Role</label>
+                  <div style={{padding:"8px 10px",borderRadius:8,background:ROLES[myAccount.role]?.bg,color:ROLES[myAccount.role]?.color,fontSize:12,fontWeight:700}}>{ROLES[myAccount.role]?.label} <span style={{fontSize:10,fontWeight:400,opacity:0.7}}>— only Manager can change</span></div></div>
+                <button onClick={()=>{const u=document.getElementById("__myUser")?.value?.trim();const p=document.getElementById("__myPass")?.value;if(!u||!p){alert("Required");return;}setUserAccounts(prev=>prev.map((a,i)=>i===myIdx?{...a,username:u,password:p}:a));setLoginUser(u);setShowUserMgmt(false);}} style={{padding:"10px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+              </div>);})()}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+        button { transition: all 0.15s ease; }
+        button:hover { opacity: 0.85; }
+        input::placeholder, textarea::placeholder { color: #94A3B8; }
+        select option { background: #FFFFFF; color: #1A1D2E; }
+        input:focus, select:focus { border-color: #0D9488 !important; outline: none; }
+      `}</style>
+    </div>
+  );
+}
