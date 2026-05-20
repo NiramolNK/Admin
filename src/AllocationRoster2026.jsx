@@ -3410,7 +3410,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
                         const storeKeywords = ["store name","store","brand","shop name","shop"];
                         const platKeywords  = ["marketplace","platform","channel","market"];
-                        const chatsKeywords = ["chats","chat","# of chat","total chat","message","inbox"];
+                        const chatsKeywords = ["chats","chat","# of chat","total chat","message","messeg","msg","inbox"];
 
                         let hdrIdx = rows.findIndex(r =>
                           r.some(c => storeKeywords.some(k => String(c).toLowerCase().includes(k)))
