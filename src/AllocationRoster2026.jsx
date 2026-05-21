@@ -1187,14 +1187,16 @@ export default function AllocationPanel({ isAdmin = true }) {
     if (a.name && a.name.toLowerCase().trim() === lu) return true;
     return false;
   }) : null;
-  // Shift labels for the brand assignment display.
-  // ME is the mid-shift covering 12:00–21:00, spanning both Morning and Evening blocks.
+  // Time labels per shift code. The agent's actual roster shift on a date determines the label.
   const SHIFT_LABEL = { M: "Morning (07:00 - 16:00)", ME: "ME (12:00 - 21:00)", E: "Evening (16:00 - 01:00)" };
   const myBrands = [];
   const myBrandsForDate = []; // brand assignments for the selectedRosterDate only
   if (myAgent) {
     const seen = new Set();
     dates.forEach(dt => {
+      // Agent's actual shift for this date. Used to override the brand slot's label
+      // so an ME-shift agent sees every brand as 'ME (12:00 - 21:00)' regardless of which slot it sits in.
+      const agentShiftOnDt = asgn[`${myAgent.id}_${dt.date}`] || null;
       brands.forEach(b => {
         (b.platforms||[]).forEach(plat => {
           ["M","ME","E"].forEach(shift => {
@@ -1203,12 +1205,14 @@ export default function AllocationPanel({ isAdmin = true }) {
             const assigned = Array.isArray(raw) ? raw : (raw ? [raw] : []);
             if (assigned.includes(myAgent.name)) {
               const key = `${b.id}|${plat}|${shift}`;
+              const displayShift = SHIFT_LABEL[agentShiftOnDt] || SHIFT_LABEL[shift] || shift;
+              const displayCode = (agentShiftOnDt && SHIFT_LABEL[agentShiftOnDt]) ? agentShiftOnDt : shift;
               if (!seen.has(key)) {
                 seen.add(key);
-                myBrands.push({brand:b.name, plat, shift:SHIFT_LABEL[shift]||shift, shiftCode:shift, wh:b.wh||""});
+                myBrands.push({brand:b.name, plat, shift:displayShift, shiftCode:displayCode, wh:b.wh||""});
               }
               if (selectedRosterDate && dt.date === selectedRosterDate) {
-                myBrandsForDate.push({brand:b.name, plat, shift:SHIFT_LABEL[shift]||shift, shiftCode:shift, wh:b.wh||""});
+                myBrandsForDate.push({brand:b.name, plat, shift:displayShift, shiftCode:displayCode, wh:b.wh||""});
               }
             }
           });
