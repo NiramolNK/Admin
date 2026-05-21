@@ -705,7 +705,18 @@ export default function AllocationPanel({ isAdmin = true }) {
           try {
             const { data: { user: supabaseUser } } = await supabase.auth.getUser();
             if (supabaseUser?.email) {
-              setLoginUser(supabaseUser.email);
+              const supaEmail = supabaseUser.email;
+              setLoginUser(supaEmail);
+              // Auto-bypass the legacy login screen: if the Supabase user is in
+              // userAccounts, they're already authenticated. Skip the second-stage
+              // legacy login screen entirely (it can't work for self-signup users
+              // since their legacy password is a "__supabase__" placeholder).
+              const ua = d.userAccounts || [];
+              const myEntry = ua.find(u => u.username?.toLowerCase() === supaEmail.toLowerCase());
+              if (myEntry && ROLES[myEntry.role]) {
+                setRole(myEntry.role);
+                setLoggedIn(true);
+              }
             }
           } catch(authErr) { /* non-fatal */ }
         }
