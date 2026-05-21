@@ -57,7 +57,6 @@ const ALLOC_AGENTS_INIT = [
   {id:"A05",name:"Cream T2",team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:846, rule:""},
   {id:"A16",name:"Prim",    team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:1269,rule:"Manager"},
   {id:"A06",name:"Ohm",     team:"T1",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:480,rule:"Sat & Sun off"},
-  {id:"A07",name:"Cake SP", team:"T1",    active:true,shifts:["M"],        days:[...ALLOC_ALL], costDay:464,rule:"M shift only"},
   {id:"A08",name:"Joy",     team:"T1",    active:true,shifts:["M","ME","E"],days:[...ALLOC_ALL],costDay:496,rule:""},
   {id:"A09",name:"Boo",     team:"T1",    active:true,shifts:["E"],        days:[...ALLOC_ALL], costDay:456,rule:""},
   {id:"A10",name:"Best",    team:"T1",    active:true,shifts:["M","ME","E"],days:[...ALLOC_ALL],costDay:480,rule:"Min 15 sessions"},
