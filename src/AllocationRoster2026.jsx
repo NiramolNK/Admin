@@ -1320,6 +1320,9 @@ export default function AllocationPanel({ isAdmin = true }) {
       // Agent's actual shift for this date. Used to override the brand slot's label
       // so an ME-shift agent sees every brand as 'ME (12:00 - 21:00)' regardless of which slot it sits in.
       const agentShiftOnDt = asgn[`${myAgent.id}_${dt.date}`] || null;
+      // If agent isn't working that day (Off / TOIL / OT / no shift), skip brand assignments
+      const isWorkingShift = agentShiftOnDt === "M" || agentShiftOnDt === "ME" || agentShiftOnDt === "E";
+      if (!isWorkingShift) return;
       brands.forEach(b => {
         (b.platforms||[]).forEach(plat => {
           ["M","ME","E"].forEach(shift => {
