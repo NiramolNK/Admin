@@ -513,10 +513,11 @@ export default function AllocationPanel({ isAdmin = true }) {
     manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true  },
   };
 
-  // User accounts — stored in state, persisted to storage
-  const [userAccounts, setUserAccounts] = useState([
-    { username: "admin", password: "mgr9999", role: "manager" },
-  ]);
+  // User accounts — stored in state, persisted to storage.
+  // SECURITY: starts empty by default. The signed-in Supabase user is added
+  // to this list automatically (see App.jsx onAuthStateChange) so there's no
+  // public default credential anyone can use.
+  const [userAccounts, setUserAccounts] = useState([]);
 
   const handleLogin = () => {
     const account = userAccounts.find(u => u.username.toLowerCase() === loginUser.toLowerCase() && u.password === loginPass);
