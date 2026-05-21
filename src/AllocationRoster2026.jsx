@@ -3980,15 +3980,25 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </tbody>
               </table>
             </div>
-            <button onClick={()=>setEditingUser({username:"",password:"",role:"viewer",_isNew:true})} style={{padding:"8px 16px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add User</button>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setEditingUser({username:"",password:"",role:"viewer",_isNew:true,_invite:true})} style={{padding:"8px 16px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Invite User</button>
+              <button onClick={()=>setEditingUser({username:"",password:"",role:"viewer",_isNew:true,_invite:false})} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #0D9488",background:"transparent",color:"#0D9488",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add with password</button>
+            </div>
             {editingUser && (
               <div style={{marginTop:16,padding:16,borderRadius:10,border:"1px solid #E2E8F0",background:"#FAFBFC"}}>
-                <div style={{fontSize:13,fontWeight:700,color:"#1A1D2E",marginBottom:12}}>{editingUser._isNew?"Add New User":"Edit User"}</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                <div style={{fontSize:13,fontWeight:700,color:"#1A1D2E",marginBottom:12}}>{editingUser._isNew?(editingUser._invite?"Invite New User":"Add New User (with password)"):"Edit User"}</div>
+                {editingUser._isNew && editingUser._invite && (
+                  <div style={{fontSize:11,color:"#64748B",marginBottom:12,padding:"8px 10px",background:"#EFF6FF",borderRadius:6,lineHeight:1.5}}>
+                    They will receive an email with a link to set their own password. Make sure their email domain is verified in Resend, or the email won't be delivered.
+                  </div>
+                )}
+                <div style={{display:editingUser._isNew && editingUser._invite ? "block" : "grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
                   <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Email (used to sign in)</label>
                     <input value={editingUser.username} type="email" placeholder="someone@crea.asia" onChange={e=>setEditingUser({...editingUser,username:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
-                  <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Password</label>
-                    <input value={editingUser.password} onChange={e=>setEditingUser({...editingUser,password:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                  {!(editingUser._isNew && editingUser._invite) && (
+                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Password</label>
+                      <input value={editingUser.password} onChange={e=>setEditingUser({...editingUser,password:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                  )}
                 </div>
                 <div style={{marginBottom:12}}>
                   <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Role</label>
@@ -4002,14 +4012,20 @@ export default function AllocationPanel({ isAdmin = true }) {
                   <button onClick={async ()=>{
                     const email = editingUser.username.trim();
                     const pw = editingUser.password;
-                    if(!email||!pw){alert("Email and password required.");return;}
-                    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){alert("Please enter a valid email address (it will be used to sign in).");return;}
-                    if(pw.length < 6){alert("Password must be at least 6 characters.");return;}
+                    const isInvite = editingUser._isNew && editingUser._invite;
+                    if(!email){alert("Email required.");return;}
+                    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){alert("Please enter a valid email address.");return;}
+                    if(!isInvite && !pw){alert("Password required (or use Invite to send an email).");return;}
+                    if(!isInvite && pw.length < 6){alert("Password must be at least 6 characters.");return;}
                     if(editingUser._isNew){
                       if(userAccounts.some(u=>u.username.toLowerCase()===email.toLowerCase())){alert("This email is already in the user list.");return;}
                       // Save current Supabase session so signUp() doesn't replace it
                       const { data: { session: currentSession } } = await supabase.auth.getSession();
-                      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password: pw });
+                      // For invite mode, generate a random temp password — the user will reset it via email
+                      const finalPw = isInvite
+                        ? `Inv${Math.random().toString(36).slice(2,10)}${Math.random().toString(36).slice(2,10).toUpperCase()}!`
+                        : pw;
+                      const { error: signUpError } = await supabase.auth.signUp({ email, password: finalPw });
                       // Restore the current admin's session (signUp swaps to the new user)
                       if(currentSession) {
                         await supabase.auth.setSession({ access_token: currentSession.access_token, refresh_token: currentSession.refresh_token });
@@ -4018,8 +4034,20 @@ export default function AllocationPanel({ isAdmin = true }) {
                         alert("Could not create Supabase user: "+signUpError.message+"\n\nThe user was NOT added.");
                         return;
                       }
-                      setUserAccounts(prev=>[...prev,{username:email,password:pw,role:editingUser.role}]);
-                      alert("User created. They can sign in at the app URL with this email and password.");
+                      if(isInvite){
+                        // Send the password recovery email so they can set their own password
+                        const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+                        if(resetErr){
+                          alert("Account created, but the invitation email could not be sent: "+resetErr.message+"\n\nThey can use Forgot Password on the sign-in page later.");
+                        } else {
+                          alert("Invitation sent to "+email+".\n\nThey will receive an email with a link to set their password. Note: Resend sandbox only delivers to verified emails until your domain is verified.");
+                        }
+                        // Use the "__supabase__" sentinel so the legacy login auto-bypass kicks in
+                        setUserAccounts(prev=>[...prev,{username:email,password:"__supabase__",role:editingUser.role}]);
+                      } else {
+                        setUserAccounts(prev=>[...prev,{username:email,password:pw,role:editingUser.role}]);
+                        alert("User created. They can sign in at the app URL with this email and password.");
+                      }
                     } else {
                       setUserAccounts(prev=>prev.map((u,i)=>i===editingUser._idx?{username:email,password:pw,role:editingUser.role}:u));
                       if(userAccounts[editingUser._idx]?.username.toLowerCase()===loginUser.toLowerCase()) setRole(editingUser.role);
