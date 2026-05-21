@@ -3808,7 +3808,6 @@ export default function AllocationPanel({ isAdmin = true }) {
                         <th style={{padding:"8px 10px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",minWidth:50}}>Mkt</th>
                         <th style={{padding:"8px 10px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",minWidth:50}}>Platform</th>
                         <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#1D4ED8",minWidth:70}}>Chats</th>
-                        <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#0D9488",minWidth:80}}>Replied</th>
                         <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#B45309",minWidth:90}}>Avg 1st Resp</th>
                         <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#EE4D2D",minWidth:80}}>Conv %</th>
                         <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#065F46",minWidth:110}}>Order Amt (฿)</th>
@@ -3839,7 +3838,6 @@ export default function AllocationPanel({ isAdmin = true }) {
                                      : <span style={{color:"#94A3B8",fontSize:10}}>{mkt}</span>}
                               </td>
                               <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:"#1D4ED8"}}>{p.chats.toLocaleString()}</td>
-                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:"#0D9488"}}>{p.replied.toLocaleString()}</td>
                               <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:p.avgResp==null?"#94A3B8":p.avgResp<=5?"#34D399":p.avgResp<=15?"#F59E0B":"#F87171"}}>
                                 {p.avgResp!=null ? `${p.avgResp} min` : "—"}
                               </td>
