@@ -3430,18 +3430,19 @@ export default function AllocationPanel({ isAdmin = true }) {
                         const hdr = rows[hdrIdx].map(c => String(c).toLowerCase().trim().replace(/"/g,''));
                         const storeCol = hdr.findIndex(h => storeKeywords.some(k => h.includes(k)));
                         const platCol  = hdr.findIndex(h => platKeywords.some(k => h.includes(k)));
-                        const chatsCol = hdr.findIndex(h => chatsKeywords.some(k => h.includes(k)));
-
-                        // Extra performance columns (Duoke format)
+                        // Find "Replied Chats" FIRST — this is the primary chat count.
                         const repliedCol = hdr.findIndex(h => h.includes("replied chat"));
+                        // Then find the inquiry "Chats" column, EXCLUDING the replied column
+                        // (otherwise the chats keywords could accidentally match "replied chats").
+                        const chatsCol = hdr.findIndex((h, i) => i !== repliedCol && chatsKeywords.some(k => h.includes(k)));
                         const custCol    = hdr.findIndex(h => h==="customers" || h.includes("customer"));
                         const avgRespCol = hdr.findIndex(h => h.includes("avg first resp") || h.includes("first response"));
                         const convCol    = hdr.findIndex(h => h.includes("conversion"));
                         const amountCol  = hdr.findIndex(h => h.includes("order amount") || h.includes("guide order amount"));
                         const ratingCol  = hdr.findIndex(h => h.includes("store rating") || h.includes("rating"));
 
-                        if(storeCol<0 || platCol<0 || chatsCol<0){
-                          alert(`Could not detect columns.\n\nFound: ${hdr.filter(Boolean).slice(0,10).join(" | ")}\n\nNeed columns for: Store/Brand, Platform/Marketplace, Chats/Messages`);
+                        if(storeCol<0 || platCol<0 || (chatsCol<0 && repliedCol<0)){
+                          alert(`Could not detect columns.\n\nFound: ${hdr.filter(Boolean).slice(0,10).join(" | ")}\n\nNeed columns for: Store/Brand, Platform/Marketplace, and either "Replied Chats" or "Chats"`);
                           return;
                         }
 
@@ -3463,10 +3464,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                         rows.slice(hdrIdx+1).forEach(r => {
                           const store = String(r[storeCol]||"").trim().replace(/"/g,'');
                           const plat  = normPlat(r[platCol]);
-                          const inquiryCount = parseNum(r[chatsCol]);
+                          const inquiryCount = chatsCol>=0 ? parseNum(r[chatsCol]) : 0;
                           const repliedCount = repliedCol>=0 ? parseNum(r[repliedCol]) : 0;
-                          // Use replied chat as the primary chat count (work done, not inquiries received).
-                          // Falls back to inquiry count only if there's no replied column.
+                          // Use "Replied Chats" as the primary chat count (the work actually done).
+                          // Falls back to inquiry "Chats" column only when no replied column is present.
                           const chats = repliedCol>=0 ? repliedCount : inquiryCount;
                           if(!store || !plat) return;
                           if(!agg[store]) agg[store]={};
@@ -3528,7 +3529,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                           return {...prev,[mk]:newVol};
                         });
                         const skipped = Object.keys(agg).filter(s=>s.toLowerCase().startsWith("closed")||s.toLowerCase().startsWith("offboarded")).length;
-                        alert(`Import successful!\n• ${matched} brands updated\n• ${newBrands.length} new brands added\n• ${skipped} closed/offboarded stores skipped\n• ${Object.keys(agg).length} total stores in file`);
+                        const chatSource = repliedCol>=0 ? `"${hdr[repliedCol]}" (replied chats)` : `"${hdr[chatsCol]}" (inquiry chats — no replied column found)`;
+                        alert(`Import successful!\n• Chat count from column: ${chatSource}\n• ${matched} brands updated\n• ${newBrands.length} new brands added\n• ${skipped} closed/offboarded stores skipped\n• ${Object.keys(agg).length} total stores in file`);
                       };
 
                       const isJSON  = file.name.match(/\.json$/i);
