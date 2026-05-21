@@ -492,6 +492,8 @@ export default function AllocationPanel({ isAdmin = true }) {
   const [inviteFormData, setInviteFormData] = useState({fullName:"",phone:"",idCard:"",bankName:"",bankAccount:"",bankAccountName:"",startDate:"",costDay:""});
   const [inviteFormAgentId, setInviteFormAgentId] = useState(null);
   const [cellKey, setCellKey]       = useState(null);
+  // Selected date in personal calendar view — shows brand assignments for that day only
+  const [selectedRosterDate, setSelectedRosterDate] = useState(null);
   const [addFlagDate,  setAddFlagDate]  = useState("");
   const [addFlagType,  setAddFlagType]  = useState("holiday");
   const [addFlagLabel, setAddFlagLabel] = useState("");
@@ -1186,8 +1188,8 @@ export default function AllocationPanel({ isAdmin = true }) {
     return false;
   }) : null;
   const myBrands = [];
+  const myBrandsForDate = []; // brand assignments for the selectedRosterDate only
   if (myAgent) {
-    // FIX (audit #1): scan ALL dates, not just dates[0]
     const seen = new Set();
     dates.forEach(dt => {
       brands.forEach(b => {
@@ -1201,6 +1203,9 @@ export default function AllocationPanel({ isAdmin = true }) {
               if (!seen.has(key)) {
                 seen.add(key);
                 myBrands.push({brand:b.name, plat, shift:shift==="M"?"Morning":"Evening", wh:b.wh||""});
+              }
+              if (selectedRosterDate && dt.date === selectedRosterDate) {
+                myBrandsForDate.push({brand:b.name, plat, shift:shift==="M"?"Morning":"Evening", wh:b.wh||""});
               }
             }
           });
@@ -1481,8 +1486,11 @@ export default function AllocationPanel({ isAdmin = true }) {
                             const fl = flags[d.date]; const isH = fl?.type==="holiday"; const isC = fl?.type==="campaign";
                             const bg = isH ? "#FEF3C7" : isC ? "#F0FDFA" : d.isWE ? "#FFF5F5" : "#fff";
                             return (
-                              <div key={d.date} style={{minHeight:72,border:"1px solid #E2E8F0",borderRadius:8,background:bg,padding:"6px 8px",position:"relative",cursor:role==="viewer"?"pointer":"default"}}
-                                onClick={()=>{if(role==="viewer") setCellKey(editing?null:cellK);}}>
+                              <div key={d.date} style={{minHeight:72,border:selectedRosterDate===d.date?"2px solid #0D9488":"1px solid #E2E8F0",borderRadius:8,background:bg,padding:"6px 8px",position:"relative",cursor:(role==="viewer"||role==="t1")?"pointer":"default",boxShadow:selectedRosterDate===d.date?"0 0 0 2px #99F6E4":"none"}}
+                                onClick={()=>{
+                                  if(role==="viewer") setCellKey(editing?null:cellK);
+                                  if(role==="t1") setSelectedRosterDate(selectedRosterDate===d.date?null:d.date);
+                                }}>
                                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                                   <div style={{fontSize:11,fontWeight:700,color:d.isWE?"#EF4444":"#1A1D2E"}}>{Number(d.dd)}</div>
                                   {hasPending && <div style={{width:6,height:6,borderRadius:3,background:"#F59E0B"}}/>}
@@ -1541,10 +1549,21 @@ export default function AllocationPanel({ isAdmin = true }) {
                   ))}
                 </div>
 
-                {/* My Brand Assignments */}
-                {myBrands.length > 0 ? (
-                  <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden"}}>
-                    <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",fontSize:12,fontWeight:700,color:"#1A1D2E"}}>My Brand Assignments</div>
+                {/* My Brand Assignments — only for the selected date */}
+                <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+                  <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",fontSize:12,fontWeight:700,color:"#1A1D2E",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span>My Brand Assignments {selectedRosterDate ? (()=>{const d=dates.find(x=>x.date===selectedRosterDate);return d?`— ${d.dd}/${d.mm} ${d.day}`:"";})() : ""}</span>
+                    {selectedRosterDate && (
+                      <button onClick={()=>setSelectedRosterDate(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#64748B",fontSize:11,fontFamily:"inherit"}}>Clear date</button>
+                    )}
+                  </div>
+                  {!selectedRosterDate ? (
+                    <div style={{padding:32,textAlign:"center",color:"#94A3B8",fontSize:13}}>
+                      Click a date in the calendar above to see your brand assignments for that day.
+                    </div>
+                  ) : myBrandsForDate.length === 0 ? (
+                    <div style={{padding:24,textAlign:"center",color:"#94A3B8",fontSize:13}}>No brand assignments for this date.</div>
+                  ) : (
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead><tr style={{background:"#F8FAFC"}}>
                         {["Brand","Warehouse","Platform","Shift"].map(h=>(
@@ -1552,8 +1571,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         ))}
                       </tr></thead>
                       <tbody>
-                        {myBrands.map((mb,i) => (
-                          // FIX (audit #34): stable key
+                        {myBrandsForDate.map((mb,i) => (
                           <tr key={`${mb.brand}|${mb.plat}|${mb.shift}`} style={{borderBottom:"1px solid #F1F5F9",background:i%2===0?"#FAFBFC":"transparent"}}>
                             <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{mb.brand}</td>
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:"#F1F5F9",color:"#94A3B8",fontWeight:600}}>{mb.wh||"—"}</span></td>
@@ -1563,10 +1581,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                         ))}
                       </tbody>
                     </table>
-                  </div>
-                ) : (
-                  <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:24,textAlign:"center",color:"#94A3B8",fontSize:13}}>No brand assignments found for this month.</div>
-                )}
+                  )}
+                </div>
 
                 {/* My Pending Requests */}
                 {changeRequests.filter(r=>r.agentId===myAgent.id).length > 0 && (
