@@ -2310,44 +2310,44 @@ export default function AllocationPanel({ isAdmin = true }) {
                 .signature{margin-top:40px;padding-top:16px;border-top:1px dashed #ccc;font-size:11px;color:#666}
                 @media print{@page{size:A4;margin:15mm}}
               </style></head><body>
-              <div class="row"><div>เลขประจำตัวผู้เสียภาษี / Tax ID</div><div>${myPayrollAgent.taxId || "—"}</div></div>
-              <div class="row"><div>ชื่อ / Name</div><div>${myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div></div>
-              <div class="row"><div>ที่อยู่จัดส่งเอกสาร / Delivery Address</div><div>${myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || "—"}</div></div>
-              <div class="row"><div>ที่อยู่ตามหน้าบัตร / ID Card Address</div><div>${myPayrollAgent.idCardAddress || "—"}</div></div>
-              <div class="center">ใบแจ้งหนี้ / Invoice</div>
-              <div class="row"><div>เลขประจำตัวผู้เสียภาษี / Customer Tax ID</div><div>${COMPANY_INFO.taxId}</div></div>
-              <div class="row"><div>นามลูกค้า / Customer</div><div>${COMPANY_INFO.name}</div></div>
-              <div class="row" style="margin-bottom:10px"><div>ที่อยู่ / Address</div><div>${COMPANY_INFO.address}</div></div>
+              <div class="row"><div>เลขประจำตัวผู้เสียภาษี</div><div>${myPayrollAgent.taxId || "—"}</div></div>
+              <div class="row"><div>ชื่อ</div><div>${myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div></div>
+              <div class="row"><div>ที่อยู่จัดส่งเอกสาร</div><div>${myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || "—"}</div></div>
+              <div class="row"><div>ที่อยู่ตามหน้าบัตร</div><div>${myPayrollAgent.idCardAddress || "—"}</div></div>
+              <div class="center">ใบแจ้งหนี้</div>
+              <div class="row"><div>เลขประจำตัวผู้เสียภาษี</div><div>${COMPANY_INFO.taxId}</div></div>
+              <div class="row"><div>นามลูกค้า</div><div>${COMPANY_INFO.name}</div></div>
+              <div class="row" style="margin-bottom:10px"><div>ที่อยู่</div><div>${COMPANY_INFO.address}</div></div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:8px">
-                <div><b>เลขที่ / No. :</b> ${invoiceNumber}</div>
-                <div style="text-align:right"><b>วันที่ / Date :</b> ${invoiceDate}</div>
+                <div><b>เลขที่ :</b> ${invoiceNumber}</div>
+                <div style="text-align:right"><b>วันที่ :</b> ${invoiceDate}</div>
               </div>
               <table>
-                <thead><tr><th>รายการ / Description</th><th style="text-align:right;width:160px">จำนวนเงิน / Amount (บาท / THB)</th></tr></thead>
+                <thead><tr><th>รายการ</th><th style="text-align:right;width:160px">จำนวนเงิน (บาท)</th></tr></thead>
                 <tbody>
-                  <tr><td>ค่าบริการตอบแชทช่วงเดือน ${invoiceMonthLabel} ${thaiYear} (${workDays} วัน)<div style="font-size:10px;color:#666;margin-top:2px">Chat reply service — ${MONTHS[periodM]} ${periodY} (${workDays} days)</div></td><td style="text-align:right;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
-                  <tr><td style="text-align:right;font-weight:700">รวม / Total</td><td style="text-align:right;font-weight:700;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
+                  <tr><td>ค่าบริการตอบแชทช่วงเดือน ${invoiceMonthLabel} ${thaiYear}</td><td style="text-align:right;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
+                  <tr><td style="text-align:right;font-weight:700">รวม</td><td style="text-align:right;font-weight:700;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
                 </tbody>
               </table>
               <div style="margin-top:18px;display:grid;grid-template-columns:170px 100px 70px;gap:6px;font-size:13px">
-                <div>จำนวนเงินที่ได้รับ / Net Amount</div><div style="text-align:right;font-family:monospace">${fmtBaht(netAmount)}</div><div>บาท / THB</div>
-                <div>ภาษีหัก ณ ที่จ่าย 3% / Withholding 3%</div><div style="text-align:right;font-family:monospace">${fmtBaht(withholding)}</div><div>บาท / THB</div>
+                <div>จำนวนเงินที่ได้รับ</div><div style="text-align:right;font-family:monospace">${fmtBaht(netAmount)}</div><div>บาท</div>
+                <div>ภาษีหัก ณ ที่จ่าย 3%</div><div style="text-align:right;font-family:monospace">${fmtBaht(withholding)}</div><div>บาท</div>
               </div>
               <div class="pay-section">
-                <h3>ช่องทางการชำระเงิน / Payment Channel</h3>
-                <div class="row"><div>ธนาคาร / Bank</div><div>${myPayrollAgent.bankName || "—"}</div></div>
-                <div class="row"><div>ชื่อบัญชี / Account Name</div><div>${myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || "—"}</div></div>
-                <div class="row"><div>เลขที่บัญชี / Account No.</div><div>${myPayrollAgent.bankAccount || "—"}</div></div>
+                <h3>ช่องทางการชำระเงิน</h3>
+                <div class="row"><div>ธนาคาร</div><div>${myPayrollAgent.bankName || "—"}</div></div>
+                <div class="row"><div>ชื่อบัญชี</div><div>${myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || "—"}</div></div>
+                <div class="row"><div>เลขที่บัญชี</div><div>${myPayrollAgent.bankAccount || "—"}</div></div>
               </div>
               <div style="margin-top:50px;display:grid;grid-template-columns:1fr 1fr;gap:60px">
                 <div style="text-align:center">
                   <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px"></div>
-                  <div style="font-size:11px">ลงนามผู้ออกใบแจ้งหนี้ / Issuer Signature</div>
+                  <div style="font-size:11px">ลงนามผู้ออกใบแจ้งหนี้</div>
                   ${signature ? `<div style="font-size:10px;color:#666;margin-top:4px">(${signature.name} · ${new Date(signature.signedAt).toLocaleDateString("th-TH")})</div>` : ""}
                 </div>
                 <div style="text-align:center">
                   <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px"></div>
-                  <div style="font-size:11px">วันที่ / Date</div>
+                  <div style="font-size:11px">วันที่</div>
                 </div>
               </div>
               <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
@@ -2398,43 +2398,43 @@ export default function AllocationPanel({ isAdmin = true }) {
               <div style={{padding:"20px 24px",fontSize:12,fontFamily:"'Sarabun',sans-serif"}}>
                 {/* Agent header */}
                 <div style={{display:"grid",gridTemplateColumns:"170px 1fr",gap:4,fontSize:12,marginBottom:14}}>
-                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Tax ID</span></div><div>{myPayrollAgent.taxId || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
-                  <div style={{fontWeight:700}}>ชื่อ <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Name</span></div><div>{myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div>
-                  <div style={{fontWeight:700}}>ที่อยู่จัดส่งเอกสาร <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Delivery Address</span></div><div>{myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
-                  <div style={{fontWeight:700}}>ที่อยู่ตามหน้าบัตร <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ ID Card Address</span></div><div>{myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
+                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี</div><div>{myPayrollAgent.taxId || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
+                  <div style={{fontWeight:700}}>ชื่อ</div><div>{myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div>
+                  <div style={{fontWeight:700}}>ที่อยู่จัดส่งเอกสาร</div><div>{myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
+                  <div style={{fontWeight:700}}>ที่อยู่ตามหน้าบัตร</div><div>{myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
                 </div>
-                <div style={{textAlign:"center",border:"1px solid #1A1D2E",padding:"8px 0",fontWeight:700,fontSize:16,marginBottom:14}}>ใบแจ้งหนี้ / Invoice</div>
+                <div style={{textAlign:"center",border:"1px solid #1A1D2E",padding:"8px 0",fontWeight:700,fontSize:16,marginBottom:14}}>ใบแจ้งหนี้</div>
                 <div style={{display:"grid",gridTemplateColumns:"170px 1fr",gap:4,fontSize:12,marginBottom:8}}>
-                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Customer Tax ID</span></div><div>{COMPANY_INFO.taxId}</div>
-                  <div style={{fontWeight:700}}>นามลูกค้า <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Customer</span></div><div>{COMPANY_INFO.name}</div>
-                  <div style={{fontWeight:700}}>ที่อยู่ <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Address</span></div><div>{COMPANY_INFO.address}</div>
+                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี</div><div>{COMPANY_INFO.taxId}</div>
+                  <div style={{fontWeight:700}}>นามลูกค้า</div><div>{COMPANY_INFO.name}</div>
+                  <div style={{fontWeight:700}}>ที่อยู่</div><div>{COMPANY_INFO.address}</div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,fontSize:12,marginBottom:14}}>
-                  <div><b>เลขที่ / No. :</b> {invoiceNumber}</div>
-                  <div style={{textAlign:"right"}}><b>วันที่ / Date :</b> {invoiceDate}</div>
+                  <div><b>เลขที่ :</b> {invoiceNumber}</div>
+                  <div style={{textAlign:"right"}}><b>วันที่ :</b> {invoiceDate}</div>
                 </div>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginBottom:14}}>
                   <thead><tr style={{background:"#FAFAFA"}}>
-                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"left",fontWeight:700}}>รายการ / Description</th>
-                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700,width:160}}>จำนวนเงิน / Amount (บาท / THB)</th>
+                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"left",fontWeight:700}}>รายการ</th>
+                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700,width:160}}>จำนวนเงิน (บาท)</th>
                   </tr></thead>
                   <tbody>
                     <tr>
-                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px"}}>ค่าบริการตอบแชทช่วงเดือน {invoiceMonthLabel} {thaiYear} ({workDays} วัน)<div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>Chat reply service — {MONTHS[periodM]} {periodY} ({workDays} days)</div></td>
+                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px"}}>ค่าบริการตอบแชทช่วงเดือน {invoiceMonthLabel} {thaiYear}</td>
                       <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontFamily:"monospace"}}>{subtotal.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                     </tr>
                     <tr>
-                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700}}>รวม / Total</td>
+                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700}}>รวม</td>
                       <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700,fontFamily:"monospace"}}>{subtotal.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                     </tr>
                   </tbody>
                 </table>
                 <div style={{display:"grid",gridTemplateColumns:"170px 100px 70px",gap:6,fontSize:12,marginBottom:18}}>
-                  <div>จำนวนเงินที่ได้รับ <span style={{color:"#94A3B8",fontSize:10}}>/ Net Amount</span></div><div style={{textAlign:"right",fontFamily:"monospace"}}>{netAmount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
-                  <div>ภาษีหัก ณ ที่จ่าย 3% <span style={{color:"#94A3B8",fontSize:10}}>/ Withholding 3%</span></div><div style={{textAlign:"right",fontFamily:"monospace"}}>{withholding.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
+                  <div>จำนวนเงินที่ได้รับ</div><div style={{textAlign:"right",fontFamily:"monospace"}}>{netAmount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
+                  <div>ภาษีหัก ณ ที่จ่าย 3%</div><div style={{textAlign:"right",fontFamily:"monospace"}}>{withholding.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
                 </div>
                 <div>
-                  <div style={{fontWeight:700,textDecoration:"underline",fontSize:12,marginBottom:6}}>ช่องทางการชำระเงิน / Payment Channel</div>
+                  <div style={{fontWeight:700,textDecoration:"underline",fontSize:12,marginBottom:6}}>ช่องทางการชำระเงิน</div>
                   <div style={{display:"grid",gridTemplateColumns:"170px 1fr",gap:4,fontSize:12}}>
                     <div>ธนาคาร / Bank</div><div>{myPayrollAgent.bankName || <span style={{color:"#CBD5E1"}}>—</span>}</div>
                     <div>ชื่อบัญชี / Account Name</div><div>{myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || <span style={{color:"#CBD5E1"}}>—</span>}</div>
@@ -2689,7 +2689,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <label style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:5}}>ID Card Address / ที่อยู่ตามหน้าบัตร</label>
                       <textarea value={inviteFormData.idCardAddress}
                         onChange={e=>setInviteFormData(d=>({...d,idCardAddress:e.target.value}))}
-                        placeholder="9 ซ.รังสิต-ปทุมธานี14 ซอย8 ต.ประชาธิปัตย์ อ.ธัญบุรี จ.ปทุมธานี 12130"
+                        placeholder="เช่น 99 ถ.ตัวอย่าง แขวงตัวอย่าง เขตตัวอย่าง กรุงเทพมหานคร 10110"
                         rows={2}
                         style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box",resize:"vertical"}}/>
                     </div>
