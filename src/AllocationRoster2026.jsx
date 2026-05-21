@@ -269,9 +269,22 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands) {
     });
   });
 
-  // ── T1 + Return: daily rate agents — holidays don't force off ─────────────
-  // They get 1 day off per week, spread evenly across the month
-  const t1  = agents.filter(a => a.active && (a.team === "T1" || a.team === "Return"));
+  // ── Return: fixed schedule (work all available days, no count limits) ─────
+  // Return agents have a fixed weekly schedule (e.g. AOF = Mon-Sat).
+  // They are NOT subject to the auto-fill count limits or day-off staggering.
+  const returnOnly = agents.filter(a => a.active && a.team === "Return");
+  returnOnly.forEach(ag => {
+    dates.forEach(d => {
+      const k  = `${ag.id}_${d.date}`;
+      const avail = ag.days.includes(d.wd);
+      nxt[k] = avail ? (ag.shifts[0] || "M") : "Off";
+    });
+  });
+
+  // ── T1: daily rate agents — auto-fill with count limits ──────────────────
+  // They get 1 day off per week, spread evenly across the month.
+  // Return agents are excluded here so they don't count against T1 quotas.
+  const t1  = agents.filter(a => a.active && a.team === "T1");
 
   // ── T1: compute fair days-off spread across the entire period ────────────
   // For each agent, figure out their available days, then space out OFF days
