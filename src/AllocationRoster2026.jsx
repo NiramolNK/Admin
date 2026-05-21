@@ -3277,11 +3277,11 @@ export default function AllocationPanel({ isAdmin = true }) {
               );
 
               const exportPayCSV = () => {
-                const rows = [["Agent","Team","Period","Work Days","Cost/Day (฿)","Total Pay (฿)"]];
+                const rows = [["Agent","Bank","Account Number","Account Holder","Period","Work Days","Cost/Day (฿)","Total Pay (฿)"]];
                 payRows.forEach(({ag,workDays,totalPay}) => {
-                  rows.push([ag.name,ag.team,periodLabel,workDays,ag.costDay,Math.round(totalPay)]);
+                  rows.push([ag.fullName||ag.name,ag.bankName||"",ag.bankAccount||"",ag.bankAccountName||"",periodLabel,workDays,ag.costDay,Math.round(totalPay)]);
                 });
-                rows.push(["","","","TOTAL","",Math.round(grandTotal)]);
+                rows.push(["","","","","","TOTAL","",Math.round(grandTotal)]);
                 dlXLSX(rows, `Payment_${MONTHS[payMonth-1]}${payYear}.xlsx`);
               };
 
@@ -3372,7 +3372,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead>
                       <tr style={{background:"#E4EAF5"}}>
-                        {["Agent","Team","Bank Details","Work Days","Cost/Day (฿)","Total Pay (฿)"].map(h=>(
+                        {["Agent","Bank Details","Work Days","Cost/Day (฿)","Total Pay (฿)"].map(h=>(
                           <th key={h} style={{padding:"8px 12px",textAlign:["Work Days","Cost/Day (฿)","Total Pay (฿)"].includes(h)?"right":"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
                         ))}
                       </tr>
@@ -3385,15 +3385,28 @@ export default function AllocationPanel({ isAdmin = true }) {
                         const tc = ALLOC_TEAM_C[team];
                         return [
                           <tr key={`${team}-hdr`} style={{background:tc.bg+"44"}}>
-                            <td colSpan={6} style={{padding:"5px 12px",fontSize:10,fontWeight:700,color:tc.color,letterSpacing:1}}>{team} — Daily Rate × Worked Days</td>
+                            <td colSpan={5} style={{padding:"5px 12px",fontSize:10,fontWeight:700,color:tc.color,letterSpacing:1}}>{team} — Daily Rate × Worked Days</td>
                           </tr>,
                           ...teamRows.map(({ag,workDays,normalDays,totalPay},ri) => {
-                            const prof = userProfiles[(ag.name||"").toLowerCase()] || {};
+                            // Pull personal info from agent record (set via the agent self-fill form / Teams modal)
+                            const fullName = ag.fullName || ag.name;
+                            const bankLabel = ag.bankName || "";
+                            const bankAcct = ag.bankAccount || "";
+                            const bankHolder = ag.bankAccountName || "";
+                            const hasBank = bankLabel || bankAcct || bankHolder;
                             return (
                             <tr key={ag.id} style={{borderBottom:"1px solid #F1F5F9",background:ri%2===0?"#FAFBFC":"transparent"}}>
-                              <td style={{padding:"8px 12px"}}><div style={{fontWeight:700,color:"#1A1D2E"}}>{ag.name}</div>{prof.fullName && <div style={{fontSize:10,color:"#94A3B8"}}>{prof.fullName}</div>}</td>
-                              <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:tc.bg,color:tc.color,fontWeight:700}}>{team}</span></td>
-                              <td style={{padding:"8px 12px",fontSize:11,color:"#64748B"}}>{prof.bankName || prof.bankAccountNo ? <div>{prof.bankName && <div style={{fontWeight:600}}>{prof.bankName}</div>}{prof.bankAccountNo && <div style={{fontFamily:"monospace",fontSize:10,color:"#94A3B8"}}>{prof.bankAccountNo}</div>}</div> : <span style={{color:"#CBD5E1"}}>—</span>}</td>
+                              <td style={{padding:"8px 12px"}}>
+                                <div style={{fontWeight:700,color:"#1A1D2E"}}>{fullName}</div>
+                                {fullName !== ag.name && <div style={{fontSize:10,color:"#94A3B8",marginTop:1}}>({ag.name})</div>}
+                              </td>
+                              <td style={{padding:"8px 12px",fontSize:11,color:"#64748B"}}>{hasBank ? (
+                                <div>
+                                  {bankLabel && <div style={{fontWeight:600,color:"#1A1D2E"}}>{bankLabel}</div>}
+                                  {bankAcct && <div style={{fontFamily:"monospace",fontSize:10,color:"#475569"}}>{bankAcct}</div>}
+                                  {bankHolder && <div style={{fontSize:10,color:"#94A3B8"}}>{bankHolder}</div>}
+                                </div>
+                              ) : <span style={{color:"#CBD5E1"}}>—</span>}</td>
                               <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,color:"#0D9488",textAlign:"right"}}>{workDays}</td>
                               <td style={{padding:"8px 12px",fontFamily:"monospace",color:"#94A3B8",textAlign:"right"}}>฿{ag.costDay.toLocaleString()}</td>
                               <td style={{padding:"8px 12px",fontFamily:"monospace",fontWeight:700,fontSize:14,color:"#065F46",textAlign:"right"}}>฿{Math.round(totalPay).toLocaleString()}</td>
@@ -3401,13 +3414,13 @@ export default function AllocationPanel({ isAdmin = true }) {
                             );
                           }),
                           <tr key={`${team}-sub`} style={{background:tc.bg+"22",borderTop:`1px solid ${tc.color}44`}}>
-                            <td colSpan={5} style={{padding:"6px 12px",fontWeight:700,color:tc.color,fontSize:11}}>{team} SUBTOTAL</td>
+                            <td colSpan={4} style={{padding:"6px 12px",fontWeight:700,color:tc.color,fontSize:11}}>{team} SUBTOTAL</td>
                             <td style={{padding:"6px 12px",fontFamily:"monospace",fontWeight:700,color:tc.color,textAlign:"right"}}>฿{Math.round(teamTotal).toLocaleString()}</td>
                           </tr>
                         ];
                       })}
                       <tr style={{background:"#F0FDFA",borderTop:"2px solid #0D9488"}}>
-                        <td colSpan={5} style={{padding:"12px 12px",fontWeight:700,color:"#0D9488",fontSize:13}}>GRAND TOTAL</td>
+                        <td colSpan={4} style={{padding:"12px 12px",fontWeight:700,color:"#0D9488",fontSize:13}}>GRAND TOTAL</td>
                         <td style={{padding:"12px 12px",fontFamily:"monospace",fontWeight:700,fontSize:16,color:"#065F46",textAlign:"right"}}>฿{Math.round(grandTotal).toLocaleString()}</td>
                         <td/>
                       </tr>
