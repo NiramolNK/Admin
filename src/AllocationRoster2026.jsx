@@ -2669,11 +2669,11 @@ export default function AllocationPanel({ isAdmin = true }) {
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
                     <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E"}}>Personal Information / ข้อมูลส่วนตัว</div>
                     {[
-                      ["fullName","Full Name (English)","text","e.g. Kawisra Boriboon"],
-                      ["thaiName","ชื่อ-นามสกุล (ภาษาไทย)","text","น.ส.กวิสรา บริบูรณ์"],
+                      ["fullName","Full Name (English)","text","e.g. Jane Doe"],
+                      ["thaiName","ชื่อ-นามสกุล (ภาษาไทย)","text","น.ส.ใจดี ขยันงาน"],
                       ["phone","Phone / เบอร์โทร","tel","081-234-5678"],
                       ["idCard","ID Card Number / เลขบัตรประชาชน","text","1-1234-56789-01-2"],
-                      ["taxId","Tax ID / เลขประจำตัวผู้เสียภาษี (13 digits)","text","1100501043761"],
+                      ["taxId","Tax ID / เลขประจำตัวผู้เสียภาษี (13 digits)","text","x-xxxx-xxxxx-xx-x"],
                       ["startDate","Start Date / วันเริ่มงาน","date",""],
                     ].map(([field,label,type,placeholder])=>(
                       <div key={field}>
@@ -2711,9 +2711,9 @@ export default function AllocationPanel({ isAdmin = true }) {
 
                     <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E",marginTop:4}}>Bank Account / บัญชีธนาคาร</div>
                     {[
-                      ["bankName","Bank / ธนาคาร","text","กสิกรไทย / Kasikorn Bank"],
-                      ["bankAccountName","Account Holder / ชื่อบัญชี","text","น.ส.กวิสรา บริบูรณ์"],
-                      ["bankAccount","Account Number / เลขที่บัญชี","text","1171297113"],
+                      ["bankName","Bank / ธนาคาร","text","e.g. Kasikorn Bank / กสิกรไทย"],
+                      ["bankAccountName","Account Holder / ชื่อบัญชี","text","น.ส.ใจดี ขยันงาน"],
+                      ["bankAccount","Account Number / เลขที่บัญชี","text","xxx-x-xxxxx-x"],
                     ].map(([field,label,type,placeholder])=>(
                       <div key={field}>
                         <label style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:5}}>{label}</label>
