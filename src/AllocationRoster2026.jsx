@@ -256,8 +256,13 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn) {
 //     - Days-off are spaced as evenly as possible (not clustered)
 //     - Shift assignment respects each agent's allowed shifts
 //     - When multiple agents are eligible, always pick the one with fewest days assigned so far
-function allocAutoFillConstrained(agents, dates, flags, constraints, brands) {
+function allocAutoFillConstrained(agents, dates, flags, constraints, brands, existing = {}) {
   const nxt = {};
+  // Honor pre-existing manual assignments — they are kept as-is.
+  // For "Off" days set by manager (day-off requests), we treat them as fixed days off.
+  // Working days already assigned (M/E/ME/TOIL/OT) count toward that agent's day total
+  // so fairness in subsequent auto-fill ignores them as "already worked".
+  Object.assign(nxt, existing);
   // ── T2: fixed schedule (they're salaried, just mark their available days) ──
   const t2Only = agents.filter(a => a.active && a.team === "T2");
   t2Only.forEach(ag => {
@@ -320,9 +325,18 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands) {
   });
 
   // ── T1: load-balanced daily assignment ────────────────────────────────────
-  // Track assigned day count per agent so we always pick the least-used agent first
+  // Track assigned day count per agent so we always pick the least-used agent first.
+  // Pre-existing manual working days (M/E/ME) count toward each agent's tally so
+  // an agent with many manual assignments gets proportionally fewer auto-filled days.
   const dayCount = {};
-  t1.forEach(ag => { dayCount[ag.id] = 0; });
+  t1.forEach(ag => {
+    let n = 0;
+    dates.forEach(d => {
+      const v = existing[`${ag.id}_${d.date}`];
+      if (v && (v === "M" || v === "E" || v === "ME")) n++;
+    });
+    dayCount[ag.id] = n;
+  });
 
   // Also track shift rotation per agent: which shift index to use next
   const shiftIdx = {};
@@ -345,11 +359,16 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands) {
       (b.platforms || []).forEach(p => { totalDailyChats += b.chats?.[p] || 0; })
     );
 
-    // Split agents into available (can work today) and unavailable (forced off)
+    // Split agents into available (can work today) and unavailable (forced off).
+    // Also treat manager-set Off / TOIL / OT entries in `existing` as fixed — skip them.
+    const isFixed = (a) => {
+      const v = existing[`${a.id}_${d.date}`];
+      return v === "Off" || v === "TOIL" || v === "OT" || v === "M" || v === "ME" || v === "E";
+    };
     const unavail = t1.filter(a => !a.days.includes(d.wd) || forcedOff[`${a.id}_${d.date}`]);
-    const avail   = t1.filter(a =>  a.days.includes(d.wd) && !forcedOff[`${a.id}_${d.date}`]);
+    const avail   = t1.filter(a =>  a.days.includes(d.wd) && !forcedOff[`${a.id}_${d.date}`] && !isFixed(a));
 
-    unavail.forEach(ag => { nxt[`${ag.id}_${d.date}`] = "Off"; });
+    unavail.forEach(ag => { if (!existing[`${ag.id}_${d.date}`]) nxt[`${ag.id}_${d.date}`] = "Off"; });
     if (!avail.length) return;
 
     // Sort available agents by ascending day count (fewest days worked first = fairest)
@@ -1906,7 +1925,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                         chatPerAgent: fillChatCap ? Number(fillChatCap) : null,
                         dateOverrides: fillDateOverrides,
                       };
-                      const filled = allocAutoFillConstrained(agents, dates, flags, constraints, brands);
+                      // Pass current asgn so fairness math accounts for manual pre-assignments
+                      const filled = allocAutoFillConstrained(agents, dates, flags, constraints, brands, fillMode === "fill" ? asgn : {});
 
                       if (fillMode === "fill") {
                         // Fill Empty: only write cells that have no existing assignment
