@@ -572,6 +572,46 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // ── Role-based access (login screen) ──────────────────────────────────────
   const [role, setRole]             = useState(null); // null = not logged in yet
+  // eSign signature pad (drawn signature)
+  const [signPadOpen, setSignPadOpen] = useState(false);
+  // Stores what we're signing: { agentId, signatureKey }
+  const [signPadContext, setSignPadContext] = useState(null);
+  const signCanvasRef = useRef(null);
+  const signDrawingRef = useRef({ drawing: false, last: null });
+
+  // Top-level save handler that the modal can call (it's outside the invoice IIFE scope)
+  const saveSignaturePad = () => {
+    const c = signCanvasRef.current;
+    if (!c || !signPadContext) return;
+    const ctx = c.getContext("2d");
+    const pixels = ctx.getImageData(0, 0, c.width, c.height).data;
+    let drawn = false;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i] !== 255 || pixels[i+1] !== 255 || pixels[i+2] !== 255) { drawn = true; break; }
+    }
+    if (!drawn) { alert("กรุณาเซ็นชื่อก่อน / Please draw your signature first"); return; }
+    const dataUrl = c.toDataURL("image/png");
+    const { agentId, signatureKey } = signPadContext;
+    setAgents(prev => prev.map(a => a.id === agentId
+      ? { ...a, signatures: { ...(a.signatures||{}), [signatureKey]: { dataUrl, signedAt: new Date().toISOString() } } }
+      : a
+    ));
+    setSignPadOpen(false);
+    setSignPadContext(null);
+    alert("ลงนามเรียบร้อย / Invoice signed.");
+  };
+
+  const clearSignaturePad = () => {
+    const c = signCanvasRef.current;
+    if (!c) return;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, c.width, c.height);
+    ctx.strokeStyle = "#0D9488";
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+  };
   const [loginUser, setLoginUser]   = useState("");
   const [loginPass, setLoginPass]   = useState("");
   const [loginError, setLoginError] = useState("");
@@ -2280,13 +2320,20 @@ export default function AllocationPanel({ isAdmin = true }) {
           const signature = (myPayrollAgent.signatures || {})[signatureKey];
 
           const handleSign = () => {
-            const name = window.prompt("Type your full name to sign this invoice / กรอกชื่อ-นามสกุลของคุณเพื่อลงนาม:");
-            if (!name || !name.trim()) return;
-            setAgents(prev => prev.map(a => a.id === myPayrollAgent.id
-              ? { ...a, signatures: { ...(a.signatures||{}), [signatureKey]: { name: name.trim(), signedAt: new Date().toISOString() } } }
-              : a
-            ));
-            alert("Invoice signed. Your manager will receive a copy.");
+            setSignPadContext({ agentId: myPayrollAgent.id, signatureKey });
+            setSignPadOpen(true);
+            // Defer canvas initialization until the modal renders
+            setTimeout(() => {
+              const c = signCanvasRef.current;
+              if (!c) return;
+              const ctx = c.getContext("2d");
+              ctx.fillStyle = "#fff";
+              ctx.fillRect(0, 0, c.width, c.height);
+              ctx.strokeStyle = "#0D9488";
+              ctx.lineWidth = 2.5;
+              ctx.lineCap = "round";
+              ctx.lineJoin = "round";
+            }, 50);
           };
 
           const printInvoice = () => {
@@ -2339,21 +2386,27 @@ export default function AllocationPanel({ isAdmin = true }) {
                 <div class="row"><div>ชื่อบัญชี</div><div>${myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || "—"}</div></div>
                 <div class="row"><div>เลขที่บัญชี</div><div>${myPayrollAgent.bankAccount || "—"}</div></div>
               </div>
-              <div style="margin-top:50px;display:grid;grid-template-columns:1fr 1fr;gap:60px">
-                <div style="text-align:center">
-                  <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px">
-                    ${signature ? `<div style="font-family:'Sarabun',cursive;font-size:18px;font-weight:700;color:#1a1d2e;font-style:italic">${signature.name}</div>` : ""}
+              <div style="margin-top:50px;text-align:center">
+                <div style="display:inline-block;text-align:center">
+                  <div style="border-bottom:1px solid #000;width:280px;height:80px;margin-bottom:6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px">
+                    ${signature && signature.dataUrl ? `<img src="${signature.dataUrl}" style="max-height:74px;max-width:270px"/>` : signature && signature.name ? `<div style="font-family:'Sarabun',cursive;font-size:18px;font-weight:700;color:#1a1d2e;font-style:italic">${signature.name}</div>` : ""}
                   </div>
                   <div style="font-size:11px;font-weight:700">eSign</div>
                   ${signature ? `<div style="font-size:9px;color:#0D9488;margin-top:3px">✓ ลงนามอิเล็กทรอนิกส์ผ่านระบบ NiRM</div>` : `<div style="font-size:9px;color:#aaa;margin-top:3px">(ยังไม่ได้ลงนาม)</div>`}
                 </div>
-                <div style="text-align:center">
-                  <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px">
-                    ${signature ? `<div style="font-size:13px;color:#1a1d2e">${new Date(signature.signedAt).toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" })}</div>` : ""}
-                  </div>
-                  <div style="font-size:11px;font-weight:700">วันที่</div>
-                </div>
               </div>
+              ${myPayrollAgent.idCardPhotoUrl ? `
+                <div style="page-break-before:always;padding-top:40px">
+                  <h2 style="font-size:14px;font-weight:700;margin-bottom:10px;text-align:center">สำเนาบัตรประชาชน / ID Card</h2>
+                  <div style="text-align:center"><img src="${myPayrollAgent.idCardPhotoUrl}" style="max-width:100%;max-height:600px;border:1px solid #ccc"/></div>
+                </div>
+              ` : ""}
+              ${myPayrollAgent.bookbankPhotoUrl ? `
+                <div style="page-break-before:always;padding-top:40px">
+                  <h2 style="font-size:14px;font-weight:700;margin-bottom:10px;text-align:center">สำเนาสมุดบัญชี / Bookbank</h2>
+                  <div style="text-align:center"><img src="${myPayrollAgent.bookbankPhotoUrl}" style="max-width:100%;max-height:600px;border:1px solid #ccc"/></div>
+                </div>
+              ` : ""}
               <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
               </body></html>`);
             w.document.close();
@@ -2445,21 +2498,19 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <div>เลขที่บัญชี / Account No.</div><div>{myPayrollAgent.bankAccount || <span style={{color:"#CBD5E1"}}>—</span>}</div>
                   </div>
                 </div>
-                <div style={{marginTop:30,paddingTop:20,borderTop:"1px dashed #CBD5E1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:40}}>
+                <div style={{marginTop:30,paddingTop:20,borderTop:"1px dashed #CBD5E1",display:"flex",justifyContent:"center"}}>
                   <div style={{textAlign:"center"}}>
-                    <div style={{borderBottom:"1px solid #1A1D2E",height:50,marginBottom:6,display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:4}}>
-                      {signature ? <div style={{fontSize:18,fontWeight:700,color:"#0D9488",fontStyle:"italic"}}>{signature.name}</div> : null}
+                    <div style={{borderBottom:"1px solid #1A1D2E",width:300,height:80,marginBottom:6,display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:2}}>
+                      {signature && signature.dataUrl
+                        ? <img src={signature.dataUrl} alt="eSign" style={{maxHeight:74,maxWidth:290}}/>
+                        : signature && signature.name
+                        ? <div style={{fontSize:18,fontWeight:700,color:"#0D9488",fontStyle:"italic"}}>{signature.name}</div>
+                        : null}
                     </div>
                     <div style={{fontSize:11,fontWeight:700,color:"#1A1D2E"}}>eSign</div>
                     {signature
                       ? <div style={{fontSize:9,color:"#0D9488",marginTop:3}}>✓ ลงนามอิเล็กทรอนิกส์ผ่านระบบ NiRM</div>
                       : <div style={{fontSize:9,color:"#CBD5E1",marginTop:3}}>(ยังไม่ได้ลงนาม)</div>}
-                  </div>
-                  <div style={{textAlign:"center"}}>
-                    <div style={{borderBottom:"1px solid #1A1D2E",height:50,marginBottom:6,display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:4}}>
-                      {signature ? <div style={{fontSize:13,color:"#1A1D2E"}}>{new Date(signature.signedAt).toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"})}</div> : null}
-                    </div>
-                    <div style={{fontSize:11,fontWeight:700,color:"#1A1D2E"}}>วันที่</div>
                   </div>
                 </div>
               </div>
@@ -2667,6 +2718,61 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
                       <button onClick={()=>setAgentModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Cancel</button>
                       <button onClick={saveAgent} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── eSign Signature Pad Modal ── */}
+            {signPadOpen && (
+              <div style={{position:"fixed",inset:0,zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.7)",backdropFilter:"blur(6px)"}}
+                onMouseDown={(e)=>{ if(e.target===e.currentTarget) setSignPadOpen(false); }}>
+                <div style={{background:"#fff",borderRadius:16,padding:24,width:520,maxWidth:"95vw",boxShadow:"0 24px 64px #00000099"}}>
+                  <div style={{textAlign:"center",marginBottom:14}}>
+                    <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E"}}>เซ็นชื่อ / Sign Invoice</div>
+                    <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>เซ็นด้วยเมาส์หรือนิ้ว / Draw with mouse or finger</div>
+                  </div>
+                  <canvas ref={signCanvasRef} width="480" height="200"
+                    style={{width:"100%",maxWidth:480,height:200,border:"2px dashed #0D9488",borderRadius:10,background:"#fff",touchAction:"none",cursor:"crosshair",display:"block",margin:"0 auto"}}
+                    onPointerDown={(e)=>{
+                      const c = signCanvasRef.current; if(!c) return;
+                      c.setPointerCapture(e.pointerId);
+                      const rect = c.getBoundingClientRect();
+                      const x = (e.clientX - rect.left) * (c.width / rect.width);
+                      const y = (e.clientY - rect.top) * (c.height / rect.height);
+                      signDrawingRef.current = { drawing: true, last: { x, y } };
+                    }}
+                    onPointerMove={(e)=>{
+                      if (!signDrawingRef.current.drawing) return;
+                      const c = signCanvasRef.current; if(!c) return;
+                      const rect = c.getBoundingClientRect();
+                      const x = (e.clientX - rect.left) * (c.width / rect.width);
+                      const y = (e.clientY - rect.top) * (c.height / rect.height);
+                      const ctx = c.getContext("2d");
+                      ctx.beginPath();
+                      ctx.moveTo(signDrawingRef.current.last.x, signDrawingRef.current.last.y);
+                      ctx.lineTo(x, y);
+                      ctx.stroke();
+                      signDrawingRef.current.last = { x, y };
+                    }}
+                    onPointerUp={()=>{ signDrawingRef.current = { drawing: false, last: null }; }}
+                    onPointerCancel={()=>{ signDrawingRef.current = { drawing: false, last: null }; }}
+                  />
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,marginTop:16}}>
+                    <button onClick={clearSignaturePad}
+                      style={{padding:"9px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                      ล้าง / Clear
+                    </button>
+                    <div style={{display:"flex",gap:8}}>
+                      <button onClick={()=>setSignPadOpen(false)}
+                        style={{padding:"9px 18px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                        ยกเลิก / Cancel
+                      </button>
+                      <button onClick={saveSignaturePad}
+                        style={{padding:"9px 22px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                        บันทึก / Save
+                      </button>
                     </div>
                   </div>
                 </div>
