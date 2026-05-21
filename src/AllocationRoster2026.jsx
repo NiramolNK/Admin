@@ -3809,7 +3809,6 @@ export default function AllocationPanel({ isAdmin = true }) {
                         <th style={{padding:"8px 10px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",minWidth:50}}>Platform</th>
                         <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#1D4ED8",minWidth:70}}>Chats</th>
                         <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#0D9488",minWidth:80}}>Replied</th>
-                        <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#065F46",minWidth:90}}>Reply Rate</th>
                         <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#B45309",minWidth:90}}>Avg 1st Resp</th>
                         <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#EE4D2D",minWidth:80}}>Conv %</th>
                         <th style={{padding:"8px 10px",textAlign:"right",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#065F46",minWidth:110}}>Order Amt (฿)</th>
@@ -3823,7 +3822,6 @@ export default function AllocationPanel({ isAdmin = true }) {
                         const rowBg = bi%2===0?"#FAFBFC":"transparent";
                         return rows.map(([mkt, p], ri) => {
                           const pc = PLATFORM_C[mkt.charAt(0).toUpperCase()+mkt.slice(1)];
-                          const replyRate = p.chats>0 ? ((p.replied/p.chats)*100).toFixed(1) : "—";
                           const isFirst = ri===0;
                           return (
                             <tr key={`${b.id}_${mkt}`} style={{borderBottom:"1px solid #F1F5F9",background:rowBg}}>
@@ -3842,9 +3840,6 @@ export default function AllocationPanel({ isAdmin = true }) {
                               </td>
                               <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:"#1D4ED8"}}>{p.chats.toLocaleString()}</td>
                               <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:"#0D9488"}}>{p.replied.toLocaleString()}</td>
-                              <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:Number(replyRate)>=95?"#34D399":Number(replyRate)>=80?"#F59E0B":"#F87171"}}>
-                                {replyRate}{replyRate!=="—"?"%":""}
-                              </td>
                               <td style={{padding:"6px 10px",textAlign:"right",fontFamily:"monospace",color:p.avgResp==null?"#94A3B8":p.avgResp<=5?"#34D399":p.avgResp<=15?"#F59E0B":"#F87171"}}>
                                 {p.avgResp!=null ? `${p.avgResp} min` : "—"}
                               </td>
