@@ -2724,57 +2724,6 @@ export default function AllocationPanel({ isAdmin = true }) {
               </div>
             )}
 
-            {/* ── eSign Signature Pad Modal ── */}
-            {signPadOpen && (
-              <div style={{position:"fixed",inset:0,zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.7)",backdropFilter:"blur(6px)"}}
-                onMouseDown={(e)=>{ if(e.target===e.currentTarget) setSignPadOpen(false); }}>
-                <div style={{background:"#fff",borderRadius:16,padding:24,width:520,maxWidth:"95vw",boxShadow:"0 24px 64px #00000099"}}>
-                  <div style={{textAlign:"center",marginBottom:14}}>
-                    <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E"}}>เซ็นชื่อ / Sign Invoice</div>
-                    <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>เซ็นด้วยเมาส์หรือนิ้ว / Draw with mouse or finger</div>
-                  </div>
-                  <canvas ref={signCanvasRef} width="480" height="200"
-                    style={{width:"100%",maxWidth:480,height:200,border:"2px dashed #0D9488",borderRadius:10,background:"#fff",touchAction:"none",cursor:"crosshair",display:"block",margin:"0 auto"}}
-                    onPointerDown={(e)=>{
-                      const c = signCanvasRef.current; if(!c) return;
-                      c.setPointerCapture(e.pointerId);
-                      const rect = c.getBoundingClientRect();
-                      const x = (e.clientX - rect.left) * (c.width / rect.width);
-                      const y = (e.clientY - rect.top) * (c.height / rect.height);
-                      signDrawingRef.current = { drawing: true, last: { x, y } };
-                    }}
-                    onPointerMove={(e)=>{
-                      if (!signDrawingRef.current.drawing) return;
-                      const c = signCanvasRef.current; if(!c) return;
-                      const rect = c.getBoundingClientRect();
-                      const x = (e.clientX - rect.left) * (c.width / rect.width);
-                      const y = (e.clientY - rect.top) * (c.height / rect.height);
-                      const ctx = c.getContext("2d");
-                      ctx.beginPath();
-                      ctx.moveTo(signDrawingRef.current.last.x, signDrawingRef.current.last.y);
-                      ctx.lineTo(x, y);
-                      ctx.stroke();
-                      signDrawingRef.current.last = { x, y };
-                    }}
-                    onPointerUp={()=>{ signDrawingRef.current = { drawing: false, last: null }; }}
-                    onPointerCancel={()=>{ signDrawingRef.current = { drawing: false, last: null }; }}
-                  />
-                  <div style={{display:"flex",justifyContent:"space-between",gap:8,marginTop:16}}>
-                    <button onClick={clearSignaturePad}
-                      style={{padding:"9px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                      ล้าง / Clear
-                    </button>
-                    <div style={{display:"flex",gap:8}}>
-                      <button onClick={()=>setSignPadOpen(false)}
-                        style={{padding:"9px 18px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                        ยกเลิก / Cancel
-                      </button>
-                      <button onClick={saveSignaturePad}
-                        style={{padding:"9px 22px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                        บันทึก / Save
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </div>
             )}
@@ -4694,6 +4643,59 @@ export default function AllocationPanel({ isAdmin = true }) {
           </div>
         </div>
       )}
+
+      {/* ── eSign Signature Pad Modal (component-level, always rendered) ── */}
+      {/* ── eSign Signature Pad Modal ── */}
+      {signPadOpen && (
+        <div style={{position:"fixed",inset:0,zIndex:400,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.7)",backdropFilter:"blur(6px)"}}
+          onMouseDown={(e)=>{ if(e.target===e.currentTarget) setSignPadOpen(false); }}>
+          <div style={{background:"#fff",borderRadius:16,padding:24,width:520,maxWidth:"95vw",boxShadow:"0 24px 64px #00000099"}}>
+            <div style={{textAlign:"center",marginBottom:14}}>
+        <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E"}}>เซ็นชื่อ / Sign Invoice</div>
+        <div style={{fontSize:11,color:"#94A3B8",marginTop:4}}>เซ็นด้วยเมาส์หรือนิ้ว / Draw with mouse or finger</div>
+            </div>
+            <canvas ref={signCanvasRef} width="480" height="200"
+        style={{width:"100%",maxWidth:480,height:200,border:"2px dashed #0D9488",borderRadius:10,background:"#fff",touchAction:"none",cursor:"crosshair",display:"block",margin:"0 auto"}}
+        onPointerDown={(e)=>{
+          const c = signCanvasRef.current; if(!c) return;
+          c.setPointerCapture(e.pointerId);
+          const rect = c.getBoundingClientRect();
+          const x = (e.clientX - rect.left) * (c.width / rect.width);
+          const y = (e.clientY - rect.top) * (c.height / rect.height);
+          signDrawingRef.current = { drawing: true, last: { x, y } };
+        }}
+        onPointerMove={(e)=>{
+          if (!signDrawingRef.current.drawing) return;
+          const c = signCanvasRef.current; if(!c) return;
+          const rect = c.getBoundingClientRect();
+          const x = (e.clientX - rect.left) * (c.width / rect.width);
+          const y = (e.clientY - rect.top) * (c.height / rect.height);
+          const ctx = c.getContext("2d");
+          ctx.beginPath();
+          ctx.moveTo(signDrawingRef.current.last.x, signDrawingRef.current.last.y);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+          signDrawingRef.current.last = { x, y };
+        }}
+        onPointerUp={()=>{ signDrawingRef.current = { drawing: false, last: null }; }}
+        onPointerCancel={()=>{ signDrawingRef.current = { drawing: false, last: null }; }}
+            />
+            <div style={{display:"flex",justifyContent:"space-between",gap:8,marginTop:16}}>
+        <button onClick={clearSignaturePad}
+          style={{padding:"9px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+          ล้าง / Clear
+        </button>
+        <div style={{display:"flex",gap:8}}>
+          <button onClick={()=>setSignPadOpen(false)}
+            style={{padding:"9px 18px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+            ยกเลิก / Cancel
+          </button>
+          <button onClick={saveSignaturePad}
+            style={{padding:"9px 22px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+            บันทึก / Save
+          </button>
+        </div>
+            </div>
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
