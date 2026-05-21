@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import CSAnalyticsTab from "./CSAnalyticsTab.jsx";
+import { supabase } from "./supabase.js";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const Ico = ({size=16,color="currentColor",style={},children}) => (
@@ -684,6 +685,15 @@ export default function AllocationPanel({ isAdmin = true }) {
             if (d.prefs.volMonth) setVolMonth(d.prefs.volMonth);
             if (d.prefs.loginUser) setLoginUser(d.prefs.loginUser);
           }
+          // Override loginUser with the actual signed-in Supabase user's email.
+          // This prevents the shared prefs.loginUser from showing the wrong account
+          // when multiple users access the same Supabase project.
+          try {
+            const { data: { user: supabaseUser } } = await supabase.auth.getUser();
+            if (supabaseUser?.email) {
+              setLoginUser(supabaseUser.email);
+            }
+          } catch(authErr) { /* non-fatal */ }
         }
       } catch(e) { console.error("Load failed:", e); }
       setStorageLoaded(true);
