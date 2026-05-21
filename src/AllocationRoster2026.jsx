@@ -519,6 +519,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // Role definitions
   const ROLES = {
+    t1:       { label:"T1",              color:"#0D9488", bg:"#F0FDFA", tabs:["roster"],                                                                   canEdit:false },
     return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation"],                                                      canEdit:false },
     viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget"],                                                          canEdit:false },
     fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","agents","dates","analytics"],                canEdit:false },
@@ -1165,8 +1166,8 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // ── Personal view data (for T1/viewer agents) ─────────────────────────────
   // Match by email first (preferred), fall back to name
-  // Only viewer sees a personal slice — Fulltime, RT&RF, and Manager see the full roster
-  const myAgent = (role==="viewer") ? agents.find(a => {
+  // T1 and viewer see only their own row. Fulltime, RT&RF, and Manager see the full roster.
+  const myAgent = (role==="t1" || role==="viewer") ? agents.find(a => {
     const lu = (loginUser||"").toLowerCase().trim();
     if (!lu) return false;
     if (a.email && a.email.toLowerCase().trim() === lu) return true;
@@ -1567,7 +1568,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               </div>
         )}
 
-        {allocTab==="roster" && !myAgent && role==="viewer" && (
+        {allocTab==="roster" && !myAgent && (role==="t1"||role==="viewer") && (
           <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"48px 24px",textAlign:"center"}}>
             <div style={{fontSize:15,fontWeight:700,color:"#1A1D2E",marginBottom:8}}>No personal schedule linked</div>
             <div style={{fontSize:12,color:"#64748B",maxWidth:420,margin:"0 auto",lineHeight:1.5}}>
@@ -1577,7 +1578,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           </div>
         )}
 
-        {allocTab==="roster" && !myAgent && role!=="viewer" && (
+        {allocTab==="roster" && !myAgent && role!=="viewer" && role!=="t1" && (
           <div>
             {/* ── Pending Change Requests (manager/fulltime approval) ── */}
             {changeRequests.filter(r=>r.status==="pending").length > 0 && (
