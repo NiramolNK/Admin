@@ -1189,7 +1189,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   }) : null;
   // Shift labels for the brand assignment display.
   // ME is the mid-shift covering 12:00–21:00, spanning both Morning and Evening blocks.
-  const SHIFT_LABEL = { M: "Morning", ME: "ME (12:00 - 21:00)", E: "Evening" };
+  const SHIFT_LABEL = { M: "Morning (07:00 - 16:00)", ME: "ME (12:00 - 21:00)", E: "Evening (16:00 - 01:00)" };
   const myBrands = [];
   const myBrandsForDate = []; // brand assignments for the selectedRosterDate only
   if (myAgent) {
