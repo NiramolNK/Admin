@@ -2758,9 +2758,6 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <button onClick={saveAgent} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
                     </div>
                   </div>
-                </div>
-              </div>
-            )}
 
                 </div>
               </div>
