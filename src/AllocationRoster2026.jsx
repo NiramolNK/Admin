@@ -2763,6 +2763,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               </div>
             )}
 
+
             {/* ── Agent Self-Fill Payroll Form (opened via invite link) ── */}
             {inviteFormModal && (
               <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.7)",backdropFilter:"blur(6px)"}} onMouseDown={(e)=>{ if (e.target === e.currentTarget) setInviteFormModal(false); }}>
@@ -4764,8 +4765,10 @@ export default function AllocationPanel({ isAdmin = true }) {
             style={{padding:"9px 22px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
             บันทึก / Save
           </button>
-        </div>
             </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
