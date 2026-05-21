@@ -2302,47 +2302,30 @@ export default function AllocationPanel({ isAdmin = true }) {
                       </div>
                     )}
 
-                    {/* ── Send Invitation ── */}
+                    {/* ── Share Personal Info Link ── */}
                     <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14}}>
-                      <div style={{fontSize:11,fontWeight:700,color:"#0D9488",marginBottom:10,display:"flex",alignItems:"center",gap:6}}>
-                        ✉️ Send Invitation to Fill Personal & Payroll Info
+                      <div style={{fontSize:11,fontWeight:700,color:"#0D9488",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                        Personal &amp; Payroll Info Link
                       </div>
-
-                      {inviteSent === "sent" ? (
-                        <div style={{padding:"12px 14px",borderRadius:8,background:"#D1FAE5",border:"1px solid #6EE7B7",fontSize:12,fontWeight:600,color:"#065F46",display:"flex",alignItems:"center",gap:8}}>
-                          Invitation sent to <strong>{inviteEmail}</strong>!
-                          <button onClick={()=>{setInviteSent(false);setInviteEmail("");}} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"#065F46",fontSize:11,fontWeight:600}}>Send again</button>
-                        </div>
-                      ) : (
-                        <>
-                          <div style={{display:"flex",gap:8,marginBottom:8}}>
-                            <input type="email" value={inviteEmail}
-                              onChange={e=>{setInviteEmail(e.target.value);setInviteSent(false);}}
-                              onKeyDown={e=>e.key==="Enter"&&sendInvite()}
-                              placeholder="agent@email.com"
-                              style={{flex:1,padding:"9px 12px",borderRadius:8,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
-                            <button onClick={sendInvite} disabled={inviteSending||!inviteEmail}
-                              style={{padding:"9px 16px",borderRadius:8,border:"none",background:inviteEmail&&!inviteSending?"#0D9488":"#E2E8F0",color:"#fff",fontSize:12,fontWeight:700,cursor:inviteEmail&&!inviteSending?"pointer":"default",fontFamily:"inherit",whiteSpace:"nowrap",minWidth:110}}>
-                              {inviteSending?"Sending…":"📧 Send Email"}
-                            </button>
-                          </div>
-                          {inviteSent === "error" && (
-                            <div style={{padding:"8px 12px",borderRadius:7,background:"#FEF3C7",border:"1px solid #FDE68A",fontSize:11,color:"#92400E",marginBottom:8}}>
-                              — Email not sent — EmailJS keys not configured yet. Copy the link below to share manually.
-                            </div>
-                          )}
-                          {/* Always show link as fallback */}
-                          <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                            <input readOnly value={getInviteLink(editAgent)}
-                              style={{flex:1,padding:"7px 10px",borderRadius:7,border:"1px solid #E2E8F0",background:"#F1F5F9",fontSize:10,fontFamily:"monospace",color:"#94A3B8",outline:"none"}}/>
-                            <button onClick={()=>navigator.clipboard.writeText(getInviteLink(editAgent)).then(()=>alert("Link copied!"))}
-                              style={{padding:"7px 12px",borderRadius:7,border:"1px solid #99F6E4",background:"#F0FDFA",color:"#0D9488",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>
-                              🔗 Copy Link
-                            </button>
-                          </div>
-                          <div style={{fontSize:10,color:"#94A3B8",marginTop:5}}>Share the link via Line/WhatsApp if email isn't set up yet</div>
-                        </>
-                      )}
+                      <div style={{fontSize:11,color:"#64748B",marginBottom:10,lineHeight:1.5}}>
+                        Share this link with {editAgent.name || "this agent"} so they can fill in their phone, ID, bank account, and start date. Send it via Line, WhatsApp, email — whatever works.
+                      </div>
+                      <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                        <input readOnly value={getInviteLink(editAgent)} onClick={e=>e.target.select()}
+                          style={{flex:1,padding:"9px 12px",borderRadius:8,border:"1px solid #E2E8F0",background:"#F8FAFC",fontSize:11,fontFamily:"monospace",color:"#475569",outline:"none",cursor:"text"}}/>
+                        <button onClick={async ()=>{
+                          try {
+                            await navigator.clipboard.writeText(getInviteLink(editAgent));
+                            setInviteSent("copied");
+                            setTimeout(()=>setInviteSent(false), 2000);
+                          } catch {
+                            alert("Couldn't copy automatically. Please select the link and copy manually.");
+                          }
+                        }}
+                          style={{padding:"9px 16px",borderRadius:8,border:"none",background:inviteSent==="copied"?"#34D399":"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap",minWidth:110}}>
+                          {inviteSent==="copied" ? "Copied!" : "Copy Link"}
+                        </button>
+                      </div>
                     </div>
 
                     <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
