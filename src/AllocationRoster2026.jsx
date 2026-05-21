@@ -506,9 +506,10 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // Role definitions
   const ROLES = {
-    viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget","analytics"],                          canEdit:false },
-    fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","analytics"],              canEdit:true  },
-    manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true },
+    t1:       { label:"T1 Agent",        color:"#0D9488", bg:"#F0FDFA", tabs:["roster","analytics"],                                                       canEdit:false },
+    viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget","analytics"],                                              canEdit:false },
+    fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","agents","analytics"],                        canEdit:false },
+    manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true  },
   };
 
   // User accounts — stored in state, persisted to storage
@@ -1141,7 +1142,8 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // ── Personal view data (for T1/viewer agents) ─────────────────────────────
   // Match by email first (preferred), fall back to name
-  const myAgent = (role==="fulltime" || role==="viewer") ? agents.find(a => {
+  // Only T1 agents and viewers see a personal slice — Fulltime is office staff (sees full roster)
+  const myAgent = (role==="t1" || role==="viewer") ? agents.find(a => {
     const lu = (loginUser||"").toLowerCase().trim();
     if (!lu) return false;
     if (a.email && a.email.toLowerCase().trim() === lu) return true;
@@ -1541,7 +1543,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               </div>
         )}
 
-        {allocTab==="roster" && !myAgent && role!=="manager" && (
+        {allocTab==="roster" && !myAgent && (role==="t1"||role==="viewer") && (
           <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"48px 24px",textAlign:"center"}}>
             <div style={{fontSize:15,fontWeight:700,color:"#1A1D2E",marginBottom:8}}>No personal schedule linked</div>
             <div style={{fontSize:12,color:"#64748B",maxWidth:420,margin:"0 auto",lineHeight:1.5}}>
@@ -1551,7 +1553,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           </div>
         )}
 
-        {allocTab==="roster" && !myAgent && role==="manager" && (
+        {allocTab==="roster" && !myAgent && role!=="t1" && role!=="viewer" && (
           <div>
             {/* ── Pending Change Requests (manager/fulltime approval) ── */}
             {changeRequests.filter(r=>r.status==="pending").length > 0 && (
@@ -2095,10 +2097,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                   }}>{l}</button>
                 ))}
               </div>
-              <button onClick={()=>{setEditAgent({id:`A${String(agents.length+1).padStart(2,"0")}`,name:"",email:"",team:"T1",active:true,shifts:["M"],days:[...ALLOC_ALL],costDay:400,rule:""});setAgentModal(true);}}
+              {role==="manager" && <button onClick={()=>{setEditAgent({id:`A${String(agents.length+1).padStart(2,"0")}`,name:"",email:"",team:"T1",active:true,shifts:["M"],days:[...ALLOC_ALL],costDay:400,rule:""});setAgentModal(true);}}
                 style={{padding:"8px 16px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginLeft:"auto"}}>
                 + Add Agent
-              </button>
+              </button>}
             </div>
 
             {/* T2 — Total Monthly Cost Input */}
@@ -2206,9 +2208,9 @@ export default function AllocationPanel({ isAdmin = true }) {
                         placeholder="e.g. someone@crea.asia"
                         style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
                       <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>When this agent signs in with this email, they see their own schedule only.</div></div>
-                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Cost / Day (฿)</label>
-                      <input type="number" value={editAgent.costDay} onChange={e=>setEditAgent({...editAgent,costDay:Number(e.target.value)})}
-                        style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"monospace",outline:"none"}}/></div>
+                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Cost / Day (฿){role!=="manager"&&<span style={{marginLeft:6,color:"#94A3B8",fontWeight:500,textTransform:"none"}}>(read-only)</span>}</label>
+                      <input type="number" value={editAgent.costDay} readOnly={role!=="manager"} onChange={e=>{if(role==="manager")setEditAgent({...editAgent,costDay:Number(e.target.value)})}}
+                        style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:role!=="manager"?"#F1F5F9":"#FAFBFC",color:role!=="manager"?"#64748B":"#1A1D2E",fontSize:13,fontFamily:"monospace",outline:"none",cursor:role!=="manager"?"not-allowed":"text"}}/></div>
                     <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:6}}>Shifts</label>
                       <div style={{display:"flex",gap:6}}>{ALLOC_SHIFTS.map(s=>{const on=editAgent.shifts.includes(s.code);const cs=ALLOC_SHIFT_C[s.code];return(
                         <button key={s.code} onClick={()=>{const sh=on?editAgent.shifts.filter(x=>x!==s.code):[...editAgent.shifts,s.code];setEditAgent({...editAgent,shifts:sh});}}
