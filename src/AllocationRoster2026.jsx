@@ -1443,7 +1443,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
         {/* Nav items */}
         <div style={{flex:1,padding:"12px 8px",display:"flex",flexDirection:"column",gap:2}}>
-          {[["roster","Roster"],["payment","Payment"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"]].map(([t,l])=>{
+          {[["roster","Roster"],["payment","My Invoice"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"]].map(([t,l])=>{
             if(!allowedTabs.includes(t)) return null;
             const active2 = allocTab===t;
             const iconColor = active2?"#0D9488":"#94A3B8";
@@ -1533,7 +1533,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div>
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
-                {allocTab==="roster"?"Roster":allocTab==="payment"?"Payment":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":"Report"}
+                {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":"Report"}
               </div>
               <div style={{fontSize:11,color:"#94A3B8",marginTop:1}}>{dateLabel} · {active.length} agents</div>
             </div>
@@ -2423,7 +2423,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             <div style={{marginTop:18,background:"#FFFFFF",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden"}}>
               <div style={{padding:"14px 18px",borderBottom:"1px solid #F1F5F9",background:"#F8FAFC",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
                 <div>
-                  <div style={{fontSize:13,fontWeight:700,color:"#1A1D2E"}}>💰 My Payroll Invoice — {invoiceMonthLabel} {thaiYear}</div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1A1D2E"}}>My Invoice — {invoiceMonthLabel} {thaiYear}</div>
                   <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>Period 24 {THAI_MONTH_ABBR[prevM]} – 23 {THAI_MONTH_ABBR[periodM]} · {workDays} working days</div>
                 </div>
                 <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -2443,7 +2443,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   )}
                   <button onClick={printInvoice}
                     style={{padding:"7px 12px",borderRadius:8,border:"1px solid #F87171",background:"#FFF5F5",color:"#B91C1C",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                    📄 Print / PDF
+                    Print / PDF
                   </button>
                 </div>
               </div>
