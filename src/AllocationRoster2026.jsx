@@ -507,7 +507,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // Role definitions
   const ROLES = {
-    t1:       { label:"T1 Agent",        color:"#0D9488", bg:"#F0FDFA", tabs:["roster","analytics"],                                                       canEdit:false },
+    t1:       { label:"CS-T1",           color:"#0D9488", bg:"#F0FDFA", tabs:["roster","analytics"],                                                       canEdit:false },
     viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget","analytics"],                                              canEdit:false },
     fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","agents","analytics"],                        canEdit:false },
     manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true  },
