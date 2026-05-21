@@ -533,7 +533,13 @@ export default function AllocationPanel({ isAdmin = true }) {
   const [inviteSending, setInviteSending] = useState(false);
   const [inviteSent, setInviteSent] = useState(false); // false | "sent" | "error"
   const [inviteFormModal, setInviteFormModal] = useState(false); // agent self-fill form
-  const [inviteFormData, setInviteFormData] = useState({fullName:"",phone:"",idCard:"",bankName:"",bankAccount:"",bankAccountName:"",startDate:"",costDay:""});
+  const [inviteFormData, setInviteFormData] = useState({
+    fullName:"", thaiName:"", phone:"", idCard:"", taxId:"",
+    idCardAddress:"", docDeliveryAddress:"", sameAddress:true,
+    bankName:"", bankAccount:"", bankAccountName:"",
+    startDate:"", costDay:"",
+    idCardPhotoUrl:"", bookbankPhotoUrl:""
+  });
   const [inviteFormAgentId, setInviteFormAgentId] = useState(null);
   const [cellKey, setCellKey]       = useState(null);
   // Selected date in personal calendar view — shows brand assignments for that day only
@@ -940,18 +946,25 @@ export default function AllocationPanel({ isAdmin = true }) {
     setAgents(p => p.map(a => a.id === inviteFormAgentId
       ? { ...a,
           fullName:        inviteFormData.fullName || a.name,
+          thaiName:        inviteFormData.thaiName,
           phone:           inviteFormData.phone,
           idCard:          inviteFormData.idCard,
+          taxId:           inviteFormData.taxId,
+          idCardAddress:   inviteFormData.idCardAddress,
+          docDeliveryAddress: inviteFormData.sameAddress ? inviteFormData.idCardAddress : inviteFormData.docDeliveryAddress,
           bankName:        inviteFormData.bankName,
           bankAccount:     inviteFormData.bankAccount,
           bankAccountName: inviteFormData.bankAccountName,
           startDate:       inviteFormData.startDate,
           costDay:         Number(inviteFormData.costDay) || a.costDay,
+          idCardPhotoUrl:  inviteFormData.idCardPhotoUrl,
+          bookbankPhotoUrl: inviteFormData.bookbankPhotoUrl,
+          payrollInfoUpdatedAt: new Date().toISOString(),
         }
       : a
     ));
     setInviteFormModal(false);
-    setInviteFormData({fullName:"",phone:"",idCard:"",bankName:"",bankAccount:"",bankAccountName:"",startDate:"",costDay:""});
+    setInviteFormData({fullName:"",thaiName:"",phone:"",idCard:"",taxId:"",idCardAddress:"",docDeliveryAddress:"",sameAddress:true,bankName:"",bankAccount:"",bankAccountName:"",startDate:"",costDay:"",idCardPhotoUrl:"",bookbankPhotoUrl:""});
     setInviteFormAgentId(null);
   };
 
@@ -2424,12 +2437,14 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <div style={{fontSize:13,color:"#94A3B8",marginTop:4}}>Please fill in your personal and payroll information</div>
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E"}}>Personal Information / ข้อมูลส่วนตัว</div>
                     {[
-                      ["fullName","Full Name (as on ID card)","text","e.g. Somchai Jaidee"],
-                      ["phone","Phone Number","tel","e.g. 081-234-5678"],
-                      ["idCard","ID Card Number","text","e.g. 1-1234-56789-01-2"],
-                      ["startDate","Start Date","date",""],
-                      ["costDay","Agreed Daily Rate (฿)","number","e.g. 480"],
+                      ["fullName","Full Name (English)","text","e.g. Kawisra Boriboon"],
+                      ["thaiName","ชื่อ-นามสกุล (ภาษาไทย)","text","น.ส.กวิสรา บริบูรณ์"],
+                      ["phone","Phone / เบอร์โทร","tel","081-234-5678"],
+                      ["idCard","ID Card Number / เลขบัตรประชาชน","text","1-1234-56789-01-2"],
+                      ["taxId","Tax ID / เลขประจำตัวผู้เสียภาษี (13 digits)","text","1100501043761"],
+                      ["startDate","Start Date / วันเริ่มงาน","date",""],
                     ].map(([field,label,type,placeholder])=>(
                       <div key={field}>
                         <label style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:5}}>{label}</label>
@@ -2438,11 +2453,37 @@ export default function AllocationPanel({ isAdmin = true }) {
                           style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
                       </div>
                     ))}
-                    <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E",marginTop:4}}>Bank Account for Payroll</div>
+
+                    <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E",marginTop:4}}>Address / ที่อยู่</div>
+                    <div>
+                      <label style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:5}}>ID Card Address / ที่อยู่ตามหน้าบัตร</label>
+                      <textarea value={inviteFormData.idCardAddress}
+                        onChange={e=>setInviteFormData(d=>({...d,idCardAddress:e.target.value}))}
+                        placeholder="9 ซ.รังสิต-ปทุมธานี14 ซอย8 ต.ประชาธิปัตย์ อ.ธัญบุรี จ.ปทุมธานี 12130"
+                        rows={2}
+                        style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box",resize:"vertical"}}/>
+                    </div>
+                    <label style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#475569",cursor:"pointer"}}>
+                      <input type="checkbox" checked={inviteFormData.sameAddress}
+                        onChange={e=>setInviteFormData(d=>({...d,sameAddress:e.target.checked}))}
+                        style={{width:16,height:16}}/>
+                      Document delivery address is the same as ID card address
+                    </label>
+                    {!inviteFormData.sameAddress && (
+                      <div>
+                        <label style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:5}}>Document Delivery Address / ที่อยู่จัดส่งเอกสาร</label>
+                        <textarea value={inviteFormData.docDeliveryAddress}
+                          onChange={e=>setInviteFormData(d=>({...d,docDeliveryAddress:e.target.value}))}
+                          rows={2}
+                          style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box",resize:"vertical"}}/>
+                      </div>
+                    )}
+
+                    <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E",marginTop:4}}>Bank Account / บัญชีธนาคาร</div>
                     {[
-                      ["bankName","Bank Name","text","e.g. Kasikorn Bank"],
-                      ["bankAccount","Account Number","text","e.g. 123-4-56789-0"],
-                      ["bankAccountName","Account Holder Name","text","e.g. Somchai Jaidee"],
+                      ["bankName","Bank / ธนาคาร","text","กสิกรไทย / Kasikorn Bank"],
+                      ["bankAccountName","Account Holder / ชื่อบัญชี","text","น.ส.กวิสรา บริบูรณ์"],
+                      ["bankAccount","Account Number / เลขที่บัญชี","text","1171297113"],
                     ].map(([field,label,type,placeholder])=>(
                       <div key={field}>
                         <label style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:5}}>{label}</label>
@@ -2451,8 +2492,44 @@ export default function AllocationPanel({ isAdmin = true }) {
                           style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
                       </div>
                     ))}
+
+                    <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E",marginTop:4}}>Documents / เอกสารแนบ</div>
+                    {[
+                      ["idCardPhotoUrl","ID Card Photo / สำเนาบัตรประชาชน","idCard"],
+                      ["bookbankPhotoUrl","Bookbank Photo / สำเนาสมุดบัญชี","bookbank"],
+                    ].map(([field,label,kind])=>(
+                      <div key={field}>
+                        <label style={{fontSize:11,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:5}}>{label}</label>
+                        {inviteFormData[field] ? (
+                          <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:9,border:"1.5px solid #A7F3D0",background:"#ECFDF5"}}>
+                            <span style={{fontSize:18}}>✓</span>
+                            <a href={inviteFormData[field]} target="_blank" rel="noreferrer" style={{flex:1,fontSize:12,color:"#065F46",textDecoration:"underline",wordBreak:"break-all"}}>View uploaded file</a>
+                            <button onClick={()=>setInviteFormData(d=>({...d,[field]:""}))}
+                              style={{background:"none",border:"none",color:"#B91C1C",cursor:"pointer",fontSize:11,fontWeight:600}}>Remove</button>
+                          </div>
+                        ) : (
+                          <input type="file" accept="image/*,.pdf"
+                            onChange={async (e)=>{
+                              const file = e.target.files?.[0];
+                              if(!file) return;
+                              const ext = file.name.split('.').pop() || 'jpg';
+                              const path = `payroll-docs/${kind}_${inviteFormAgentId}_${Date.now()}.${ext}`;
+                              try {
+                                const { error: upErr } = await supabase.storage.from("payroll-docs").upload(path, file, { upsert: true, cacheControl: "3600" });
+                                if (upErr) throw upErr;
+                                const { data: { publicUrl } } = supabase.storage.from("payroll-docs").getPublicUrl(path);
+                                setInviteFormData(d=>({...d,[field]:publicUrl}));
+                              } catch (err) {
+                                alert("Upload failed: " + err.message + "\n\nMake sure the 'payroll-docs' Storage bucket exists in Supabase.");
+                              }
+                            }}
+                            style={{width:"100%",padding:"10px 12px",borderRadius:9,border:"1.5px solid #E2E8F0",background:"#F8FAFC",color:"#1A1D2E",fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                        )}
+                      </div>
+                    ))}
+
                     <div style={{padding:"10px 14px",borderRadius:8,background:"#FEF3C7",border:"1px solid #FDE68A",fontSize:11,color:"#92400E"}}>
-                      🔒 Your information is stored securely on this device and only accessible by your manager.
+                      🔒 Your information is encrypted and only accessible by managers. Photos are stored in Supabase Storage.
                     </div>
                     <button onClick={savePayrollInfo}
                       style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:"#0D9488",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
