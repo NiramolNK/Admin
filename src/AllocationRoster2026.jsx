@@ -1216,10 +1216,10 @@ export default function AllocationPanel({ isAdmin = true }) {
 
                 {/* Name */}
                 <div style={{marginBottom:16}}>
-                  <label style={{fontSize:11,fontWeight:600,color:"#94A3B8",textTransform:"uppercase",letterSpacing:0.5,display:"block",marginBottom:6}}>Username</label>
+                  <label style={{fontSize:11,fontWeight:600,color:"#94A3B8",textTransform:"uppercase",letterSpacing:0.5,display:"block",marginBottom:6}}>Email</label>
                   <input value={loginUser} onChange={e=>setLoginUser(e.target.value)}
                     onKeyDown={e=>e.key==="Enter"&&handleLogin()}
-                    placeholder="e.g. April"
+                    placeholder="someone@crea.asia"
                     autoFocus
                     style={{width:"100%",padding:"12px 14px",borderRadius:10,border:"1.5px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:14,fontFamily:"inherit",outline:"none",boxSizing:"border-box",transition:"border 0.15s"}}
                     onFocus={e=>e.target.style.borderColor="#0D9488"}
@@ -3930,7 +3930,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             <div style={{borderRadius:10,border:"1px solid #E2E8F0",overflow:"hidden",marginBottom:16}}>
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:"#F1F5F9"}}>
-                  <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Username</th>
+                  <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Email</th>
                   <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Role</th>
                   <th style={{padding:"8px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Actions</th>
                 </tr></thead>
@@ -3953,8 +3953,8 @@ export default function AllocationPanel({ isAdmin = true }) {
               <div style={{marginTop:16,padding:16,borderRadius:10,border:"1px solid #E2E8F0",background:"#FAFBFC"}}>
                 <div style={{fontSize:13,fontWeight:700,color:"#1A1D2E",marginBottom:12}}>{editingUser._isNew?"Add New User":"Edit User"}</div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-                  <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Username</label>
-                    <input value={editingUser.username} onChange={e=>setEditingUser({...editingUser,username:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                  <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Email (used to sign in)</label>
+                    <input value={editingUser.username} type="email" placeholder="someone@crea.asia" onChange={e=>setEditingUser({...editingUser,username:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
                   <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Password</label>
                     <input value={editingUser.password} onChange={e=>setEditingUser({...editingUser,password:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
                 </div>
@@ -3967,13 +3967,29 @@ export default function AllocationPanel({ isAdmin = true }) {
                   </div>
                 </div>
                 <div style={{display:"flex",gap:8}}>
-                  <button onClick={()=>{
-                    if(!editingUser.username.trim()||!editingUser.password.trim()){alert("Username and password required.");return;}
+                  <button onClick={async ()=>{
+                    const email = editingUser.username.trim();
+                    const pw = editingUser.password;
+                    if(!email||!pw){alert("Email and password required.");return;}
+                    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){alert("Please enter a valid email address (it will be used to sign in).");return;}
+                    if(pw.length < 6){alert("Password must be at least 6 characters.");return;}
                     if(editingUser._isNew){
-                      if(userAccounts.some(u=>u.username.toLowerCase()===editingUser.username.toLowerCase())){alert("Username already exists.");return;}
-                      setUserAccounts(prev=>[...prev,{username:editingUser.username.trim(),password:editingUser.password,role:editingUser.role}]);
+                      if(userAccounts.some(u=>u.username.toLowerCase()===email.toLowerCase())){alert("This email is already in the user list.");return;}
+                      // Save current Supabase session so signUp() doesn't replace it
+                      const { data: { session: currentSession } } = await supabase.auth.getSession();
+                      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password: pw });
+                      // Restore the current admin's session (signUp swaps to the new user)
+                      if(currentSession) {
+                        await supabase.auth.setSession({ access_token: currentSession.access_token, refresh_token: currentSession.refresh_token });
+                      }
+                      if(signUpError && !/already.*registered|already.*exists|user.*exists/i.test(signUpError.message)){
+                        alert("Could not create Supabase user: "+signUpError.message+"\n\nThe user was NOT added.");
+                        return;
+                      }
+                      setUserAccounts(prev=>[...prev,{username:email,password:pw,role:editingUser.role}]);
+                      alert("User created. They can sign in at the app URL with this email and password.");
                     } else {
-                      setUserAccounts(prev=>prev.map((u,i)=>i===editingUser._idx?{username:editingUser.username.trim(),password:editingUser.password,role:editingUser.role}:u));
+                      setUserAccounts(prev=>prev.map((u,i)=>i===editingUser._idx?{username:email,password:pw,role:editingUser.role}:u));
                       if(userAccounts[editingUser._idx]?.username.toLowerCase()===loginUser.toLowerCase()) setRole(editingUser.role);
                     }
                     setEditingUser(null);
