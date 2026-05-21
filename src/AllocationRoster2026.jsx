@@ -581,8 +581,8 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // Role definitions
   const ROLES = {
-    t1:       { label:"T1",              color:"#0D9488", bg:"#F0FDFA", tabs:["roster"],                                                                   canEdit:false },
-    return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation"],                                                      canEdit:false },
+    t1:       { label:"T1",              color:"#0D9488", bg:"#F0FDFA", tabs:["roster","payment"],                                                         canEdit:false },
+    return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation","payment"],                                            canEdit:false },
     viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget"],                                                          canEdit:false },
     fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","agents","dates","analytics"],                canEdit:false },
     manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true  },
@@ -1403,7 +1403,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
         {/* Nav items */}
         <div style={{flex:1,padding:"12px 8px",display:"flex",flexDirection:"column",gap:2}}>
-          {[["roster","Roster"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"]].map(([t,l])=>{
+          {[["roster","Roster"],["payment","Payment"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"]].map(([t,l])=>{
             if(!allowedTabs.includes(t)) return null;
             const active2 = allocTab===t;
             const iconColor = active2?"#0D9488":"#94A3B8";
@@ -1423,6 +1423,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {t==="volume"&&<IconBarChart size={18} color={iconColor}/>}
                 {t==="agents"&&<IconUsers size={18} color={iconColor}/>}
                 {t==="budget"&&<IconFileText size={18} color={iconColor}/>}
+                {t==="payment"&&<IconFileText size={18} color={iconColor}/>}
                 {t==="analytics"&&<IconBarChart size={18} color={iconColor}/>}
                 {sidebarOpen && l}
               </button>
@@ -1492,7 +1493,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div>
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
-                {allocTab==="roster"?"Roster":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":"Report"}
+                {allocTab==="roster"?"Roster":allocTab==="payment"?"Payment":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":"Report"}
               </div>
               <div style={{fontSize:11,color:"#94A3B8",marginTop:1}}>{dateLabel} · {active.length} agents</div>
             </div>
@@ -1534,15 +1535,16 @@ export default function AllocationPanel({ isAdmin = true }) {
         ══════════════════════════════════════════ */}
         {allocTab==="roster" && myAgent && (
               <div>
-                {/* Personal header */}
+                {/* Personal header — full name (preferred) and agent ID badge */}
                 <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"20px 24px",marginBottom:16,display:"flex",alignItems:"center",gap:16}}>
-                  <div style={{width:48,height:48,borderRadius:12,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#0D9488"}}>{myAgent.name.charAt(0)}</div>
-                  <div>
-                    <div style={{fontSize:18,fontWeight:700,color:"#0F172A"}}>{myAgent.name}</div>
-                    <div style={{fontSize:12,color:"#94A3B8",marginTop:2}}>
-                      <span style={{padding:"2px 8px",borderRadius:6,background:ALLOC_TEAM_C[myAgent.team]?.bg,color:ALLOC_TEAM_C[myAgent.team]?.color,fontWeight:700,fontSize:10,marginRight:8}}>{myAgent.team}</span>
-                      Shifts: {myAgent.shifts.join(", ")} · ฿{myAgent.costDay}/day
-                      {myAgent.rule && <span style={{marginLeft:8,color:"#D97706"}}>({myAgent.rule})</span>}
+                  <div style={{width:48,height:48,borderRadius:12,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#0D9488"}}>{(myAgent.fullName || myAgent.name).charAt(0)}</div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:18,fontWeight:700,color:"#0F172A"}}>
+                      {myAgent.fullName ? <>{myAgent.fullName} <span style={{color:"#94A3B8",fontWeight:500,fontSize:14}}>({myAgent.name})</span></> : myAgent.name}
+                    </div>
+                    <div style={{fontSize:12,color:"#94A3B8",marginTop:4,display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{padding:"2px 8px",borderRadius:6,background:"#F0FDFA",color:"#0D9488",fontWeight:700,fontSize:11,fontFamily:"monospace"}}>{myAgent.id}</span>
+                      {myAgent.rule && <span style={{color:"#D97706"}}>({myAgent.rule})</span>}
                     </div>
                   </div>
                 </div>
@@ -2242,7 +2244,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         {/* ══════════════════════════════════════════
             TEAMS TAB
         ══════════════════════════════════════════ */}
-        {allocTab==="roster" && myPayrollAgent && (() => {
+        {allocTab==="payment" && myPayrollAgent && (() => {
           // Payroll period: 24th of prev month → 23rd of current month
           const refDate = new Date(rosterYear, rosterMonth - 1, 1);
           const periodM = refDate.getMonth(); // 0-11
@@ -2308,36 +2310,46 @@ export default function AllocationPanel({ isAdmin = true }) {
                 .signature{margin-top:40px;padding-top:16px;border-top:1px dashed #ccc;font-size:11px;color:#666}
                 @media print{@page{size:A4;margin:15mm}}
               </style></head><body>
-              <div class="row"><div>เลขประจำตัวผู้เสียภาษี</div><div>${myPayrollAgent.taxId || "—"}</div></div>
-              <div class="row"><div>ชื่อ</div><div>${myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div></div>
-              <div class="row"><div>ที่อยู่จัดส่งเอกสาร</div><div>${myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || "—"}</div></div>
-              <div class="row"><div>ที่อยู่ตามหน้าบัตร</div><div>${myPayrollAgent.idCardAddress || "—"}</div></div>
-              <div class="center">ใบแจ้งหนี้</div>
-              <div class="row"><div>เลขประจำตัวผู้เสียภาษี</div><div>${COMPANY_INFO.taxId}</div></div>
-              <div class="row"><div>นามลูกค้า</div><div>${COMPANY_INFO.name}</div></div>
-              <div class="row" style="margin-bottom:10px"><div>ที่อยู่</div><div>${COMPANY_INFO.address}</div></div>
+              <div class="row"><div>เลขประจำตัวผู้เสียภาษี / Tax ID</div><div>${myPayrollAgent.taxId || "—"}</div></div>
+              <div class="row"><div>ชื่อ / Name</div><div>${myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div></div>
+              <div class="row"><div>ที่อยู่จัดส่งเอกสาร / Delivery Address</div><div>${myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || "—"}</div></div>
+              <div class="row"><div>ที่อยู่ตามหน้าบัตร / ID Card Address</div><div>${myPayrollAgent.idCardAddress || "—"}</div></div>
+              <div class="center">ใบแจ้งหนี้ / Invoice</div>
+              <div class="row"><div>เลขประจำตัวผู้เสียภาษี / Customer Tax ID</div><div>${COMPANY_INFO.taxId}</div></div>
+              <div class="row"><div>นามลูกค้า / Customer</div><div>${COMPANY_INFO.name}</div></div>
+              <div class="row" style="margin-bottom:10px"><div>ที่อยู่ / Address</div><div>${COMPANY_INFO.address}</div></div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:8px">
-                <div><b>เลขที่ :</b> ${invoiceNumber}</div>
-                <div style="text-align:right"><b>วันที่ :</b> ${invoiceDate}</div>
+                <div><b>เลขที่ / No. :</b> ${invoiceNumber}</div>
+                <div style="text-align:right"><b>วันที่ / Date :</b> ${invoiceDate}</div>
               </div>
               <table>
-                <thead><tr><th>รายการ</th><th style="text-align:right;width:160px">จำนวนเงิน (บาท)</th></tr></thead>
+                <thead><tr><th>รายการ / Description</th><th style="text-align:right;width:160px">จำนวนเงิน / Amount (บาท / THB)</th></tr></thead>
                 <tbody>
-                  <tr><td>ค่าบริการตอบแชทช่วงเดือน ${invoiceMonthLabel} ${thaiYear} (${workDays} วัน)</td><td style="text-align:right;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
-                  <tr><td style="text-align:right;font-weight:700">รวม</td><td style="text-align:right;font-weight:700;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
+                  <tr><td>ค่าบริการตอบแชทช่วงเดือน ${invoiceMonthLabel} ${thaiYear} (${workDays} วัน)<div style="font-size:10px;color:#666;margin-top:2px">Chat reply service — ${MONTHS[periodM]} ${periodY} (${workDays} days)</div></td><td style="text-align:right;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
+                  <tr><td style="text-align:right;font-weight:700">รวม / Total</td><td style="text-align:right;font-weight:700;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
                 </tbody>
               </table>
               <div style="margin-top:18px;display:grid;grid-template-columns:170px 100px 70px;gap:6px;font-size:13px">
-                <div>จำนวนเงินที่ได้รับ</div><div style="text-align:right;font-family:monospace">${fmtBaht(netAmount)}</div><div>บาท</div>
-                <div>ภาษีหัก ณ ที่จ่าย 3%</div><div style="text-align:right;font-family:monospace">${fmtBaht(withholding)}</div><div>บาท</div>
+                <div>จำนวนเงินที่ได้รับ / Net Amount</div><div style="text-align:right;font-family:monospace">${fmtBaht(netAmount)}</div><div>บาท / THB</div>
+                <div>ภาษีหัก ณ ที่จ่าย 3% / Withholding 3%</div><div style="text-align:right;font-family:monospace">${fmtBaht(withholding)}</div><div>บาท / THB</div>
               </div>
               <div class="pay-section">
-                <h3>ช่องทางการชำระเงิน</h3>
-                <div class="row"><div>ธนาคาร</div><div>${myPayrollAgent.bankName || "—"}</div></div>
-                <div class="row"><div>ชื่อบัญชี</div><div>${myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || "—"}</div></div>
-                <div class="row"><div>เลขที่บัญชี</div><div>${myPayrollAgent.bankAccount || "—"}</div></div>
+                <h3>ช่องทางการชำระเงิน / Payment Channel</h3>
+                <div class="row"><div>ธนาคาร / Bank</div><div>${myPayrollAgent.bankName || "—"}</div></div>
+                <div class="row"><div>ชื่อบัญชี / Account Name</div><div>${myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || "—"}</div></div>
+                <div class="row"><div>เลขที่บัญชี / Account No.</div><div>${myPayrollAgent.bankAccount || "—"}</div></div>
               </div>
-              ${signature ? `<div class="signature">ลงนามโดย: ${signature.name} · ${new Date(signature.signedAt).toLocaleString("th-TH")}</div>` : ""}
+              <div style="margin-top:50px;display:grid;grid-template-columns:1fr 1fr;gap:60px">
+                <div style="text-align:center">
+                  <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px"></div>
+                  <div style="font-size:11px">ลงนามผู้ออกใบแจ้งหนี้ / Issuer Signature</div>
+                  ${signature ? `<div style="font-size:10px;color:#666;margin-top:4px">(${signature.name} · ${new Date(signature.signedAt).toLocaleDateString("th-TH")})</div>` : ""}
+                </div>
+                <div style="text-align:center">
+                  <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px"></div>
+                  <div style="font-size:11px">วันที่ / Date</div>
+                </div>
+              </div>
               <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
               </body></html>`);
             w.document.close();
@@ -2386,47 +2398,47 @@ export default function AllocationPanel({ isAdmin = true }) {
               <div style={{padding:"20px 24px",fontSize:12,fontFamily:"'Sarabun',sans-serif"}}>
                 {/* Agent header */}
                 <div style={{display:"grid",gridTemplateColumns:"170px 1fr",gap:4,fontSize:12,marginBottom:14}}>
-                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี</div><div>{myPayrollAgent.taxId || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
-                  <div style={{fontWeight:700}}>ชื่อ</div><div>{myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div>
-                  <div style={{fontWeight:700}}>ที่อยู่จัดส่งเอกสาร</div><div>{myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
-                  <div style={{fontWeight:700}}>ที่อยู่ตามหน้าบัตร</div><div>{myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
+                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Tax ID</span></div><div>{myPayrollAgent.taxId || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
+                  <div style={{fontWeight:700}}>ชื่อ <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Name</span></div><div>{myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div>
+                  <div style={{fontWeight:700}}>ที่อยู่จัดส่งเอกสาร <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Delivery Address</span></div><div>{myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
+                  <div style={{fontWeight:700}}>ที่อยู่ตามหน้าบัตร <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ ID Card Address</span></div><div>{myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
                 </div>
-                <div style={{textAlign:"center",border:"1px solid #1A1D2E",padding:"8px 0",fontWeight:700,fontSize:16,marginBottom:14}}>ใบแจ้งหนี้</div>
+                <div style={{textAlign:"center",border:"1px solid #1A1D2E",padding:"8px 0",fontWeight:700,fontSize:16,marginBottom:14}}>ใบแจ้งหนี้ / Invoice</div>
                 <div style={{display:"grid",gridTemplateColumns:"170px 1fr",gap:4,fontSize:12,marginBottom:8}}>
-                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี</div><div>{COMPANY_INFO.taxId}</div>
-                  <div style={{fontWeight:700}}>นามลูกค้า</div><div>{COMPANY_INFO.name}</div>
-                  <div style={{fontWeight:700}}>ที่อยู่</div><div>{COMPANY_INFO.address}</div>
+                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Customer Tax ID</span></div><div>{COMPANY_INFO.taxId}</div>
+                  <div style={{fontWeight:700}}>นามลูกค้า <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Customer</span></div><div>{COMPANY_INFO.name}</div>
+                  <div style={{fontWeight:700}}>ที่อยู่ <span style={{fontWeight:400,color:"#94A3B8",fontSize:10}}>/ Address</span></div><div>{COMPANY_INFO.address}</div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,fontSize:12,marginBottom:14}}>
-                  <div><b>เลขที่ :</b> {invoiceNumber}</div>
-                  <div style={{textAlign:"right"}}><b>วันที่ :</b> {invoiceDate}</div>
+                  <div><b>เลขที่ / No. :</b> {invoiceNumber}</div>
+                  <div style={{textAlign:"right"}}><b>วันที่ / Date :</b> {invoiceDate}</div>
                 </div>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginBottom:14}}>
                   <thead><tr style={{background:"#FAFAFA"}}>
-                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"left",fontWeight:700}}>รายการ</th>
-                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700,width:160}}>จำนวนเงิน (บาท)</th>
+                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"left",fontWeight:700}}>รายการ / Description</th>
+                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700,width:160}}>จำนวนเงิน / Amount (บาท / THB)</th>
                   </tr></thead>
                   <tbody>
                     <tr>
-                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px"}}>ค่าบริการตอบแชทช่วงเดือน {invoiceMonthLabel} {thaiYear} ({workDays} วัน)</td>
+                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px"}}>ค่าบริการตอบแชทช่วงเดือน {invoiceMonthLabel} {thaiYear} ({workDays} วัน)<div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>Chat reply service — {MONTHS[periodM]} {periodY} ({workDays} days)</div></td>
                       <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontFamily:"monospace"}}>{subtotal.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                     </tr>
                     <tr>
-                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700}}>รวม</td>
+                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700}}>รวม / Total</td>
                       <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700,fontFamily:"monospace"}}>{subtotal.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
                     </tr>
                   </tbody>
                 </table>
                 <div style={{display:"grid",gridTemplateColumns:"170px 100px 70px",gap:6,fontSize:12,marginBottom:18}}>
-                  <div>จำนวนเงินที่ได้รับ</div><div style={{textAlign:"right",fontFamily:"monospace"}}>{netAmount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
-                  <div>ภาษีหัก ณ ที่จ่าย 3%</div><div style={{textAlign:"right",fontFamily:"monospace"}}>{withholding.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
+                  <div>จำนวนเงินที่ได้รับ <span style={{color:"#94A3B8",fontSize:10}}>/ Net Amount</span></div><div style={{textAlign:"right",fontFamily:"monospace"}}>{netAmount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
+                  <div>ภาษีหัก ณ ที่จ่าย 3% <span style={{color:"#94A3B8",fontSize:10}}>/ Withholding 3%</span></div><div style={{textAlign:"right",fontFamily:"monospace"}}>{withholding.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
                 </div>
                 <div>
-                  <div style={{fontWeight:700,textDecoration:"underline",fontSize:12,marginBottom:6}}>ช่องทางการชำระเงิน</div>
+                  <div style={{fontWeight:700,textDecoration:"underline",fontSize:12,marginBottom:6}}>ช่องทางการชำระเงิน / Payment Channel</div>
                   <div style={{display:"grid",gridTemplateColumns:"170px 1fr",gap:4,fontSize:12}}>
-                    <div>ธนาคาร</div><div>{myPayrollAgent.bankName || <span style={{color:"#CBD5E1"}}>—</span>}</div>
-                    <div>ชื่อบัญชี</div><div>{myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || <span style={{color:"#CBD5E1"}}>—</span>}</div>
-                    <div>เลขที่บัญชี</div><div>{myPayrollAgent.bankAccount || <span style={{color:"#CBD5E1"}}>—</span>}</div>
+                    <div>ธนาคาร / Bank</div><div>{myPayrollAgent.bankName || <span style={{color:"#CBD5E1"}}>—</span>}</div>
+                    <div>ชื่อบัญชี / Account Name</div><div>{myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || <span style={{color:"#CBD5E1"}}>—</span>}</div>
+                    <div>เลขที่บัญชี / Account No.</div><div>{myPayrollAgent.bankAccount || <span style={{color:"#CBD5E1"}}>—</span>}</div>
                   </div>
                 </div>
                 {signature && (
