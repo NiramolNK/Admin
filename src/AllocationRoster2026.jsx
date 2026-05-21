@@ -337,6 +337,19 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
     });
     dayCount[ag.id] = n;
   });
+  // Track each agent's MOST RECENT working shift (M / ME / E) so we can flip after a day off.
+  // Fairness rule: after Off, the agent should switch the opposite shift (M ↔ E).
+  // If they're shift-locked (e.g. M-only or E-only) we can't alternate — they just get their only shift.
+  const lastShift = {};
+  t1.forEach(ag => {
+    let last = null;
+    // Walk dates in order; remember the most recent existing M/E/ME assignment
+    dates.forEach(d => {
+      const v = existing[`${ag.id}_${d.date}`];
+      if (v === "M" || v === "E" || v === "ME") last = v;
+    });
+    lastShift[ag.id] = last;
+  });
 
   // Also track shift rotation per agent: which shift index to use next
   const shiftIdx = {};
@@ -396,29 +409,41 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
       if (!ag.shifts.includes("ME")) continue;
-      nxt[k] = "ME"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; coveredME++;
+      nxt[k] = "ME"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; lastShift[ag.id] = "ME"; coveredME++;
       unassigned.splice(i, 1); i--;
     }
 
-    // Fill M slots — prefer agents who can ONLY do M (or M+ME but not E)
-    const mPool = unassigned.filter(a => a.shifts.includes("M")).sort((a,b) => a.shifts.length - b.shifts.length);
+    // Fill M slots — prefer (1) agents whose previous shift was E or ME (alternate after off),
+    // then (2) agents who can ONLY do M (most constrained first).
+    const mPool = unassigned.filter(a => a.shifts.includes("M")).sort((a,b) => {
+      const aAlt = (lastShift[a.id] === "E" || lastShift[a.id] === "ME") ? 0 : (lastShift[a.id] === "M" ? 2 : 1);
+      const bAlt = (lastShift[b.id] === "E" || lastShift[b.id] === "ME") ? 0 : (lastShift[b.id] === "M" ? 2 : 1);
+      if (aAlt !== bAlt) return aAlt - bAlt;
+      return a.shifts.length - b.shifts.length;
+    });
     for (const ag of mPool) {
       if (coveredM + coveredME >= needM) break;
       const k = `${ag.id}_${d.date}`;
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
-      nxt[k] = "M"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; coveredM++;
+      nxt[k] = "M"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; lastShift[ag.id] = "M"; coveredM++;
       const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
     }
 
-    // Fill E slots — prefer agents who can ONLY do E
-    const ePool = unassigned.filter(a => a.shifts.includes("E")).sort((a,b) => a.shifts.length - b.shifts.length);
+    // Fill E slots — prefer (1) agents whose previous shift was M or ME (alternate after off),
+    // then (2) agents who can ONLY do E (most constrained first).
+    const ePool = unassigned.filter(a => a.shifts.includes("E")).sort((a,b) => {
+      const aAlt = (lastShift[a.id] === "M" || lastShift[a.id] === "ME") ? 0 : (lastShift[a.id] === "E" ? 2 : 1);
+      const bAlt = (lastShift[b.id] === "M" || lastShift[b.id] === "ME") ? 0 : (lastShift[b.id] === "E" ? 2 : 1);
+      if (aAlt !== bAlt) return aAlt - bAlt;
+      return a.shifts.length - b.shifts.length;
+    });
     for (const ag of ePool) {
       if (coveredE + coveredME >= needE) break;
       const k = `${ag.id}_${d.date}`;
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
-      nxt[k] = "E"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; coveredE++;
+      nxt[k] = "E"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; lastShift[ag.id] = "E"; coveredE++;
       const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
     }
 
@@ -430,7 +455,7 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
       const shift = ag.shifts.includes("M") ? "M" : "ME";
-      nxt[k] = shift; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++;
+      nxt[k] = shift; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; lastShift[ag.id] = shift;
       if (shift === "ME") coveredME++; else coveredM++;
       const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
     }
@@ -443,7 +468,7 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
       const shift = ag.shifts.includes("E") ? "E" : "ME";
-      nxt[k] = shift; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++;
+      nxt[k] = shift; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; lastShift[ag.id] = shift;
       if (shift === "ME") coveredME++; else coveredE++;
       const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
     }
