@@ -3459,11 +3459,15 @@ export default function AllocationPanel({ isAdmin = true }) {
                         const parseNum = v => Number(String(v||"").replace(/[^0-9.]/g,""))||0;
 
                         const agg = {};
-                        const perfAgg = {}; // storeName → platform → {chats, replied, customers, avgResp, conv, amount, rating}
+                        const perfAgg = {}; // storeName → platform → {chats, replied, inquiry, customers, avgResp, conv, amount, rating}
                         rows.slice(hdrIdx+1).forEach(r => {
                           const store = String(r[storeCol]||"").trim().replace(/"/g,'');
                           const plat  = normPlat(r[platCol]);
-                          const chats = parseNum(r[chatsCol]);
+                          const inquiryCount = parseNum(r[chatsCol]);
+                          const repliedCount = repliedCol>=0 ? parseNum(r[repliedCol]) : 0;
+                          // Use replied chat as the primary chat count (work done, not inquiries received).
+                          // Falls back to inquiry count only if there's no replied column.
+                          const chats = repliedCol>=0 ? repliedCount : inquiryCount;
                           if(!store || !plat) return;
                           if(!agg[store]) agg[store]={};
                           agg[store][plat] = (agg[store][plat]||0) + chats;
@@ -3471,7 +3475,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                           if(!perfAgg[store]) perfAgg[store]={};
                           perfAgg[store][plat.toLowerCase()] = {
                             chats,
-                            replied: repliedCol>=0 ? parseNum(r[repliedCol]) : 0,
+                            inquiry: inquiryCount,
+                            replied: repliedCount,
                             customers: custCol>=0 ? parseNum(r[custCol]) : 0,
                             avgResp: avgRespCol>=0 ? parseNum(r[avgRespCol]) : 0,
                             conv: convCol>=0 ? parseNum(r[convCol]) : 0,
