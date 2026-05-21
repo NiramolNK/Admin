@@ -26,11 +26,13 @@ import {
 export default function App() {
   const [booting, setBooting]   = useState(true);
   const [profile, setProfile]   = useState(null);
-  const [authMode, setAuthMode] = useState("signin"); // "signin" | "signup"
+  // Modes: "signin" | "forgot" | "recovery" (after clicking email link)
+  const [authMode, setAuthMode] = useState("signin");
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(""); // kept for backward-compat; unused
   const [err, setErr]           = useState("");
+  const [info, setInfo]         = useState("");
   const [busy, setBusy]         = useState(false);
 
   // Bootstrap: init storage shim, check current session
@@ -44,6 +46,10 @@ export default function App() {
 
     const { data: sub } = onAuthChange(async (event) => {
       if (event === "SIGNED_OUT") {
+        setProfile(null);
+      } else if (event === "PASSWORD_RECOVERY") {
+        // User clicked the recovery email link. Force them to set a new password.
+        setAuthMode("recovery");
         setProfile(null);
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         const p = await getCurrentRole();
@@ -86,21 +92,37 @@ export default function App() {
     if (error) setErr(error.message);
   };
 
-  const handleSignUp = async (e) => {
-    e?.preventDefault();
-    setErr("");
-    if (!username.trim()) { setErr("Username required"); return; }
-    setBusy(true);
-    // First user becomes manager. Subsequent: viewer (manager can promote).
-    const { count } = await supabase
-      .from("profiles")
-      .select("*", { count: "exact", head: true });
-    const role = (count || 0) === 0 ? "manager" : "viewer";
+  // Self-signup is disabled — manager invites users via Supabase Dashboard.
+  // We keep handleSignUp as a no-op so the component still compiles.
+  const handleSignUp = async (e) => { e?.preventDefault(); };
 
-    const { error } = await signUp(email, password, username.trim(), role);
+  const handleForgotPassword = async (e) => {
+    e?.preventDefault();
+    setErr(""); setInfo("");
+    if (!email.trim()) { setErr("Enter your email first"); return; }
+    setBusy(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin,
+    });
     setBusy(false);
     if (error) setErr(error.message);
-    else setErr("Check your email to confirm, then sign in.");
+    else setInfo("Password reset email sent. Check your inbox (and spam folder).");
+  };
+
+  const handleSetNewPassword = async (e) => {
+    e?.preventDefault();
+    setErr(""); setInfo("");
+    if (!password || password.length < 6) { setErr("Password must be at least 6 characters"); return; }
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setBusy(false);
+    if (error) setErr(error.message);
+    else {
+      setInfo("Password updated. Signing you in…");
+      setAuthMode("signin");
+      const p = await getCurrentRole();
+      setProfile(p);
+    }
   };
 
   if (booting) {
@@ -122,9 +144,10 @@ export default function App() {
       mode={authMode} setMode={setAuthMode}
       email={email} setEmail={setEmail}
       password={password} setPassword={setPassword}
-      username={username} setUsername={setUsername}
-      err={err} busy={busy}
-      onSignIn={handleSignIn} onSignUp={handleSignUp}
+      err={err} info={info} busy={busy}
+      onSignIn={handleSignIn}
+      onForgotPassword={handleForgotPassword}
+      onSetNewPassword={handleSetNewPassword}
     />;
   }
 
@@ -141,10 +164,22 @@ export default function App() {
 
 function AuthScreen({
   mode, setMode, email, setEmail, password, setPassword,
-  username, setUsername, err, busy, onSignIn, onSignUp,
+  err, info, busy, onSignIn, onForgotPassword, onSetNewPassword,
 }) {
-  const isSignUp = mode === "signup";
-  const submit = isSignUp ? onSignUp : onSignIn;
+  // Three modes:
+  //   "signin"   — normal email + password sign in
+  //   "forgot"   — enter email to receive reset link
+  //   "recovery" — landed here from email link, set new password
+  const isForgot   = mode === "forgot";
+  const isRecovery = mode === "recovery";
+
+  const submit = isRecovery ? onSetNewPassword
+               : isForgot   ? onForgotPassword
+               : onSignIn;
+
+  const title = isRecovery ? "Set a new password"
+              : isForgot   ? "Reset your password"
+              :              "Sign in to your workspace";
 
   return (
     <div style={authPageStyle}>
@@ -155,55 +190,65 @@ function AuthScreen({
             NiRM
           </div>
           <div style={{ fontSize: 13, color: "#94A3B8", marginTop: 4 }}>
-            {isSignUp ? "Create your account" : "Sign in to your workspace"}
+            {title}
           </div>
         </div>
 
-        {isSignUp && (
+        {!isRecovery && (
           <Field
-            label="Username" type="text" value={username}
-            onChange={setUsername} placeholder="e.g. April"
-            autoComplete="username"
+            label="Email" type="email" value={email}
+            onChange={setEmail} placeholder="you@company.com"
+            autoComplete="email" autoFocus
           />
         )}
 
-        <Field
-          label="Email" type="email" value={email}
-          onChange={setEmail} placeholder="you@company.com"
-          autoComplete="email" autoFocus={!isSignUp}
-        />
+        {!isForgot && (
+          <Field
+            label={isRecovery ? "New password" : "Password"}
+            type="password" value={password}
+            onChange={setPassword} placeholder="••••••••"
+            autoComplete={isRecovery ? "new-password" : "current-password"}
+            autoFocus={isRecovery}
+          />
+        )}
 
-        <Field
-          label="Password" type="password" value={password}
-          onChange={setPassword} placeholder="••••••••"
-          autoComplete={isSignUp ? "new-password" : "current-password"}
-        />
-
-        {err && (
+        {(err || info) && (
           <div style={{
-            fontSize: 12, color: err.startsWith("Check") ? "#059669" : "#EF4444",
+            fontSize: 12, color: info ? "#059669" : "#EF4444",
             fontWeight: 600, marginBottom: 16, padding: "8px 12px",
-            background: err.startsWith("Check") ? "#ECFDF5" : "#FEF2F2",
+            background: info ? "#ECFDF5" : "#FEF2F2",
             borderRadius: 8,
           }}>
-            {err}
+            {info || err}
           </div>
         )}
 
         <button type="submit" disabled={busy} style={primaryBtnStyle}>
-          {busy ? "…" : (isSignUp ? "Create account" : "Sign in")}
+          {busy ? "…"
+            : isRecovery ? "Update password"
+            : isForgot   ? "Send reset link"
+            :              "Sign in"}
         </button>
 
-        <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: "#64748B" }}>
-          {isSignUp ? "Already have an account? " : "First time? "}
-          <button
-            type="button"
-            onClick={() => setMode(isSignUp ? "signin" : "signup")}
-            style={linkBtnStyle}
-          >
-            {isSignUp ? "Sign in" : "Create one"}
-          </button>
-        </div>
+        {!isRecovery && (
+          <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: "#64748B" }}>
+            {isForgot ? (
+              <button type="button" onClick={() => setMode("signin")} style={linkBtnStyle}>
+                Back to sign in
+              </button>
+            ) : (
+              <button type="button" onClick={() => setMode("forgot")} style={linkBtnStyle}>
+                Forgot password?
+              </button>
+            )}
+          </div>
+        )}
+
+        {mode === "signin" && (
+          <div style={{ textAlign: "center", marginTop: 12, fontSize: 11, color: "#94A3B8" }}>
+            Access is by invitation only. Contact your manager to add your account.
+          </div>
+        )}
       </form>
 
       <style>{`
