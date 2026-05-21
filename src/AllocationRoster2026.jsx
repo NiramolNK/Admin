@@ -73,6 +73,16 @@ const ALLOC_FLAGS_INIT = {
   "2026-04-15":{type:"holiday",label:"Songkran"},
 };
 const ALLOC_BUDGET = {Alpha:50000,Beta:40000,Gamma:35000};
+
+// Company info that appears on every payroll invoice (CREA Trading)
+const COMPANY_INFO = {
+  taxId: "0105562106328",
+  name: "บริษัท ซีอาร์อีเอ เทรดดิ้ง จำกัด",
+  address: "712/1 อาคารทีบีไอ ชั้นที่ 6 ถนนสุขุมวิท 26 และ 28 แขวงคลองตัน เขตคลองเตย กรุงเทพมหานคร 10110",
+};
+const THAI_MONTHS = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+const THAI_MONTH_ABBR = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+const WITHHOLDING_RATE = 0.03;
 const ALLOC_BRANDS  = ["Alpha","Beta","Gamma"];
 
 // ── Platforms ────────────────────────────────────────────────────────────────
@@ -1247,6 +1257,17 @@ export default function AllocationPanel({ isAdmin = true }) {
     if (a.name && a.name.toLowerCase().trim() === lu) return true;
     return false;
   }) : null;
+  // Separate lookup for payroll: T1 and RT&RF both see their own monthly invoice,
+  // regardless of whether the full roster view applies.
+  const myPayrollAgent = (role==="t1" || role==="return")
+    ? agents.find(a => {
+        const lu = (loginUser||"").toLowerCase().trim();
+        if (!lu) return false;
+        if (a.email && a.email.toLowerCase().trim() === lu) return true;
+        if (a.name && a.name.toLowerCase().trim() === lu) return true;
+        return false;
+      })
+    : null;
   // Time labels per shift code. The agent's actual roster shift on a date determines the label.
   const SHIFT_LABEL = { M: "Morning (07:00 - 16:00)", ME: "ME (12:00 - 21:00)", E: "Evening (16:00 - 01:00)" };
   const myBrands = [];
@@ -2221,7 +2242,204 @@ export default function AllocationPanel({ isAdmin = true }) {
         {/* ══════════════════════════════════════════
             TEAMS TAB
         ══════════════════════════════════════════ */}
-        {allocTab==="agents" && (
+        {allocTab==="roster" && myPayrollAgent && (() => {
+          // Payroll period: 24th of prev month → 23rd of current month
+          const refDate = new Date(rosterYear, rosterMonth - 1, 1);
+          const periodM = refDate.getMonth(); // 0-11
+          const periodY = refDate.getFullYear();
+          const prevM = periodM === 0 ? 11 : periodM - 1;
+          const prevY = periodM === 0 ? periodY - 1 : periodY;
+          const periodStart = `${prevY}-${String(prevM+1).padStart(2,"0")}-24`;
+          const periodEnd   = `${periodY}-${String(periodM+1).padStart(2,"0")}-23`;
+          const periodDates = mkDateRange(periodStart, periodEnd);
+          // Tally worked days from asgn
+          let workDays = 0, otDays = 0;
+          periodDates.forEach(d => {
+            const v = asgn[`${myPayrollAgent.id}_${d.date}`];
+            if (!v || v === "Off" || v === "TOIL") return;
+            workDays++;
+            if (v === "OT") otDays++;
+          });
+          const normalDays = workDays - otDays;
+          const subtotal = normalDays * myPayrollAgent.costDay + otDays * myPayrollAgent.costDay * 1.5;
+          const withholding = subtotal * WITHHOLDING_RATE;
+          const netAmount = subtotal - withholding;
+          const invoiceMonthLabel = THAI_MONTHS[periodM];
+          const invoiceMonthAbbr = THAI_MONTH_ABBR[periodM];
+          const thaiYear = periodY + 543;
+          const thaiYearShort = String(thaiYear).slice(-2);
+          const invoiceNumber = `${periodY}${String(periodM+1).padStart(2,"0")}${myPayrollAgent.id.replace(/\D/g,"").slice(-2)}`;
+          const invoiceDate = `${new Date(periodY, periodM+1, 0).getDate()}-${invoiceMonthAbbr}-${thaiYearShort}`;
+          // E-sign check: today >= 19th of the current invoice month
+          const today = new Date();
+          const signDay = new Date(periodY, periodM, 19);
+          const isSignWindow = today >= signDay;
+          const signatureKey = `${periodY}-${String(periodM+1).padStart(2,"0")}`;
+          const signature = (myPayrollAgent.signatures || {})[signatureKey];
+
+          const handleSign = () => {
+            const name = window.prompt("Type your full name to sign this invoice / กรอกชื่อ-นามสกุลของคุณเพื่อลงนาม:");
+            if (!name || !name.trim()) return;
+            setAgents(prev => prev.map(a => a.id === myPayrollAgent.id
+              ? { ...a, signatures: { ...(a.signatures||{}), [signatureKey]: { name: name.trim(), signedAt: new Date().toISOString() } } }
+              : a
+            ));
+            alert("Invoice signed. Your manager will receive a copy.");
+          };
+
+          const printInvoice = () => {
+            const w = window.open("", "_blank", "width=900,height=1200");
+            if (!w) { alert("Allow pop-ups to print"); return; }
+            const fmtBaht = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            w.document.write(`<!DOCTYPE html><html><head><title>Invoice ${invoiceNumber}</title>
+              <style>
+                @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;700&display=swap');
+                *{box-sizing:border-box;margin:0;padding:0;font-family:'Sarabun',sans-serif}
+                body{padding:30px 40px;font-size:13px;color:#000}
+                .row{display:grid;grid-template-columns:170px 1fr;gap:8px;margin-bottom:4px}
+                .row b{font-weight:700}
+                .center{text-align:center;font-size:18px;font-weight:700;padding:10px 0;border:1px solid #000;margin:18px 0}
+                table{width:100%;border-collapse:collapse;margin-top:8px}
+                table th,table td{border:1px solid #000;padding:8px 10px;vertical-align:top}
+                table th{background:#fafafa;font-weight:700;font-size:12px}
+                .total-line{display:grid;grid-template-columns:1fr auto auto;gap:8px;padding:6px 10px;font-weight:700;border-top:1px solid #000}
+                .pay-section{margin-top:24px}
+                .pay-section h3{font-size:13px;font-weight:700;text-decoration:underline;margin-bottom:6px}
+                .signature{margin-top:40px;padding-top:16px;border-top:1px dashed #ccc;font-size:11px;color:#666}
+                @media print{@page{size:A4;margin:15mm}}
+              </style></head><body>
+              <div class="row"><div>เลขประจำตัวผู้เสียภาษี</div><div>${myPayrollAgent.taxId || "—"}</div></div>
+              <div class="row"><div>ชื่อ</div><div>${myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div></div>
+              <div class="row"><div>ที่อยู่จัดส่งเอกสาร</div><div>${myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || "—"}</div></div>
+              <div class="row"><div>ที่อยู่ตามหน้าบัตร</div><div>${myPayrollAgent.idCardAddress || "—"}</div></div>
+              <div class="center">ใบแจ้งหนี้</div>
+              <div class="row"><div>เลขประจำตัวผู้เสียภาษี</div><div>${COMPANY_INFO.taxId}</div></div>
+              <div class="row"><div>นามลูกค้า</div><div>${COMPANY_INFO.name}</div></div>
+              <div class="row" style="margin-bottom:10px"><div>ที่อยู่</div><div>${COMPANY_INFO.address}</div></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:8px">
+                <div><b>เลขที่ :</b> ${invoiceNumber}</div>
+                <div style="text-align:right"><b>วันที่ :</b> ${invoiceDate}</div>
+              </div>
+              <table>
+                <thead><tr><th>รายการ</th><th style="text-align:right;width:160px">จำนวนเงิน (บาท)</th></tr></thead>
+                <tbody>
+                  <tr><td>ค่าบริการตอบแชทช่วงเดือน ${invoiceMonthLabel} ${thaiYear} (${workDays} วัน)</td><td style="text-align:right;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
+                  <tr><td style="text-align:right;font-weight:700">รวม</td><td style="text-align:right;font-weight:700;font-family:monospace">${fmtBaht(subtotal)}</td></tr>
+                </tbody>
+              </table>
+              <div style="margin-top:18px;display:grid;grid-template-columns:170px 100px 70px;gap:6px;font-size:13px">
+                <div>จำนวนเงินที่ได้รับ</div><div style="text-align:right;font-family:monospace">${fmtBaht(netAmount)}</div><div>บาท</div>
+                <div>ภาษีหัก ณ ที่จ่าย 3%</div><div style="text-align:right;font-family:monospace">${fmtBaht(withholding)}</div><div>บาท</div>
+              </div>
+              <div class="pay-section">
+                <h3>ช่องทางการชำระเงิน</h3>
+                <div class="row"><div>ธนาคาร</div><div>${myPayrollAgent.bankName || "—"}</div></div>
+                <div class="row"><div>ชื่อบัญชี</div><div>${myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || "—"}</div></div>
+                <div class="row"><div>เลขที่บัญชี</div><div>${myPayrollAgent.bankAccount || "—"}</div></div>
+              </div>
+              ${signature ? `<div class="signature">ลงนามโดย: ${signature.name} · ${new Date(signature.signedAt).toLocaleString("th-TH")}</div>` : ""}
+              <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
+              </body></html>`);
+            w.document.close();
+          };
+
+          const completeness = (() => {
+            const f = myPayrollAgent;
+            const fields = [f.taxId, f.thaiName || f.fullName, f.idCardAddress, f.bankName, f.bankAccount, f.bankAccountName];
+            const filled = fields.filter(Boolean).length;
+            return { filled, total: fields.length, pct: Math.round(filled/fields.length*100) };
+          })();
+
+          return (
+            <div style={{marginTop:18,background:"#FFFFFF",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+              <div style={{padding:"14px 18px",borderBottom:"1px solid #F1F5F9",background:"#F8FAFC",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:"#1A1D2E"}}>💰 My Payroll Invoice — {invoiceMonthLabel} {thaiYear}</div>
+                  <div style={{fontSize:11,color:"#94A3B8",marginTop:2}}>Period 24 {THAI_MONTH_ABBR[prevM]} – 23 {THAI_MONTH_ABBR[periodM]} · {workDays} working days</div>
+                </div>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  {signature ? (
+                    <div style={{padding:"6px 12px",borderRadius:7,background:"#D1FAE5",border:"1px solid #6EE7B7",fontSize:11,color:"#065F46",fontWeight:600}}>
+                      ✓ Signed by {signature.name}
+                    </div>
+                  ) : isSignWindow ? (
+                    <button onClick={completeness.filled === completeness.total ? handleSign : ()=>alert("Please complete your personal info first ("+completeness.filled+"/"+completeness.total+" fields filled)")}
+                      style={{padding:"7px 14px",borderRadius:8,border:"none",background:completeness.filled === completeness.total?"#F59E0B":"#E2E8F0",color:completeness.filled === completeness.total?"#fff":"#94A3B8",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                      ✍ Sign Invoice
+                    </button>
+                  ) : (
+                    <div style={{padding:"6px 12px",borderRadius:7,background:"#F1F5F9",fontSize:11,color:"#94A3B8"}}>
+                      Sign window opens on {invoiceMonthAbbr} 19
+                    </div>
+                  )}
+                  <button onClick={printInvoice}
+                    style={{padding:"7px 12px",borderRadius:8,border:"1px solid #F87171",background:"#FFF5F5",color:"#B91C1C",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                    📄 Print / PDF
+                  </button>
+                </div>
+              </div>
+              {completeness.filled < completeness.total && (
+                <div style={{padding:"10px 18px",background:"#FEF3C7",borderBottom:"1px solid #FDE68A",fontSize:11,color:"#92400E"}}>
+                  ⚠️ Your personal information is incomplete ({completeness.filled}/{completeness.total} fields). The invoice may not print correctly. <a href="#" onClick={(e)=>{e.preventDefault(); window.location.href = `${window.location.origin}${window.location.pathname}?invite=${myPayrollAgent.id}&name=${encodeURIComponent(myPayrollAgent.name)}`;}} style={{color:"#92400E",textDecoration:"underline",fontWeight:700}}>Fill it now</a>
+                </div>
+              )}
+              <div style={{padding:"20px 24px",fontSize:12,fontFamily:"'Sarabun',sans-serif"}}>
+                {/* Agent header */}
+                <div style={{display:"grid",gridTemplateColumns:"170px 1fr",gap:4,fontSize:12,marginBottom:14}}>
+                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี</div><div>{myPayrollAgent.taxId || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
+                  <div style={{fontWeight:700}}>ชื่อ</div><div>{myPayrollAgent.thaiName || myPayrollAgent.fullName || myPayrollAgent.name}</div>
+                  <div style={{fontWeight:700}}>ที่อยู่จัดส่งเอกสาร</div><div>{myPayrollAgent.docDeliveryAddress || myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
+                  <div style={{fontWeight:700}}>ที่อยู่ตามหน้าบัตร</div><div>{myPayrollAgent.idCardAddress || <span style={{color:"#CBD5E1"}}>— ยังไม่ได้กรอก —</span>}</div>
+                </div>
+                <div style={{textAlign:"center",border:"1px solid #1A1D2E",padding:"8px 0",fontWeight:700,fontSize:16,marginBottom:14}}>ใบแจ้งหนี้</div>
+                <div style={{display:"grid",gridTemplateColumns:"170px 1fr",gap:4,fontSize:12,marginBottom:8}}>
+                  <div style={{fontWeight:700}}>เลขประจำตัวผู้เสียภาษี</div><div>{COMPANY_INFO.taxId}</div>
+                  <div style={{fontWeight:700}}>นามลูกค้า</div><div>{COMPANY_INFO.name}</div>
+                  <div style={{fontWeight:700}}>ที่อยู่</div><div>{COMPANY_INFO.address}</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,fontSize:12,marginBottom:14}}>
+                  <div><b>เลขที่ :</b> {invoiceNumber}</div>
+                  <div style={{textAlign:"right"}}><b>วันที่ :</b> {invoiceDate}</div>
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12,marginBottom:14}}>
+                  <thead><tr style={{background:"#FAFAFA"}}>
+                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"left",fontWeight:700}}>รายการ</th>
+                    <th style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700,width:160}}>จำนวนเงิน (บาท)</th>
+                  </tr></thead>
+                  <tbody>
+                    <tr>
+                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px"}}>ค่าบริการตอบแชทช่วงเดือน {invoiceMonthLabel} {thaiYear} ({workDays} วัน)</td>
+                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontFamily:"monospace"}}>{subtotal.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                    </tr>
+                    <tr>
+                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700}}>รวม</td>
+                      <td style={{border:"1px solid #1A1D2E",padding:"8px 10px",textAlign:"right",fontWeight:700,fontFamily:"monospace"}}>{subtotal.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div style={{display:"grid",gridTemplateColumns:"170px 100px 70px",gap:6,fontSize:12,marginBottom:18}}>
+                  <div>จำนวนเงินที่ได้รับ</div><div style={{textAlign:"right",fontFamily:"monospace"}}>{netAmount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
+                  <div>ภาษีหัก ณ ที่จ่าย 3%</div><div style={{textAlign:"right",fontFamily:"monospace"}}>{withholding.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
+                </div>
+                <div>
+                  <div style={{fontWeight:700,textDecoration:"underline",fontSize:12,marginBottom:6}}>ช่องทางการชำระเงิน</div>
+                  <div style={{display:"grid",gridTemplateColumns:"170px 1fr",gap:4,fontSize:12}}>
+                    <div>ธนาคาร</div><div>{myPayrollAgent.bankName || <span style={{color:"#CBD5E1"}}>—</span>}</div>
+                    <div>ชื่อบัญชี</div><div>{myPayrollAgent.bankAccountName || myPayrollAgent.thaiName || <span style={{color:"#CBD5E1"}}>—</span>}</div>
+                    <div>เลขที่บัญชี</div><div>{myPayrollAgent.bankAccount || <span style={{color:"#CBD5E1"}}>—</span>}</div>
+                  </div>
+                </div>
+                {signature && (
+                  <div style={{marginTop:20,padding:"10px 14px",borderTop:"1px dashed #CBD5E1",fontSize:11,color:"#64748B"}}>
+                    ลงนามโดย: <strong>{signature.name}</strong> · {new Date(signature.signedAt).toLocaleString("th-TH")}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+
+                {allocTab==="agents" && (
           <div>
             <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
               <div style={{position:"relative",flex:1,minWidth:160}}>
