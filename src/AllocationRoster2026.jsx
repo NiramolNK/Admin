@@ -4768,6 +4768,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             </div>
           </div>
         </div>
+      </div>
       )}
 
       <style>{`
