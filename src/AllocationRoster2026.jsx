@@ -1337,8 +1337,9 @@ export default function AllocationPanel({ isAdmin = true }) {
             </button>
             {role==="manager" && (
               <button onClick={async ()=>{
-                if(!window.confirm("Reset ALL data to defaults? This cannot be undone.")) return;
-                if(window.storage) { try { await window.storage.delete("nirm-all"); } catch{} }
+                if(!window.confirm("Reset roster, brands, budget, and assignments to defaults?\n\nUser accounts will be PRESERVED.\n\nThis cannot be undone.")) return;
+                // PRESERVE userAccounts and userProfiles across reset — don't wipe storage entirely.
+                // Instead, reset only the operational state and let the save loop overwrite it.
                 setAgents(ALLOC_AGENTS_INIT); setBrands(CS_BRANDS_INIT);
                 setBudget(ALLOC_BUDGET); setFulltimeSalary(0);
                 setAllAsgn({}); setAllBrandAsgn({}); setGlobalFlags(ALLOC_FLAGS_INIT);
