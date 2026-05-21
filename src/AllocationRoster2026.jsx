@@ -2681,20 +2681,49 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <input type="checkbox" checked={editAgent.active} onChange={e=>setEditAgent({...editAgent,active:e.target.checked})} style={{width:16,height:16}}/> Active
                     </label>
 
-                    {/* ── Payroll info (filled by agent via invite) ── */}
-                    {editAgent.bankAccount && (
-                      <div style={{background:"#F0FDF4",borderRadius:10,border:"1px solid #BBF7D0",padding:"12px 14px"}}>
-                        <div style={{fontSize:11,fontWeight:700,color:"#065F46",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-                          Payroll Info Received
+                    {/* ── Personal Info (filled by agent via invite link) ── */}
+                    {(editAgent.bankAccount || editAgent.taxId || editAgent.profilePhotoUrl) && (
+                      <div style={{background:"#F0FDF4",borderRadius:10,border:"1px solid #BBF7D0",padding:"14px 16px"}}>
+                        <div style={{fontSize:11,fontWeight:700,color:"#065F46",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <span>Personal Info Received / ข้อมูลที่ได้รับ</span>
+                          <span style={{fontSize:10,padding:"1px 8px",borderRadius:4,background:"#fff",color:"#0D9488",fontFamily:"monospace",fontWeight:700}}>Agent ID: {editAgent.id}</span>
                         </div>
-                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,color:"#475569"}}>
-                          {editAgent.phone&&<div><span style={{color:"#94A3B8"}}>Phone: </span>{editAgent.phone}</div>}
-                          {editAgent.idCard&&<div><span style={{color:"#94A3B8"}}>ID: </span>{editAgent.idCard}</div>}
-                          {editAgent.bankName&&<div><span style={{color:"#94A3B8"}}>Bank: </span>{editAgent.bankName}</div>}
-                          {editAgent.bankAccount&&<div><span style={{color:"#94A3B8"}}>Account: </span>{editAgent.bankAccount}</div>}
-                          {editAgent.bankAccountName&&<div><span style={{color:"#94A3B8"}}>Acc Name: </span>{editAgent.bankAccountName}</div>}
-                          {editAgent.startDate&&<div><span style={{color:"#94A3B8"}}>Start: </span>{editAgent.startDate}</div>}
+                        <div style={{display:"flex",gap:14,marginBottom:10}}>
+                          {editAgent.profilePhotoUrl && (
+                            <img src={editAgent.profilePhotoUrl} alt="" style={{width:72,height:72,borderRadius:12,objectFit:"cover",border:"1px solid #BBF7D0"}}/>
+                          )}
+                          <div style={{flex:1,fontSize:11,color:"#475569",display:"grid",gridTemplateColumns:"1fr",gap:3}}>
+                            {(editAgent.thaiName || editAgent.fullName) && <div><span style={{color:"#94A3B8"}}>Name: </span>{editAgent.thaiName || editAgent.fullName}</div>}
+                            {editAgent.phone && <div><span style={{color:"#94A3B8"}}>Phone: </span>{editAgent.phone}</div>}
+                            {editAgent.idCard && <div><span style={{color:"#94A3B8"}}>ID Card: </span>{editAgent.idCard}</div>}
+                            {editAgent.taxId && <div><span style={{color:"#94A3B8"}}>Tax ID: </span>{editAgent.taxId}</div>}
+                            {editAgent.startDate && <div><span style={{color:"#94A3B8"}}>Start: </span>{editAgent.startDate}</div>}
+                          </div>
                         </div>
+                        {(editAgent.idCardAddress || editAgent.docDeliveryAddress) && (
+                          <div style={{fontSize:11,color:"#475569",marginBottom:10,paddingTop:8,borderTop:"1px solid #BBF7D0"}}>
+                            {editAgent.idCardAddress && <div style={{marginBottom:3}}><span style={{color:"#94A3B8"}}>ที่อยู่ตามบัตร: </span>{editAgent.idCardAddress}</div>}
+                            {editAgent.docDeliveryAddress && editAgent.docDeliveryAddress !== editAgent.idCardAddress && <div><span style={{color:"#94A3B8"}}>ที่อยู่จัดส่ง: </span>{editAgent.docDeliveryAddress}</div>}
+                          </div>
+                        )}
+                        {(editAgent.bankName || editAgent.bankAccount) && (
+                          <div style={{fontSize:11,color:"#475569",paddingTop:8,borderTop:"1px solid #BBF7D0"}}>
+                            <div style={{fontWeight:700,color:"#065F46",marginBottom:3}}>Bank / ธนาคาร</div>
+                            {editAgent.bankName && <div><span style={{color:"#94A3B8"}}>Bank: </span>{editAgent.bankName}</div>}
+                            {editAgent.bankAccountName && <div><span style={{color:"#94A3B8"}}>Acc Name: </span>{editAgent.bankAccountName}</div>}
+                            {editAgent.bankAccount && <div><span style={{color:"#94A3B8"}}>Account: </span>{editAgent.bankAccount}</div>}
+                          </div>
+                        )}
+                        {(editAgent.idCardPhotoUrl || editAgent.bookbankPhotoUrl) && (
+                          <div style={{display:"flex",gap:10,marginTop:10,paddingTop:8,borderTop:"1px solid #BBF7D0"}}>
+                            {editAgent.idCardPhotoUrl && (
+                              <a href={editAgent.idCardPhotoUrl} target="_blank" rel="noreferrer" style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>📄 View ID Card</a>
+                            )}
+                            {editAgent.bookbankPhotoUrl && (
+                              <a href={editAgent.bookbankPhotoUrl} target="_blank" rel="noreferrer" style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>📄 View Bookbank</a>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -4496,14 +4525,13 @@ export default function AllocationPanel({ isAdmin = true }) {
         const fields = [
           {key:"fullName",label:"Full Name",placeholder:"e.g. Somchai Jaidee"},
           {key:"preferName",label:"Preferred Name",placeholder:"e.g. Ohm"},
-          {key:"bankName",label:"Bank Name",placeholder:"e.g. Kasikorn, SCB, Bangkok Bank"},
-          {key:"bankAccountNo",label:"Bank Account No.",placeholder:"e.g. 123-4-56789-0"},
-          {key:"idCard",label:"ID Card Number",placeholder:"e.g. 1-2345-67890-12-3"},
           {key:"lineId",label:"Line ID",placeholder:"e.g. @ohm_work"},
           {key:"emergencyContact",label:"Emergency Contact",placeholder:"e.g. Mom 081-234-5678"},
           {key:"personalEmail",label:"Personal Email",placeholder:"e.g. ohm@gmail.com"},
           {key:"workEmail",label:"Work Email",placeholder:"e.g. ohm@company.com"},
         ];
+        // Find the agent linked to this login so we can show Agent ID + profile photo
+        const linkedAgent = agents.find(a => (a.email && a.email.toLowerCase().trim() === uKey) || (a.name && a.name.toLowerCase().trim() === uKey));
         const updateField = (key, val) => {
           setUserProfiles(prev => ({...prev, [uKey]: {...(prev[uKey]||{}), [key]: val}}));
         };
@@ -4512,10 +4540,17 @@ export default function AllocationPanel({ isAdmin = true }) {
             <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:16,width:"100%",maxWidth:480,maxHeight:"90vh",overflow:"auto",boxShadow:"0 20px 60px #00000022"}}>
               <div style={{padding:"24px 24px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
-                  <div style={{width:44,height:44,borderRadius:11,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0D9488"}}>{(loginUser||"U").charAt(0).toUpperCase()}</div>
+                  {linkedAgent && linkedAgent.profilePhotoUrl
+                    ? <img src={linkedAgent.profilePhotoUrl} alt="" style={{width:44,height:44,borderRadius:11,objectFit:"cover"}}/>
+                    : <div style={{width:44,height:44,borderRadius:11,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0D9488"}}>{(loginUser||"U").charAt(0).toUpperCase()}</div>}
                   <div>
                     <div style={{fontSize:16,fontWeight:700,color:"#0F172A"}}>My Profile</div>
-                    <div style={{fontSize:11,color:"#94A3B8"}}>{loginUser} · {ROLES[role]?.label}</div>
+                    <div style={{fontSize:11,color:"#94A3B8",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                      <span>{loginUser}</span>
+                      <span>·</span>
+                      <span>{ROLES[role]?.label}</span>
+                      {linkedAgent && <><span>·</span><span style={{padding:"1px 6px",borderRadius:4,background:"#F0FDFA",color:"#0D9488",fontFamily:"monospace",fontWeight:700}}>{linkedAgent.id}</span></>}
+                    </div>
                   </div>
                 </div>
                 <button onClick={()=>setShowProfile(false)} style={{width:32,height:32,borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",cursor:"pointer",fontSize:16,color:"#94A3B8",display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
