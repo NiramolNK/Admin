@@ -2341,13 +2341,17 @@ export default function AllocationPanel({ isAdmin = true }) {
               </div>
               <div style="margin-top:50px;display:grid;grid-template-columns:1fr 1fr;gap:60px">
                 <div style="text-align:center">
-                  <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px"></div>
-                  <div style="font-size:11px">ลงนามผู้ออกใบแจ้งหนี้</div>
-                  ${signature ? `<div style="font-size:10px;color:#666;margin-top:4px">(${signature.name} · ${new Date(signature.signedAt).toLocaleDateString("th-TH")})</div>` : ""}
+                  <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px">
+                    ${signature ? `<div style="font-family:'Sarabun',cursive;font-size:18px;font-weight:700;color:#1a1d2e;font-style:italic">${signature.name}</div>` : ""}
+                  </div>
+                  <div style="font-size:11px;font-weight:700">eSign</div>
+                  ${signature ? `<div style="font-size:9px;color:#0D9488;margin-top:3px">✓ ลงนามอิเล็กทรอนิกส์ผ่านระบบ NiRM</div>` : `<div style="font-size:9px;color:#aaa;margin-top:3px">(ยังไม่ได้ลงนาม)</div>`}
                 </div>
                 <div style="text-align:center">
-                  <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px"></div>
-                  <div style="font-size:11px">วันที่</div>
+                  <div style="border-bottom:1px solid #000;height:60px;margin-bottom:6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px">
+                    ${signature ? `<div style="font-size:13px;color:#1a1d2e">${new Date(signature.signedAt).toLocaleDateString("th-TH", { year: "numeric", month: "long", day: "numeric" })}</div>` : ""}
+                  </div>
+                  <div style="font-size:11px;font-weight:700">วันที่</div>
                 </div>
               </div>
               <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
@@ -2441,11 +2445,23 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <div>เลขที่บัญชี / Account No.</div><div>{myPayrollAgent.bankAccount || <span style={{color:"#CBD5E1"}}>—</span>}</div>
                   </div>
                 </div>
-                {signature && (
-                  <div style={{marginTop:20,padding:"10px 14px",borderTop:"1px dashed #CBD5E1",fontSize:11,color:"#64748B"}}>
-                    ลงนามโดย: <strong>{signature.name}</strong> · {new Date(signature.signedAt).toLocaleString("th-TH")}
+                <div style={{marginTop:30,paddingTop:20,borderTop:"1px dashed #CBD5E1",display:"grid",gridTemplateColumns:"1fr 1fr",gap:40}}>
+                  <div style={{textAlign:"center"}}>
+                    <div style={{borderBottom:"1px solid #1A1D2E",height:50,marginBottom:6,display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:4}}>
+                      {signature ? <div style={{fontSize:18,fontWeight:700,color:"#0D9488",fontStyle:"italic"}}>{signature.name}</div> : null}
+                    </div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#1A1D2E"}}>eSign</div>
+                    {signature
+                      ? <div style={{fontSize:9,color:"#0D9488",marginTop:3}}>✓ ลงนามอิเล็กทรอนิกส์ผ่านระบบ NiRM</div>
+                      : <div style={{fontSize:9,color:"#CBD5E1",marginTop:3}}>(ยังไม่ได้ลงนาม)</div>}
                   </div>
-                )}
+                  <div style={{textAlign:"center"}}>
+                    <div style={{borderBottom:"1px solid #1A1D2E",height:50,marginBottom:6,display:"flex",alignItems:"flex-end",justifyContent:"center",paddingBottom:4}}>
+                      {signature ? <div style={{fontSize:13,color:"#1A1D2E"}}>{new Date(signature.signedAt).toLocaleDateString("th-TH",{year:"numeric",month:"long",day:"numeric"})}</div> : null}
+                    </div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#1A1D2E"}}>วันที่</div>
+                  </div>
+                </div>
               </div>
             </div>
           );
