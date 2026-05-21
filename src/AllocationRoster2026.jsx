@@ -1187,6 +1187,9 @@ export default function AllocationPanel({ isAdmin = true }) {
     if (a.name && a.name.toLowerCase().trim() === lu) return true;
     return false;
   }) : null;
+  // Shift labels for the brand assignment display.
+  // ME is the mid-shift covering 12:00–21:00, spanning both Morning and Evening blocks.
+  const SHIFT_LABEL = { M: "Morning", ME: "ME (12:00 - 21:00)", E: "Evening" };
   const myBrands = [];
   const myBrandsForDate = []; // brand assignments for the selectedRosterDate only
   if (myAgent) {
@@ -1194,7 +1197,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     dates.forEach(dt => {
       brands.forEach(b => {
         (b.platforms||[]).forEach(plat => {
-          ["M","E"].forEach(shift => {
+          ["M","ME","E"].forEach(shift => {
             const k = `${b.id}_${dt.date}_${shift}_${plat}`;
             const raw = brandAsgn[k];
             const assigned = Array.isArray(raw) ? raw : (raw ? [raw] : []);
@@ -1202,10 +1205,10 @@ export default function AllocationPanel({ isAdmin = true }) {
               const key = `${b.id}|${plat}|${shift}`;
               if (!seen.has(key)) {
                 seen.add(key);
-                myBrands.push({brand:b.name, plat, shift:shift==="M"?"Morning":"Evening", wh:b.wh||""});
+                myBrands.push({brand:b.name, plat, shift:SHIFT_LABEL[shift]||shift, shiftCode:shift, wh:b.wh||""});
               }
               if (selectedRosterDate && dt.date === selectedRosterDate) {
-                myBrandsForDate.push({brand:b.name, plat, shift:shift==="M"?"Morning":"Evening", wh:b.wh||""});
+                myBrandsForDate.push({brand:b.name, plat, shift:SHIFT_LABEL[shift]||shift, shiftCode:shift, wh:b.wh||""});
               }
             }
           });
@@ -1576,7 +1579,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                             <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{mb.brand}</td>
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:"#F1F5F9",color:"#94A3B8",fontWeight:600}}>{mb.wh||"—"}</span></td>
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:PLATFORM_C[mb.plat]?.bg||"#F1F5F9",color:PLATFORM_C[mb.plat]?.color||"#64748B",fontWeight:700}}>{mb.plat}</span></td>
-                            <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:mb.shift==="Morning"?"#DBEAFE":"#D1FAE5",color:mb.shift==="Morning"?"#1D4ED8":"#065F46",fontWeight:700}}>{mb.shift}</span></td>
+                            <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:mb.shiftCode==="M"?"#DBEAFE":mb.shiftCode==="ME"?"#F0FDFA":"#D1FAE5",color:mb.shiftCode==="M"?"#1D4ED8":mb.shiftCode==="ME"?"#0F766E":"#065F46",fontWeight:700}}>{mb.shift}</span></td>
                           </tr>
                         ))}
                       </tbody>
