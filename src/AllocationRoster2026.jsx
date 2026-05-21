@@ -548,7 +548,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     idCardAddress:"", docDeliveryAddress:"", sameAddress:true,
     bankName:"", bankAccount:"", bankAccountName:"",
     startDate:"", costDay:"",
-    idCardPhotoUrl:"", bookbankPhotoUrl:""
+    profilePhotoUrl:"", idCardPhotoUrl:"", bookbankPhotoUrl:""
   });
   const [inviteFormAgentId, setInviteFormAgentId] = useState(null);
   const [cellKey, setCellKey]       = useState(null);
@@ -1007,6 +1007,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           bankAccountName: inviteFormData.bankAccountName,
           startDate:       inviteFormData.startDate,
           costDay:         Number(inviteFormData.costDay) || a.costDay,
+          profilePhotoUrl: inviteFormData.profilePhotoUrl,
           idCardPhotoUrl:  inviteFormData.idCardPhotoUrl,
           bookbankPhotoUrl: inviteFormData.bookbankPhotoUrl,
           payrollInfoUpdatedAt: new Date().toISOString(),
@@ -1014,7 +1015,7 @@ export default function AllocationPanel({ isAdmin = true }) {
       : a
     ));
     setInviteFormModal(false);
-    setInviteFormData({fullName:"",thaiName:"",phone:"",idCard:"",taxId:"",idCardAddress:"",docDeliveryAddress:"",sameAddress:true,bankName:"",bankAccount:"",bankAccountName:"",startDate:"",costDay:"",idCardPhotoUrl:"",bookbankPhotoUrl:""});
+    setInviteFormData({fullName:"",thaiName:"",phone:"",idCard:"",taxId:"",idCardAddress:"",docDeliveryAddress:"",sameAddress:true,bankName:"",bankAccount:"",bankAccountName:"",startDate:"",costDay:"",profilePhotoUrl:"",idCardPhotoUrl:"",bookbankPhotoUrl:""});
     setInviteFormAgentId(null);
   };
 
@@ -1475,13 +1476,17 @@ export default function AllocationPanel({ isAdmin = true }) {
         <div style={{padding:"12px",borderTop:"1px solid #F1F5F9"}}>
           {(() => {
             const prof = userProfiles[(loginUser||"").toLowerCase()] || {};
-            const displayName = prof.preferName || loginUser || ROLES[role]?.label || "User";
+            const ownAgent = agents.find(a => (a.email && a.email.toLowerCase().trim() === (loginUser||"").toLowerCase().trim()) || (a.name && a.name.toLowerCase().trim() === (loginUser||"").toLowerCase().trim()));
+            const profilePhoto = ownAgent?.profilePhotoUrl || "";
+            const displayName = ownAgent?.fullName || prof.preferName || loginUser || ROLES[role]?.label || "User";
             const initial = displayName.charAt(0).toUpperCase();
             return (<>
           {role && sidebarOpen && (
             <div onClick={()=>setShowProfile(true)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,background:ROLES[role].bg,marginBottom:8,cursor:"pointer",transition:"opacity 0.15s"}}
               onMouseEnter={e=>e.currentTarget.style.opacity="0.8"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
-              <div style={{width:28,height:28,borderRadius:7,background:ROLES[role].color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:ROLES[role].color}}>{initial}</div>
+              {profilePhoto
+                ? <img src={profilePhoto} alt="" style={{width:28,height:28,borderRadius:7,objectFit:"cover"}}/>
+                : <div style={{width:28,height:28,borderRadius:7,background:ROLES[role].color+"22",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:ROLES[role].color}}>{initial}</div>}
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:11,fontWeight:600,color:ROLES[role].color,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{displayName}</div>
                 <div style={{fontSize:9,color:ROLES[role].color+"99"}}>{ROLES[role].label} · Tap to edit profile</div>
@@ -1490,7 +1495,9 @@ export default function AllocationPanel({ isAdmin = true }) {
           )}
           {role && !sidebarOpen && (
             <div onClick={()=>setShowProfile(true)} style={{display:"flex",justifyContent:"center",marginBottom:8,cursor:"pointer"}}>
-              <div style={{width:32,height:32,borderRadius:8,background:ROLES[role].bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:ROLES[role].color}}>{initial}</div>
+              {profilePhoto
+                ? <img src={profilePhoto} alt="" style={{width:32,height:32,borderRadius:8,objectFit:"cover"}}/>
+                : <div style={{width:32,height:32,borderRadius:8,background:ROLES[role].bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,color:ROLES[role].color}}>{initial}</div>}
             </div>
           )}
             </>);
@@ -1575,9 +1582,11 @@ export default function AllocationPanel({ isAdmin = true }) {
         ══════════════════════════════════════════ */}
         {allocTab==="roster" && myAgent && (
               <div>
-                {/* Personal header — full name (preferred) and agent ID badge */}
+                {/* Personal header — full name (preferred), profile photo, agent ID badge */}
                 <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"20px 24px",marginBottom:16,display:"flex",alignItems:"center",gap:16}}>
-                  <div style={{width:48,height:48,borderRadius:12,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#0D9488"}}>{(myAgent.fullName || myAgent.name).charAt(0)}</div>
+                  {myAgent.profilePhotoUrl
+                    ? <img src={myAgent.profilePhotoUrl} alt="" style={{width:48,height:48,borderRadius:12,objectFit:"cover"}}/>
+                    : <div style={{width:48,height:48,borderRadius:12,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#0D9488"}}>{(myAgent.fullName || myAgent.name).charAt(0)}</div>}
                   <div style={{flex:1}}>
                     <div style={{fontSize:18,fontWeight:700,color:"#0F172A"}}>
                       {myAgent.fullName ? <>{myAgent.fullName} <span style={{color:"#94A3B8",fontWeight:500,fontSize:14}}>({myAgent.name})</span></> : myAgent.name}
@@ -2738,6 +2747,33 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <div style={{fontSize:13,color:"#94A3B8",marginTop:4}}>Please fill in your personal and payroll information</div>
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                    <div style={{display:"flex",justifyContent:"center",marginBottom:8}}>
+                      <label style={{cursor:"pointer",textAlign:"center"}}>
+                        <div style={{width:100,height:100,borderRadius:"50%",background:inviteFormData.profilePhotoUrl?"transparent":"#F0FDFA",border:"2px solid #0D9488",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",margin:"0 auto"}}>
+                          {inviteFormData.profilePhotoUrl
+                            ? <img src={inviteFormData.profilePhotoUrl} alt="Profile" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                            : <div style={{fontSize:36,color:"#0D9488"}}>📷</div>}
+                        </div>
+                        <div style={{fontSize:11,color:"#0D9488",marginTop:8,fontWeight:600}}>
+                          {inviteFormData.profilePhotoUrl ? "เปลี่ยนรูป / Change Photo" : "เพิ่มรูปโปรไฟล์ / Add Profile Photo"}
+                        </div>
+                        <input type="file" accept="image/*" capture="user" style={{display:"none"}}
+                          onChange={async (e)=>{
+                            const file = e.target.files?.[0];
+                            if(!file) return;
+                            const ext = file.name.split('.').pop() || 'jpg';
+                            const path = `payroll-docs/profile_${inviteFormAgentId}_${Date.now()}.${ext}`;
+                            try {
+                              const { error: upErr } = await supabase.storage.from("payroll-docs").upload(path, file, { upsert: true, cacheControl: "3600" });
+                              if (upErr) throw upErr;
+                              const { data: { publicUrl } } = supabase.storage.from("payroll-docs").getPublicUrl(path);
+                              setInviteFormData(d=>({...d, profilePhotoUrl: publicUrl}));
+                            } catch (err) {
+                              alert("Upload failed: " + err.message);
+                            }
+                          }}/>
+                      </label>
+                    </div>
                     <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E"}}>Personal Information / ข้อมูลส่วนตัว</div>
                     {[
                       ["fullName","Full Name (English)","text","e.g. Jane Doe"],
@@ -3721,7 +3757,9 @@ export default function AllocationPanel({ isAdmin = true }) {
                       return (
                         <div style={{padding:"20px 24px"}}>
                           <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
-                            <div style={{width:44,height:44,borderRadius:10,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0D9488"}}>{myRow.ag.name.charAt(0)}</div>
+                            {myRow.ag.profilePhotoUrl
+                              ? <img src={myRow.ag.profilePhotoUrl} alt="" style={{width:44,height:44,borderRadius:10,objectFit:"cover"}}/>
+                              : <div style={{width:44,height:44,borderRadius:10,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0D9488"}}>{myRow.ag.name.charAt(0)}</div>}
                             <div>
                               <div style={{fontSize:16,fontWeight:700,color:"#0F172A"}}>{myRow.ag.name}</div>
                               <div style={{fontSize:11,color:"#94A3B8"}}><span style={{padding:"2px 8px",borderRadius:6,background:ALLOC_TEAM_C[myRow.ag.team]?.bg,color:ALLOC_TEAM_C[myRow.ag.team]?.color,fontWeight:700,fontSize:10}}>{myRow.ag.team}</span> · ฿{myRow.ag.costDay}/day</div>
