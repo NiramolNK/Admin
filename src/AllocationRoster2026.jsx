@@ -616,6 +616,8 @@ export default function AllocationPanel({ isAdmin = true }) {
   // Payment period: pay cycle runs 24th of prev month → 23rd of this month
   const [payMonth, setPayMonth] = useState(4);
   const [payYear,  setPayYear]  = useState(2026);
+  // Per-agent monthly performance — { [YYYY-MM]: { [agentName_lower]: { replied } } }
+  const [agentPerf, setAgentPerf]   = useState({});
   const [monthlyVol, setMonthlyVol] = useState(() => {
     const seed = {};
     CS_BRANDS_INIT.forEach(b => { seed[b.id] = {...(b.chats||{})}; });
@@ -645,7 +647,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   // ── Master ref — always holds latest state for saving ─────────────────────
   const stateRef = useRef({});
   stateRef.current = {
-    agents, brands, budget, fulltimeSalary, monthlyVol, lockedMonths, role, changeRequests, userProfiles, userAccounts,
+    agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, userProfiles, userAccounts,
     prefs: { rosterYear, rosterMonth, allocTab, volYear, volMonth, loginUser },
     allAsgn, allBrandAsgn, globalFlags,
   };
@@ -704,6 +706,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           if (d.budget) setBudget(d.budget);
           if (d.fulltimeSalary != null) setFulltimeSalary(d.fulltimeSalary);
           if (d.monthlyVol) setMonthlyVol(d.monthlyVol);
+          if (d.agentPerf) setAgentPerf(d.agentPerf);
           if (d.lockedMonths) setLockedMonths(d.lockedMonths);
           if (d.role && ROLES[d.role]) { setRole(d.role); setLoggedIn(true); }
           if (d.allAsgn) setAllAsgn(d.allAsgn);
@@ -750,7 +753,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   // This useEffect runs AFTER render, so stateRef.current is guaranteed up-to-date
   useEffect(() => {
     if (storageLoaded) scheduleSave();
-  }, [agents, brands, budget, fulltimeSalary, monthlyVol, lockedMonths, role, changeRequests, userProfiles, userAccounts, rosterYear, rosterMonth, allocTab, volYear, volMonth, allAsgn, allBrandAsgn, globalFlags, storageLoaded]);
+  }, [agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, userProfiles, userAccounts, rosterYear, rosterMonth, allocTab, volYear, volMonth, allAsgn, allBrandAsgn, globalFlags, storageLoaded]);
 
   // Flush save on unmount
   useEffect(() => {
@@ -3914,6 +3917,108 @@ export default function AllocationPanel({ isAdmin = true }) {
               <div style={{marginTop:10,fontSize:10,color:"#94A3B8"}}>
                 Values here update the chat volumes used in Allocation auto-assign and the Auto-Fill chat-per-agent constraint. Navigate months to build MoM history.
               </div>
+
+              {/* ── Agent Performance section ───────────────────────────────────── */}
+              {(() => {
+                const perfMk = mk;
+                const monthAgentData = agentPerf[perfMk] || {};
+                const t1Agents = agents.filter(a => a.active && a.team === "T1");
+                const allChats = t1Agents.reduce((s, a) => s + (monthAgentData[a.name.toLowerCase()]?.replied || 0), 0);
+                return (
+                  <div style={{marginTop:24,background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden"}}>
+                    <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E"}}>
+                        Agent Performance — {MONTHS[volMonth-1]} {volYear}
+                      </div>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <div style={{fontSize:11,color:"#94A3B8"}}>
+                          Total: <span style={{fontFamily:"monospace",fontWeight:700,color:"#0D9488",fontSize:13}}>{allChats.toLocaleString()}</span> replied chats
+                        </div>
+                        {role==="manager" && (
+                          <div style={{position:"relative",display:"inline-block"}}>
+                            <input type="file" accept=".csv,.txt,.json,.xlsx,.xls"
+                              style={{position:"absolute",inset:0,opacity:0,cursor:"pointer",width:"100%",height:"100%",zIndex:2}}
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                e.target.value = "";
+                                if (!file) return;
+                                const parseRows = async () => {
+                                  const isExcel = /\.xlsx?$/i.test(file.name);
+                                  if (isExcel) {
+                                    const XLSX = await import("xlsx");
+                                    const buf = await file.arrayBuffer();
+                                    const wb = XLSX.read(buf, { type: "array" });
+                                    const ws = wb.Sheets[wb.SheetNames[0]];
+                                    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+                                  }
+                                  const text = await file.text();
+                                  return text.replace(/\r\n/g,"\n").replace(/\r/g,"\n").split("\n").filter(l=>l.trim())
+                                    .map(line => line.split(",").map(c => c.trim().replace(/^"|"$/g,"")));
+                                };
+                                let rows = await parseRows();
+                                while (rows.length && rows[rows.length-1].every(c => c==="" || c==null)) rows.pop();
+                                if (rows.length < 2) { alert("File appears empty or has no data rows."); return; }
+                                // Find header row + columns
+                                const nameKeywords = ["agent","name","staff","employee","user"];
+                                const repliedKeywords = ["replied chat","replied chats","replied","reply"];
+                                let hdrIdx = rows.findIndex(r => r.some(c => nameKeywords.some(k => String(c).toLowerCase().includes(k))));
+                                if (hdrIdx < 0) hdrIdx = 0;
+                                const hdr = rows[hdrIdx].map(c => String(c).toLowerCase().trim());
+                                const repliedCol = hdr.findIndex(h => repliedKeywords.some(k => h.includes(k)));
+                                const nameCol = hdr.findIndex(h => nameKeywords.some(k => h.includes(k)));
+                                if (nameCol < 0 || repliedCol < 0) {
+                                  alert(`Could not detect columns.\n\nFound: ${hdr.filter(Boolean).slice(0,8).join(" | ")}\n\nNeed columns for: Agent/Name, Replied Chats`);
+                                  return;
+                                }
+                                const parseNum = v => Number(String(v||"").replace(/[^0-9.]/g,""))||0;
+                                const newData = {};
+                                rows.slice(hdrIdx+1).forEach(r => {
+                                  const name = String(r[nameCol]||"").trim();
+                                  if (!name) return;
+                                  newData[name.toLowerCase()] = { name, replied: parseNum(r[repliedCol]) };
+                                });
+                                setAgentPerf(prev => ({...prev, [perfMk]: {...(prev[perfMk]||{}), ...newData}}));
+                                alert(`Agent performance imported!\n• ${Object.keys(newData).length} agents updated for ${MONTHS[volMonth-1]} ${volYear}`);
+                              }}/>
+                            <button style={{padding:"6px 14px",borderRadius:7,border:"1px solid #0D9488",background:"transparent",color:"#0D9488",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                              Import Agent Data
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {t1Agents.length === 0 ? (
+                      <div style={{padding:24,textAlign:"center",color:"#94A3B8",fontSize:12}}>No T1 agents found.</div>
+                    ) : (
+                      <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                        <thead><tr style={{background:"#F8FAFC"}}>
+                          <th style={{padding:"8px 14px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:180}}>Agent</th>
+                          <th style={{padding:"8px 14px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:80}}>Team</th>
+                          <th style={{padding:"8px 14px",textAlign:"right",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#0D9488",minWidth:140}}>Replied Chats</th>
+                          <th style={{padding:"8px 14px",textAlign:"right",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:100}}>% of Total</th>
+                        </tr></thead>
+                        <tbody>
+                          {[...t1Agents].sort((a,b)=>(monthAgentData[b.name.toLowerCase()]?.replied||0) - (monthAgentData[a.name.toLowerCase()]?.replied||0)).map((a,i) => {
+                            const v = monthAgentData[a.name.toLowerCase()]?.replied || 0;
+                            const pct = allChats > 0 ? (v/allChats*100) : 0;
+                            return (
+                              <tr key={a.id} style={{borderBottom:"1px solid #F1F5F9",background:i%2===0?"#FAFBFC":"transparent"}}>
+                                <td style={{padding:"8px 14px",fontWeight:600,color:"#1A1D2E"}}>{a.name}</td>
+                                <td style={{padding:"8px 14px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:ALLOC_TEAM_C[a.team]?.bg,color:ALLOC_TEAM_C[a.team]?.color,fontWeight:700}}>{a.team}</span></td>
+                                <td style={{padding:"8px 14px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:v>0?"#0D9488":"#CBD5E1"}}>{v ? v.toLocaleString() : "—"}</td>
+                                <td style={{padding:"8px 14px",textAlign:"right",fontFamily:"monospace",color:"#64748B"}}>{pct>0?`${pct.toFixed(1)}%`:"—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                    <div style={{padding:"10px 16px",fontSize:10,color:"#94A3B8",borderTop:"1px solid #F1F5F9"}}>
+                      Import a Duoke per-agent export (CSV or XLSX). Required columns: Agent/Name, Replied Chats. Values are stored per month — navigate months to see history.
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })()}
