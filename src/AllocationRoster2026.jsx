@@ -519,10 +519,9 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // Role definitions
   const ROLES = {
-    t1:       { label:"RT",              color:"#0D9488", bg:"#F0FDFA", tabs:["roster","analytics"],                                                       canEdit:false },
-    return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","analytics"],                                                       canEdit:false },
-    viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget","analytics"],                                              canEdit:false },
-    fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","agents","analytics"],                        canEdit:false },
+    return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation"],                                                      canEdit:false },
+    viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget"],                                                          canEdit:false },
+    fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","agents","dates","analytics"],                canEdit:false },
     manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true  },
   };
 
@@ -1166,8 +1165,8 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // ── Personal view data (for T1/viewer agents) ─────────────────────────────
   // Match by email first (preferred), fall back to name
-  // RT (t1), RF (return), and viewer roles see only their own row — Fulltime is office staff (sees full roster)
-  const myAgent = (role==="t1" || role==="return" || role==="viewer") ? agents.find(a => {
+  // Only viewer sees a personal slice — Fulltime, RT&RF, and Manager see the full roster
+  const myAgent = (role==="viewer") ? agents.find(a => {
     const lu = (loginUser||"").toLowerCase().trim();
     if (!lu) return false;
     if (a.email && a.email.toLowerCase().trim() === lu) return true;
@@ -1568,7 +1567,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               </div>
         )}
 
-        {allocTab==="roster" && !myAgent && (role==="t1"||role==="return"||role==="viewer") && (
+        {allocTab==="roster" && !myAgent && role==="viewer" && (
           <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"48px 24px",textAlign:"center"}}>
             <div style={{fontSize:15,fontWeight:700,color:"#1A1D2E",marginBottom:8}}>No personal schedule linked</div>
             <div style={{fontSize:12,color:"#64748B",maxWidth:420,margin:"0 auto",lineHeight:1.5}}>
@@ -1578,7 +1577,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           </div>
         )}
 
-        {allocTab==="roster" && !myAgent && role!=="t1" && role!=="return" && role!=="viewer" && (
+        {allocTab==="roster" && !myAgent && role!=="viewer" && (
           <div>
             {/* ── Pending Change Requests (manager/fulltime approval) ── */}
             {changeRequests.filter(r=>r.status==="pending").length > 0 && (
