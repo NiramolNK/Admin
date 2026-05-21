@@ -1193,6 +1193,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   const myBrandsForDate = []; // brand assignments for the selectedRosterDate only
   if (myAgent) {
     const seen = new Set();
+    const seenForDate = new Set(); // per-date dedup so a brand+platform appears once even if in multiple shift slots
     dates.forEach(dt => {
       // Agent's actual shift for this date. Used to override the brand slot's label
       // so an ME-shift agent sees every brand as 'ME (12:00 - 21:00)' regardless of which slot it sits in.
@@ -1212,7 +1213,12 @@ export default function AllocationPanel({ isAdmin = true }) {
                 myBrands.push({brand:b.name, plat, shift:displayShift, shiftCode:displayCode, wh:b.wh||""});
               }
               if (selectedRosterDate && dt.date === selectedRosterDate) {
-                myBrandsForDate.push({brand:b.name, plat, shift:displayShift, shiftCode:displayCode, wh:b.wh||""});
+                // Dedup by brand+platform+displayCode so M+E slot duplicates collapse into one ME row
+                const dateKey = `${b.id}|${plat}|${displayCode}`;
+                if (!seenForDate.has(dateKey)) {
+                  seenForDate.add(dateKey);
+                  myBrandsForDate.push({brand:b.name, plat, shift:displayShift, shiftCode:displayCode, wh:b.wh||""});
+                }
               }
             }
           });
