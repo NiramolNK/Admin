@@ -1437,66 +1437,81 @@ export default function AllocationPanel({ isAdmin = true }) {
                   </div>
                 </div>
 
-                {/* My Schedule */}
+                {/* My Schedule — Calendar view */}
                 <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden",marginBottom:16}}>
                   <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",fontSize:12,fontWeight:700,color:"#1A1D2E"}}>My Schedule — {dateLabel}</div>
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{borderCollapse:"collapse",fontSize:11,width:"max-content",minWidth:"100%"}}>
-                      <thead><tr>
-                        {dates.map(d => {
-                          const fl = flags[d.date]; const isH = fl?.type==="holiday"; const isC = fl?.type==="campaign";
-                          return (
-                            <th key={d.date} style={{minWidth:44,padding:"6px 2px",textAlign:"center",borderBottom:"1px solid #F1F5F9",background:isH?"#FEF3C7":isC?"#F0FDFA":d.isWE?"#FFF5F5":"#fff"}}>
-                              <div style={{fontSize:10,fontWeight:700,color:d.isWE?"#EF4444":"#1A1D2E"}}>{d.dd}/{d.mm}</div>
-                              <div style={{fontSize:9,color:d.isWE?"#F87171":"#94A3B8"}}>{d.day}</div>
-                              {fl && <div style={{fontSize:7,fontWeight:700,color:isH?"#D97706":"#0D9488",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:42}}>{fl.label}</div>}
-                            </th>
-                          );
-                        })}
-                      </tr></thead>
-                      <tbody><tr>
-                        {dates.map(d => {
-                          const cellK = `${myAgent.id}_${d.date}`;
-                          const val = asgn[cellK];
-                          const cs = val ? ALLOC_SHIFT_C[val] : null;
-                          const editing = role==="viewer" && cellKey===cellK;
-                          const hasPending = changeRequests.some(r=>r.agentId===myAgent.id && r.date===d.date && r.status==="pending");
-                          return (
-                            <td key={d.date} style={{padding:6,textAlign:"center",borderBottom:"1px solid #F1F5F9",background:flags[d.date]?.type==="holiday"?"#FFFBEB":"transparent",cursor:role==="viewer"?"pointer":"default",position:"relative"}}
-                              onClick={()=>{if(role==="viewer") setCellKey(editing?null:cellK);}}>
-                              {cs ? <div style={{background:cs.bg,color:cs.color,borderRadius:6,padding:"6px 4px",fontWeight:700,fontSize:13}}>{cs.label}</div>
-                                : <div style={{color:"#E2E8F0",fontSize:11}}>—</div>}
-                              {hasPending && <div style={{position:"absolute",top:2,right:2,width:6,height:6,borderRadius:3,background:"#F59E0B"}}/>}
-                              {editing && (
-                                <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:-20,zIndex:50,background:"#fff",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px #00000022",padding:12,width:180,fontSize:12}}>
-                                  <div style={{fontWeight:700,color:"#1A1D2E",marginBottom:4,fontSize:11}}>Request Change</div>
-                                  <div style={{fontSize:10,color:"#94A3B8",marginBottom:8}}>{d.dd}/{d.mm} {d.day} · Currently: {val||"Unset"}</div>
-                                  {["M","E","ME","Off"].map(code => {
-                                    const cs2=ALLOC_SHIFT_C[code];
-                                    return (
-                                      <button key={code} onClick={()=>{
-                                        setChangeRequests(prev=>[...prev,{
-                                          id: Date.now().toString(36)+Math.random().toString(36).slice(2,6),
-                                          agentId:myAgent.id, agentName:myAgent.name, date:d.date,
-                                          requestedShift:code, currentShift:val||"",
-                                          reason:"", status:"pending", requestedBy:loginUser,
-                                          timestamp:new Date().toISOString()
-                                        }]);
-                                        setCellKey(null);
-                                      }}
-                                        style={{display:"flex",alignItems:"center",gap:6,width:"100%",padding:"5px 8px",border:"1px solid #E2E8F0",borderRadius:5,cursor:"pointer",fontFamily:"inherit",fontWeight:600,fontSize:11,background:"transparent",color:cs2?.color||"#1A1D2E",marginBottom:2}}>
-                                        <span style={{width:24,height:16,borderRadius:3,background:cs2?.bg,color:cs2?.color,fontWeight:700,fontSize:9,textAlign:"center",lineHeight:"14px",flexShrink:0}}>{cs2?.label}</span>
-                                        {code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":"Day Off"}
-                                      </button>
-                                    );
-                                  })}
+                  <div style={{padding:"16px"}}>
+                    {/* Day-of-week headers (Mon–Sun) */}
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6,marginBottom:6}}>
+                      {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((dn,i) => (
+                        <div key={dn} style={{textAlign:"center",fontSize:10,fontWeight:700,color:i>=5?"#EF4444":"#94A3B8",padding:"6px 0",textTransform:"uppercase",letterSpacing:0.5}}>{dn}</div>
+                      ))}
+                    </div>
+                    {/* Calendar grid — pad empty cells before the 1st of the month */}
+                    {(() => {
+                      const first = dates[0];
+                      // Mon=0, Tue=1, ..., Sun=6 (so weekday 0=Sun becomes index 6)
+                      const offset = first ? ((first.wd + 6) % 7) : 0;
+                      const cells = [];
+                      for (let i = 0; i < offset; i++) cells.push({empty: true, key: `pad-${i}`});
+                      dates.forEach(d => cells.push({d, empty: false, key: d.date}));
+                      // Pad trailing to complete the last week row
+                      while (cells.length % 7 !== 0) cells.push({empty: true, key: `tail-${cells.length}`});
+                      return (
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
+                          {cells.map(c => {
+                            if (c.empty) return <div key={c.key} style={{minHeight:72}}/>;
+                            const d = c.d;
+                            const cellK = `${myAgent.id}_${d.date}`;
+                            const val = asgn[cellK];
+                            const cs = val ? ALLOC_SHIFT_C[val] : null;
+                            const editing = role==="viewer" && cellKey===cellK;
+                            const hasPending = changeRequests.some(r=>r.agentId===myAgent.id && r.date===d.date && r.status==="pending");
+                            const fl = flags[d.date]; const isH = fl?.type==="holiday"; const isC = fl?.type==="campaign";
+                            const bg = isH ? "#FEF3C7" : isC ? "#F0FDFA" : d.isWE ? "#FFF5F5" : "#fff";
+                            return (
+                              <div key={d.date} style={{minHeight:72,border:"1px solid #E2E8F0",borderRadius:8,background:bg,padding:"6px 8px",position:"relative",cursor:role==="viewer"?"pointer":"default"}}
+                                onClick={()=>{if(role==="viewer") setCellKey(editing?null:cellK);}}>
+                                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                                  <div style={{fontSize:11,fontWeight:700,color:d.isWE?"#EF4444":"#1A1D2E"}}>{Number(d.dd)}</div>
+                                  {hasPending && <div style={{width:6,height:6,borderRadius:3,background:"#F59E0B"}}/>}
                                 </div>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr></tbody>
-                    </table>
+                                {fl && <div style={{fontSize:8,fontWeight:700,color:isH?"#D97706":"#0D9488",marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{fl.label}</div>}
+                                <div style={{marginTop:6,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                  {cs ? <div style={{background:cs.bg,color:cs.color,borderRadius:6,padding:"4px 8px",fontWeight:700,fontSize:12,width:"100%",textAlign:"center"}}>{cs.label}</div>
+                                       : <div style={{color:"#CBD5E1",fontSize:11}}>—</div>}
+                                </div>
+                                {editing && (
+                                  <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#fff",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px #00000022",padding:12,width:180,fontSize:12}}>
+                                    <div style={{fontWeight:700,color:"#1A1D2E",marginBottom:4,fontSize:11}}>Request Change</div>
+                                    <div style={{fontSize:10,color:"#94A3B8",marginBottom:8}}>{d.dd}/{d.mm} {d.day} · Currently: {val||"Unset"}</div>
+                                    {["M","E","ME","Off"].map(code => {
+                                      const cs2=ALLOC_SHIFT_C[code];
+                                      return (
+                                        <button key={code} onClick={()=>{
+                                          setChangeRequests(prev=>[...prev,{
+                                            id: Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+                                            agentId:myAgent.id, agentName:myAgent.name, date:d.date,
+                                            requestedShift:code, currentShift:val||"",
+                                            reason:"", status:"pending", requestedBy:loginUser,
+                                            timestamp:new Date().toISOString()
+                                          }]);
+                                          setCellKey(null);
+                                        }}
+                                          style={{display:"flex",alignItems:"center",gap:6,width:"100%",padding:"5px 8px",border:"1px solid #E2E8F0",borderRadius:5,cursor:"pointer",fontFamily:"inherit",fontWeight:600,fontSize:11,background:"transparent",color:cs2?.color||"#1A1D2E",marginBottom:2}}>
+                                          <span style={{width:24,height:16,borderRadius:3,background:cs2?.bg,color:cs2?.color,fontWeight:700,fontSize:9,textAlign:"center",lineHeight:"14px",flexShrink:0}}>{cs2?.label}</span>
+                                          {code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":"Day Off"}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
