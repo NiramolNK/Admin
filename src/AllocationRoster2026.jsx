@@ -1140,7 +1140,14 @@ export default function AllocationPanel({ isAdmin = true }) {
   const SW = sidebarOpen ? 220 : 64;
 
   // ── Personal view data (for T1/viewer agents) ─────────────────────────────
-  const myAgent = (role==="fulltime" || role==="viewer") ? agents.find(a => a.name.toLowerCase() === loginUser.toLowerCase()) : null;
+  // Match by email first (preferred), fall back to name
+  const myAgent = (role==="fulltime" || role==="viewer") ? agents.find(a => {
+    const lu = (loginUser||"").toLowerCase().trim();
+    if (!lu) return false;
+    if (a.email && a.email.toLowerCase().trim() === lu) return true;
+    if (a.name && a.name.toLowerCase().trim() === lu) return true;
+    return false;
+  }) : null;
   const myBrands = [];
   if (myAgent) {
     // FIX (audit #1): scan ALL dates, not just dates[0]
@@ -1534,7 +1541,17 @@ export default function AllocationPanel({ isAdmin = true }) {
               </div>
         )}
 
-        {allocTab==="roster" && !myAgent && (
+        {allocTab==="roster" && !myAgent && role!=="manager" && (
+          <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"48px 24px",textAlign:"center"}}>
+            <div style={{fontSize:15,fontWeight:700,color:"#1A1D2E",marginBottom:8}}>No personal schedule linked</div>
+            <div style={{fontSize:12,color:"#64748B",maxWidth:420,margin:"0 auto",lineHeight:1.5}}>
+              Your account <code style={{background:"#F1F5F9",padding:"2px 6px",borderRadius:4,fontFamily:"monospace",fontSize:11}}>{loginUser}</code> isn't linked to an agent yet.
+              <br/>Ask your manager to open <strong>Teams</strong> → edit your agent record → fill in the <strong>Email</strong> field with this address.
+            </div>
+          </div>
+        )}
+
+        {allocTab==="roster" && !myAgent && role==="manager" && (
           <div>
             {/* ── Pending Change Requests (manager/fulltime approval) ── */}
             {changeRequests.filter(r=>r.status==="pending").length > 0 && (
@@ -2078,7 +2095,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   }}>{l}</button>
                 ))}
               </div>
-              <button onClick={()=>{setEditAgent({id:`A${String(agents.length+1).padStart(2,"0")}`,name:"",team:"T1",active:true,shifts:["M"],days:[...ALLOC_ALL],costDay:400,rule:""});setAgentModal(true);}}
+              <button onClick={()=>{setEditAgent({id:`A${String(agents.length+1).padStart(2,"0")}`,name:"",email:"",team:"T1",active:true,shifts:["M"],days:[...ALLOC_ALL],costDay:400,rule:""});setAgentModal(true);}}
                 style={{padding:"8px 16px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginLeft:"auto"}}>
                 + Add Agent
               </button>
@@ -2184,6 +2201,11 @@ export default function AllocationPanel({ isAdmin = true }) {
                           <option>T1</option><option>T2</option><option>Return</option>
                         </select></div>
                     </div>
+                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Email (links to login)</label>
+                      <input type="email" value={editAgent.email||""} onChange={e=>setEditAgent({...editAgent,email:e.target.value})}
+                        placeholder="e.g. someone@crea.asia"
+                        style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                      <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>When this agent signs in with this email, they see their own schedule only.</div></div>
                     <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Cost / Day (฿)</label>
                       <input type="number" value={editAgent.costDay} onChange={e=>setEditAgent({...editAgent,costDay:Number(e.target.value)})}
                         style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"monospace",outline:"none"}}/></div>
