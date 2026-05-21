@@ -4049,8 +4049,18 @@ export default function AllocationPanel({ isAdmin = true }) {
                         alert("User created. They can sign in at the app URL with this email and password.");
                       }
                     } else {
+                      const isOwn = userAccounts[editingUser._idx]?.username.toLowerCase()===loginUser.toLowerCase();
+                      const oldPw = userAccounts[editingUser._idx]?.password;
+                      if(isOwn && pw && pw !== oldPw && pw !== "__supabase__"){
+                        const { error: pwErr } = await supabase.auth.updateUser({ password: pw });
+                        if(pwErr){
+                          alert("Saved locally, but Supabase password update failed: "+pwErr.message+"\nYou may need to sign out and use Forgot Password.");
+                        }
+                      } else if(!isOwn && pw && pw !== oldPw && pw !== "__supabase__"){
+                        alert("Password changed in the user list, but the user's actual sign-in password is NOT updated. They will keep using their old password.\n\nTo reset another user's password: have them use Forgot Password on the sign-in page, or have them sign in and change it from their own account.");
+                      }
                       setUserAccounts(prev=>prev.map((u,i)=>i===editingUser._idx?{username:email,password:pw,role:editingUser.role}:u));
-                      if(userAccounts[editingUser._idx]?.username.toLowerCase()===loginUser.toLowerCase()) setRole(editingUser.role);
+                      if(isOwn) setRole(editingUser.role);
                     }
                     setEditingUser(null);
                   }} style={{padding:"8px 20px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{editingUser._isNew?"Add":"Save"}</button>
