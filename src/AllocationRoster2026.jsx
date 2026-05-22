@@ -273,6 +273,12 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
   // Working days already assigned (M/E/ME/TOIL/OT) count toward that agent's day total
   // so fairness in subsequent auto-fill ignores them as "already worked".
   Object.assign(nxt, existing);
+  // ── Burnout rule helpers: never auto-assign M after E (only 6h rest) ──
+  const prevDateOf = (date) => {
+    const x = new Date(date + "T00:00:00Z"); x.setUTCDate(x.getUTCDate()-1);
+    return x.toISOString().slice(0,10);
+  };
+  const wouldBurnout = (agId, date) => nxt[`${agId}_${prevDateOf(date)}`] === "E";
   // ── T2: fixed schedule (they're salaried, just mark their available days) ──
   const t2Only = agents.filter(a => a.active && a.team === "T2");
   t2Only.forEach(ag => {
@@ -436,6 +442,7 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       const k = `${ag.id}_${d.date}`;
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
+      if (wouldBurnout(ag.id, d.date)) continue; // skip: agent worked E yesterday
       nxt[k] = "M"; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; lastShift[ag.id] = "M"; coveredM++;
       const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
     }
@@ -465,6 +472,7 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
       const shift = ag.shifts.includes("M") ? "M" : "ME";
+      if (shift === "M" && wouldBurnout(ag.id, d.date)) continue; // skip: agent worked E yesterday
       nxt[k] = shift; budgetUsed += ag.costDay; assigned++; dayCount[ag.id]++; lastShift[ag.id] = shift;
       if (shift === "ME") coveredME++; else coveredM++;
       const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
@@ -884,7 +892,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     a.team !== "T2" &&
     (rosterTeam==="all" || a.team===rosterTeam) &&
     (rosterSearch==="" || a.name.toLowerCase().includes(rosterSearch.toLowerCase()))
-  );
+  ).sort((a,b)=>(a.id||"").localeCompare(b.id||"",undefined,{numeric:true}));
 
   const hdBg = d => {
     const fl=flags[d.date];
@@ -1842,7 +1850,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </button>
                 <button onClick={exportRosterPDF}
                   style={{padding:"6px 12px",borderRadius:8,border:"1px solid #F87171",background:"#FFF5F5",color:"#B91C1C",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
-                  📄 PDF
+                  PDF
                 </button>
               </div>
             </div>
@@ -2130,7 +2138,27 @@ export default function AllocationPanel({ isAdmin = true }) {
                                     {[...(ag.team==="T1"?ag.shifts:["M","ME","E"].filter(s=>ag.shifts.includes(s))),"Off",...((ag.team==="T2"||ag.team==="Return")?["TOIL","OT"]:[])].map(code => {
                                       const cs2=ALLOC_SHIFT_C[code];const act=val===code;
                                       return (
-                                        <button key={code} onClick={()=>{safeSetAsgn(p=>({...p,[k]:code}));setCellKey(null);}}
+                                        <button key={code} onClick={()=>{
+                                          // ── Burnout rule: never allow E → M back-to-back ──
+                                          // E ends 01:00 → M starts 07:00 = only 6h rest. Hard block.
+                                          if (code === "M" || code === "E") {
+                                            const dt = new Date(d.date + "T00:00:00Z");
+                                            const ymd = (x) => x.toISOString().slice(0,10);
+                                            const prevD = new Date(dt); prevD.setUTCDate(dt.getUTCDate()-1);
+                                            const nextD = new Date(dt); nextD.setUTCDate(dt.getUTCDate()+1);
+                                            const prevShift = asgn[`${ag.id}_${ymd(prevD)}`];
+                                            const nextShift = asgn[`${ag.id}_${ymd(nextD)}`];
+                                            if (code === "M" && prevShift === "E") {
+                                              alert(`Cannot assign Morning to ${ag.name} on ${d.dd}/${d.mm}.\n\n${ag.name} worked Evening yesterday (ends 01:00).\nOnly 6 hours rest before Morning starts 07:00.\n\nThis rule prevents burnout.`);
+                                              return;
+                                            }
+                                            if (code === "E" && nextShift === "M") {
+                                              alert(`Cannot assign Evening to ${ag.name} on ${d.dd}/${d.mm}.\n\n${ag.name} is scheduled Morning tomorrow.\nEvening ends 01:00 — only 6 hours rest before next Morning at 07:00.\n\nThis rule prevents burnout.`);
+                                              return;
+                                            }
+                                          }
+                                          safeSetAsgn(p=>({...p,[k]:code}));setCellKey(null);
+                                        }}
                                           style={{display:"flex",alignItems:"center",gap:6,width:"100%",padding:"5px 8px",border:act?`2px solid ${cs2?.color}`:"1px solid #E2E8F0",borderRadius:5,cursor:"pointer",fontFamily:"inherit",fontWeight:600,fontSize:11,background:act?cs2?.bg:"transparent",color:cs2?.color||"#1A1D2E",marginBottom:2}}>
                                           <span style={{width:24,height:16,borderRadius:3,background:cs2?.bg,color:cs2?.color,fontWeight:700,fontSize:9,textAlign:"center",lineHeight:"14px",flexShrink:0}}>{cs2?.label}</span>
                                           {code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":code==="Off"?"Day Off":code}
@@ -2410,16 +2438,25 @@ export default function AllocationPanel({ isAdmin = true }) {
               ${myPayrollAgent.idCardPhotoUrl ? `
                 <div style="page-break-before:always;padding-top:40px">
                   <h2 style="font-size:14px;font-weight:700;margin-bottom:10px;text-align:center">สำเนาบัตรประชาชน / ID Card</h2>
-                  <div style="text-align:center"><img src="${myPayrollAgent.idCardPhotoUrl}" style="max-width:100%;max-height:600px;border:1px solid #ccc"/></div>
+                  <div style="text-align:center"><img src="${myPayrollAgent.idCardPhotoUrl}" style="max-width:100%;max-height:600px;border:1px solid #ccc" crossorigin="anonymous"/></div>
                 </div>
               ` : ""}
               ${myPayrollAgent.bookbankPhotoUrl ? `
                 <div style="page-break-before:always;padding-top:40px">
                   <h2 style="font-size:14px;font-weight:700;margin-bottom:10px;text-align:center">สำเนาสมุดบัญชี / Bookbank</h2>
-                  <div style="text-align:center"><img src="${myPayrollAgent.bookbankPhotoUrl}" style="max-width:100%;max-height:600px;border:1px solid #ccc"/></div>
+                  <div style="text-align:center"><img src="${myPayrollAgent.bookbankPhotoUrl}" style="max-width:100%;max-height:600px;border:1px solid #ccc" crossorigin="anonymous"/></div>
                 </div>
               ` : ""}
-              <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script>
+              <script>
+                // Wait for ALL images (including ID card + Bookbank from Supabase) to fully load before printing
+                window.onload = () => {
+                  const imgs = Array.from(document.images);
+                  if (imgs.length === 0) { setTimeout(()=>window.print(), 300); return; }
+                  let loaded = 0;
+                  const tryPrint = () => { if (++loaded >= imgs.length) setTimeout(()=>window.print(), 400); };
+                  imgs.forEach(img => { if (img.complete) tryPrint(); else { img.onload = tryPrint; img.onerror = tryPrint; } });
+                };
+              <\/script>
               </body></html>`);
             w.document.close();
           };
@@ -2582,7 +2619,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             {/* T1 + Return */}
             {(agentTeamF==="all"||agentTeamF==="T1"||agentTeamF==="Return") && (() => {
               const teams=agentTeamF==="all"?["T1","Return"]:[agentTeamF];
-              const t1rList=agents.filter(a=>teams.includes(a.team)&&(agentSearch===""||a.name.toLowerCase().includes(agentSearch.toLowerCase())));
+              const t1rList=agents.filter(a=>teams.includes(a.team)&&(agentSearch===""||a.name.toLowerCase().includes(agentSearch.toLowerCase()))).sort((a,b)=>(a.id||"").localeCompare(b.id||"",undefined,{numeric:true}));
               if(!t1rList.length) return null;
               const t1rTotal=t1rList.filter(a=>a.active).reduce((s,a)=>{let d=0;dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off")d++;});return s+d*a.costDay;},0);
               return (
@@ -2598,7 +2635,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead><tr style={{background:"#F1F5F9"}}>
-                        {["Team","Name","Full Name","Shifts","Days","Cost/Day","Days Worked","Period Cost","Status",""].map(h=>(
+                        {["PCode","Name","Full Name","Shifts","Days","Cost/Day","Days Worked","Period Cost","Status",""].map(h=>(
                           <th key={h} style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",whiteSpace:"nowrap"}}>{h}</th>
                         ))}
                       </tr></thead>
@@ -2609,9 +2646,9 @@ export default function AllocationPanel({ isAdmin = true }) {
                           const prof = userProfiles[(a.name||"").toLowerCase()] || {};
                           return (
                             <tr key={a.id} style={{borderBottom:"1px solid #F1F5F9",cursor:"pointer",opacity:a.active?1:0.5}} onClick={()=>openAgent(a)}>
-                              <td style={{padding:"8px 12px"}}>{idx===0&&<span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:ALLOC_TEAM_C[team].bg,color:ALLOC_TEAM_C[team].color,fontWeight:700}}>{team}</span>}</td>
+                              <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:ALLOC_TEAM_C[team].bg,color:ALLOC_TEAM_C[team].color,fontWeight:700,fontFamily:"monospace"}}>{a.id}</span></td>
                               <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{a.name}</td>
-                              <td style={{padding:"8px 12px",fontSize:11,color:"#64748B"}}>{prof.fullName||<span style={{color:"#CBD5E1"}}>—</span>}</td>
+                              <td style={{padding:"8px 12px",fontSize:11,color:"#64748B"}}>{prof.fullName||a.fullName||a.thaiName||""}</td>
                               <td style={{padding:"8px 12px"}}><div style={{display:"flex",gap:3}}>{a.shifts.map(s=><span key={s} style={{fontSize:10,padding:"2px 6px",borderRadius:6,background:ALLOC_SHIFT_C[s]?.bg,color:ALLOC_SHIFT_C[s]?.color,fontWeight:700}}>{s}</span>)}</div></td>
                               <td style={{padding:"8px 12px"}}><div style={{display:"flex",gap:2}}>{ALLOC_DAYS.map(dy=>{const on=a.days.includes(dy.wd);return(<span key={dy.code} style={{display:"inline-flex",width:22,height:18,borderRadius:3,fontSize:8,fontWeight:700,alignItems:"center",justifyContent:"center",background:on?"#DBEAFE":"#F1F5F9",color:on?"#60A5FA":"#94A3B8"}}>{dy.code.slice(0,2)}</span>);})}</div></td>
                               <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:11,color:"#94A3B8"}}>฿{a.costDay}</td>
@@ -2643,7 +2680,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <button onClick={()=>setAgentModal(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#6B7280",fontSize:18}}>×</button>
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                    <div style={{display:"grid",gridTemplateColumns:"110px 1fr 1fr",gap:12}}>
+                      <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>PCode {role!=="manager"&&<span style={{marginLeft:4,color:"#94A3B8",fontWeight:500,textTransform:"none"}}>(read-only)</span>}</label>
+                        <input value={editAgent.id} readOnly={role!=="manager"} onChange={e=>{if(role==="manager")setEditAgent({...editAgent,id:e.target.value.trim().toUpperCase()})}}
+                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:role!=="manager"?"#F1F5F9":"#FAFBFC",color:role!=="manager"?"#64748B":"#1A1D2E",fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box",cursor:role!=="manager"?"not-allowed":"text"}}/></div>
                       <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Name</label>
                         <input value={editAgent.name} onChange={e=>setEditAgent({...editAgent,name:e.target.value})}
                           style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
@@ -2689,7 +2729,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <div style={{background:"#F0FDF4",borderRadius:10,border:"1px solid #BBF7D0",padding:"14px 16px"}}>
                         <div style={{fontSize:11,fontWeight:700,color:"#065F46",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                           <span>Personal Info Received / ข้อมูลที่ได้รับ</span>
-                          <span style={{fontSize:10,padding:"1px 8px",borderRadius:4,background:"#fff",color:"#0D9488",fontFamily:"monospace",fontWeight:700}}>Agent ID: {editAgent.id}</span>
+                          <span style={{fontSize:10,padding:"1px 8px",borderRadius:4,background:"#fff",color:"#0D9488",fontFamily:"monospace",fontWeight:700}}>PCode: {editAgent.id}</span>
                         </div>
                         <div style={{display:"flex",gap:14,marginBottom:10}}>
                           {editAgent.profilePhotoUrl && (
@@ -2720,10 +2760,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                         {(editAgent.idCardPhotoUrl || editAgent.bookbankPhotoUrl) && (
                           <div style={{display:"flex",gap:10,marginTop:10,paddingTop:8,borderTop:"1px solid #BBF7D0"}}>
                             {editAgent.idCardPhotoUrl && (
-                              <a href={editAgent.idCardPhotoUrl} target="_blank" rel="noreferrer" style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>📄 View ID Card</a>
+                              <a href={editAgent.idCardPhotoUrl} target="_blank" rel="noreferrer" style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>View ID Card</a>
                             )}
                             {editAgent.bookbankPhotoUrl && (
-                              <a href={editAgent.bookbankPhotoUrl} target="_blank" rel="noreferrer" style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>📄 View Bookbank</a>
+                              <a href={editAgent.bookbankPhotoUrl} target="_blank" rel="noreferrer" style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>View Bookbank</a>
                             )}
                           </div>
                         )}
@@ -2772,8 +2812,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.7)",backdropFilter:"blur(6px)"}} onMouseDown={(e)=>{ if (e.target === e.currentTarget) setInviteFormModal(false); }}>
                 <div style={{background:"#FFFFFF",borderRadius:18,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 64px #00000099"}} onClick={e=>e.stopPropagation()}>
                   <div style={{textAlign:"center",marginBottom:22}}>
-                    <div style={{fontSize:28,marginBottom:8}}>👋</div>
-                    <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E"}}>Welcome to the Team!</div>
+                    <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E"}}>Welcome to the Team</div>
                     <div style={{fontSize:13,color:"#94A3B8",marginTop:4}}>Please fill in your personal and payroll information</div>
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -2782,7 +2821,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         <div style={{width:100,height:100,borderRadius:"50%",background:inviteFormData.profilePhotoUrl?"transparent":"#F0FDFA",border:"2px solid #0D9488",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",margin:"0 auto"}}>
                           {inviteFormData.profilePhotoUrl
                             ? <img src={inviteFormData.profilePhotoUrl} alt="Profile" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                            : <div style={{fontSize:36,color:"#0D9488"}}>📷</div>}
+                            : <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#0D9488" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>}
                         </div>
                         <div style={{fontSize:11,color:"#0D9488",marginTop:8,fontWeight:600}}>
                           {inviteFormData.profilePhotoUrl ? "เปลี่ยนรูป / Change Photo" : "เพิ่มรูปโปรไฟล์ / Add Profile Photo"}
@@ -2989,7 +3028,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </button>
                 <button onClick={exportAllocPDF}
                   style={{padding:"7px 12px",borderRadius:9,border:"1px solid #F87171",background:"#FFF5F5",color:"#B91C1C",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
-                  📄 PDF
+                  PDF
                 </button>
               </div>
 
@@ -3622,7 +3661,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   <thead>
                     <tr style={{background:"#E4EAF5"}}>
                       <th style={{position:"sticky",left:0,zIndex:5,background:"#E4EAF5",padding:"6px 12px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:100}}>Agent</th>
-                      <th style={{position:"sticky",left:100,zIndex:5,background:"#E4EAF5",padding:"6px 8px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",minWidth:50,borderRight:"1px solid #E2E8F0"}}>Team</th>
+                      <th style={{position:"sticky",left:100,zIndex:5,background:"#E4EAF5",padding:"6px 8px",textAlign:"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",minWidth:50,borderRight:"1px solid #E2E8F0"}}>PCode</th>
                       {dates.map(d=>{
                         const fl=flags[d.date];
                         return (
@@ -3648,7 +3687,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         <tr key={ag.id} style={{borderBottom:"1px solid #F1F5F9"}}>
                           <td style={{position:"sticky",left:0,zIndex:3,background:rowBg,padding:"5px 12px",fontWeight:600,color:"#1A1D2E",minWidth:100}}>{ag.name}</td>
                           <td style={{position:"sticky",left:100,zIndex:3,background:rowBg,padding:"5px 8px",borderRight:"1px solid #E2E8F0",minWidth:50}}>
-                            <span style={{fontSize:9,padding:"1px 6px",borderRadius:6,background:ALLOC_TEAM_C[ag.team]?.bg,color:ALLOC_TEAM_C[ag.team]?.color,fontWeight:700}}>{ag.team}</span>
+                            <span style={{fontSize:9,padding:"1px 6px",borderRadius:6,background:ALLOC_TEAM_C[ag.team]?.bg,color:ALLOC_TEAM_C[ag.team]?.color,fontWeight:700,fontFamily:"monospace"}}>{ag.id}</span>
                           </td>
                           {dates.map((d,i)=>{
                             const c = agCost[i];
@@ -3721,11 +3760,11 @@ export default function AllocationPanel({ isAdmin = true }) {
               );
 
               const exportPayCSV = () => {
-                const rows = [["Agent","Bank","Account Number","Account Holder","Period","Work Days","Cost/Day (฿)","Total Pay (฿)"]];
+                const rows = [["PCode","Agent","Full Name","ID Card","Tax ID","Bank","Account Number","Account Holder","Period","Work Days","Cost/Day (฿)","Total Pay (฿)","ID Card Photo","Bookbank Photo"]];
                 payRows.forEach(({ag,workDays,totalPay}) => {
-                  rows.push([ag.fullName||ag.name,ag.bankName||"",ag.bankAccount||"",ag.bankAccountName||"",periodLabel,workDays,ag.costDay,Math.round(totalPay)]);
+                  rows.push([ag.id,ag.name,ag.fullName||ag.thaiName||"",ag.idCard||"",ag.taxId||"",ag.bankName||"",ag.bankAccount||"",ag.bankAccountName||"",periodLabel,workDays,ag.costDay,Math.round(totalPay),ag.idCardPhotoUrl||"",ag.bookbankPhotoUrl||""]);
                 });
-                rows.push(["","","","","","TOTAL","",Math.round(grandTotal)]);
+                rows.push(["","","","","","","","","","TOTAL","",Math.round(grandTotal),"",""]);
                 dlXLSX(rows, `Payment_${MONTHS[payMonth-1]}${payYear}.xlsx`);
               };
 
@@ -3734,10 +3773,30 @@ export default function AllocationPanel({ isAdmin = true }) {
                 if(!win){alert("Allow pop-ups to export PDF");return;}
                 const rowsHtml = payRows.map(({ag,workDays,totalPay})=>`
                   <tr><td style="font-weight:700">${ag.name}</td>
-                  <td><span style="padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;background:${ag.team==="T1"?"#ede9fe":"#fee2e2"};color:${ag.team==="T1"?"#14b8a6":"#991b1b"}">${ag.team}</span></td>
+                  <td><span style="padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;font-family:monospace;background:${ag.team==="T1"?"#ede9fe":"#fee2e2"};color:${ag.team==="T1"?"#14b8a6":"#991b1b"}">${ag.id}</span></td>
                   <td style="text-align:center">${workDays}</td>
                   <td style="text-align:right;font-family:monospace">฿${ag.costDay.toLocaleString()}</td>
                   <td style="text-align:right;font-weight:800;font-family:monospace">฿${Math.round(totalPay).toLocaleString()}</td></tr>`).join("");
+                // Per-agent ID card + bookbank photo pages (only for agents with uploads)
+                const photosHtml = payRows.map(({ag}) => {
+                  if (!ag.idCardPhotoUrl && !ag.bookbankPhotoUrl) return "";
+                  let html = "";
+                  if (ag.idCardPhotoUrl) {
+                    html += `
+                      <div style="page-break-before:always;padding-top:20px">
+                        <h2 style="font-size:14px;font-weight:700;margin-bottom:8px">${ag.name} (${ag.id}) — สำเนาบัตรประชาชน / ID Card</h2>
+                        <div style="text-align:center"><img src="${ag.idCardPhotoUrl}" style="max-width:100%;max-height:650px;border:1px solid #ccc" crossorigin="anonymous"/></div>
+                      </div>`;
+                  }
+                  if (ag.bookbankPhotoUrl) {
+                    html += `
+                      <div style="page-break-before:always;padding-top:20px">
+                        <h2 style="font-size:14px;font-weight:700;margin-bottom:8px">${ag.name} (${ag.id}) — สำเนาสมุดบัญชี / Bookbank</h2>
+                        <div style="text-align:center"><img src="${ag.bookbankPhotoUrl}" style="max-width:100%;max-height:650px;border:1px solid #ccc" crossorigin="anonymous"/></div>
+                      </div>`;
+                  }
+                  return html;
+                }).join("");
                 win.document.write(`<!DOCTYPE html><html><head><title>Payment ${MONTHS[payMonth-1]} ${payYear}</title>
                   <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:11px;padding:20px}
                   h1{font-size:16px;margin-bottom:4px}p{font-size:11px;color:#666;margin-bottom:14px}
@@ -3745,15 +3804,25 @@ export default function AllocationPanel({ isAdmin = true }) {
                   td{padding:6px 10px;border-bottom:1px solid #eee}tr:nth-child(even) td{background:#f9f9f9}
                   .tot td{background:#ede9fe;font-weight:800;border-top:2px solid #14b8a6}
                   @media print{@page{size:A4 landscape;margin:10mm}}</style></head><body>
-                  <h1>💰 Payment Summary — ${MONTHS[payMonth-1]} ${payYear}</h1>
+                  <h1>Payment Summary — ${MONTHS[payMonth-1]} ${payYear}</h1>
                   <p>Period: ${periodLabel} &nbsp;·&nbsp; ${periodDates.length} days</p>
-                  <table><thead><tr><th>Agent</th><th>Team</th><th>Work Days</th>
+                  <table><thead><tr><th>Agent</th><th>PCode</th><th>Work Days</th>
                   <th style="text-align:right">Cost/Day</th><th style="text-align:right">Total Pay</th></tr></thead>
                   <tbody>${rowsHtml}
                   <tr class="tot"><td colspan="4" style="padding:8px 10px">GRAND TOTAL</td>
                   <td style="text-align:right;font-family:monospace;font-size:14px">฿${Math.round(grandTotal).toLocaleString()}</td></tr>
                   </tbody></table>
-                  <script>window.onload=()=>window.print()<\/script></body></html>`);
+                  ${photosHtml}
+                  <script>
+                    // Wait for all images to load before printing
+                    window.onload = () => {
+                      const imgs = Array.from(document.images);
+                      if (imgs.length === 0) { setTimeout(()=>window.print(), 300); return; }
+                      let loaded = 0;
+                      const tryPrint = () => { if (++loaded >= imgs.length) setTimeout(()=>window.print(), 300); };
+                      imgs.forEach(img => { if (img.complete) tryPrint(); else { img.onload = tryPrint; img.onerror = tryPrint; } });
+                    };
+                  <\/script></body></html>`);
                 win.document.close();
               };
 
@@ -3775,7 +3844,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         style={{width:26,height:26,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
                       <div style={{width:1,background:"#E2E8F0",margin:"0 4px"}}/>
                       {role!=="viewer" && <button onClick={exportPayCSV} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #06C75544",background:"#ECFDF5",color:"#065F46",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Excel</button>}
-                      {role!=="viewer" && <button onClick={exportPayPDF} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #F87171",background:"#FFF5F5",color:"#B91C1C",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>📄 PDF</button>}
+                      {role!=="viewer" && <button onClick={exportPayPDF} style={{padding:"5px 12px",borderRadius:8,border:"1px solid #F87171",background:"#FFF5F5",color:"#B91C1C",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>PDF</button>}
                     </div>
                   </div>
                   {/* Table */}
@@ -4477,18 +4546,18 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                         <thead><tr style={{background:"#F8FAFC"}}>
                           <th style={{padding:"8px 14px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:180}}>Agent</th>
-                          <th style={{padding:"8px 14px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:80}}>Team</th>
+                          <th style={{padding:"8px 14px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:80}}>PCode</th>
                           <th style={{padding:"8px 14px",textAlign:"right",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#0D9488",minWidth:140}}>Replied Chats</th>
                           <th style={{padding:"8px 14px",textAlign:"right",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",minWidth:100}}>% of Total</th>
                         </tr></thead>
                         <tbody>
-                          {[...t1Agents].sort((a,b)=>(monthAgentData[b.name.toLowerCase()]?.replied||0) - (monthAgentData[a.name.toLowerCase()]?.replied||0)).map((a,i) => {
+                          {[...t1Agents].sort((a,b)=>(a.id||"").localeCompare(b.id||"",undefined,{numeric:true})).map((a,i) => {
                             const v = monthAgentData[a.name.toLowerCase()]?.replied || 0;
                             const pct = allChats > 0 ? (v/allChats*100) : 0;
                             return (
                               <tr key={a.id} style={{borderBottom:"1px solid #F1F5F9",background:i%2===0?"#FAFBFC":"transparent"}}>
                                 <td style={{padding:"8px 14px",fontWeight:600,color:"#1A1D2E"}}>{a.name}</td>
-                                <td style={{padding:"8px 14px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:ALLOC_TEAM_C[a.team]?.bg,color:ALLOC_TEAM_C[a.team]?.color,fontWeight:700}}>{a.team}</span></td>
+                                <td style={{padding:"8px 14px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:ALLOC_TEAM_C[a.team]?.bg,color:ALLOC_TEAM_C[a.team]?.color,fontWeight:700,fontFamily:"monospace"}}>{a.id}</span></td>
                                 <td style={{padding:"8px 14px",textAlign:"right",fontFamily:"monospace",fontWeight:700,color:v>0?"#0D9488":"#CBD5E1"}}>{v ? v.toLocaleString() : "—"}</td>
                                 <td style={{padding:"8px 14px",textAlign:"right",fontFamily:"monospace",color:"#64748B"}}>{pct>0?`${pct.toFixed(1)}%`:"—"}</td>
                               </tr>

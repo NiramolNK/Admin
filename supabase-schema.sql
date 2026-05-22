@@ -99,6 +99,35 @@ create policy "Managers can delete profiles"
 -- So when Prim updates the roster, Vee's browser sees the change immediately.
 alter publication supabase_realtime add table public.app_state;
 
+-- ─── 4b. Storage policies — payroll-docs bucket ─────────────────────────────
+-- The invite link is used by new agents BEFORE they have a Supabase Auth login,
+-- so the profile photo / ID card / bookbank uploads happen as the anon role.
+-- These policies allow anon + authenticated to upload, read, and update files
+-- inside the payroll-docs bucket only. Other buckets remain locked down.
+--
+-- NOTE: Before running these, create the bucket in Supabase Dashboard →
+-- Storage → "New bucket" → name = payroll-docs, Public = ON.
+
+drop policy if exists "payroll_docs_anon_upload" on storage.objects;
+drop policy if exists "payroll_docs_anon_update" on storage.objects;
+drop policy if exists "payroll_docs_anon_read"   on storage.objects;
+
+create policy "payroll_docs_anon_upload"
+  on storage.objects for insert
+  to anon
+  with check (bucket_id = 'payroll-docs');
+
+create policy "payroll_docs_anon_update"
+  on storage.objects for update
+  to anon
+  using (bucket_id = 'payroll-docs')
+  with check (bucket_id = 'payroll-docs');
+
+create policy "payroll_docs_anon_read"
+  on storage.objects for select
+  to anon
+  using (bucket_id = 'payroll-docs');
+
 -- ─── 5. Helper trigger: keep updated_at fresh ───────────────────────────────
 create or replace function public.touch_updated_at()
 returns trigger language plpgsql as $$

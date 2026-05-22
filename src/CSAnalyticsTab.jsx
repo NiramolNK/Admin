@@ -56,23 +56,74 @@ export default function CSAnalyticsTab({ role, canEdit }) {
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importErr, setImportErr] = useState("");
+  // Monday.com sync state
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState("");
+  const [lastSyncAt, setLastSyncAt] = useState(null);
 
-  // ── Load saved analytics data ────────────────────────────────────────────
+  // ── Load saved analytics data + Monday sync ──────────────────────────────
+  // 1. Load whatever's cached (legacy JSON import OR previous Monday sync)
+  // 2. If cache is older than 15 min, trigger a fresh Monday sync in background
   useEffect(() => {
     (async () => {
       if (!window.storage) { setLoaded(true); return; }
       try {
-        const r = await window.storage.get("cs-analytics");
-        if (r?.value) {
-          const parsed = typeof r.value === "string" ? JSON.parse(r.value) : r.value;
-          setData({ ...EMPTY_DATA, ...parsed });
+        // Legacy JSON import data (chat, orders) — never overwritten by Monday
+        const legacy = await window.storage.get("cs-analytics");
+        // Monday-synced data (cases, status) — refreshed periodically
+        const monday = await window.storage.get("cs-analytics-monday");
+
+        let merged = { ...EMPTY_DATA };
+        if (legacy?.value) {
+          const parsed = typeof legacy.value === "string" ? JSON.parse(legacy.value) : legacy.value;
+          merged = { ...merged, ...parsed };
         }
+        if (monday?.value) {
+          const m = typeof monday.value === "string" ? JSON.parse(monday.value) : monday.value;
+          merged = mergeMondayInto(merged, m);
+          if (m.lastSyncAt) setLastSyncAt(m.lastSyncAt);
+        }
+        setData(merged);
       } catch (e) {
         console.error("Load CS analytics failed:", e);
       }
       setLoaded(true);
     })();
   }, []);
+
+  // Auto-sync on first load if data is stale (>15 min) — only run after `loaded`
+  useEffect(() => {
+    if (!loaded) return;
+    const age = lastSyncAt ? (Date.now() - new Date(lastSyncAt).getTime()) : Infinity;
+    if (age > 15 * 60 * 1000) {
+      syncFromMonday();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  // ── Sync from Monday.com (manual or auto) ────────────────────────────────
+  const syncFromMonday = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setSyncError("");
+    try {
+      const res = await fetch("/api/cs-sync");
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      const mondayData = await res.json();
+      setData(prev => mergeMondayInto(prev, mondayData));
+      setLastSyncAt(mondayData.lastSyncAt || new Date().toISOString());
+      if (window.storage) {
+        await window.storage.set("cs-analytics-monday", JSON.stringify(mondayData));
+      }
+    } catch (e) {
+      setSyncError(e.message || "Sync failed");
+      console.error("Monday sync error:", e);
+    }
+    setSyncing(false);
+  };
 
   // ── Available brand groups (derived from data) ───────────────────────────
   const groups = useMemo(() => {
@@ -170,13 +221,22 @@ export default function CSAnalyticsTab({ role, canEdit }) {
             No analytics data yet
           </div>
           <div style={{ fontSize: 13, color: "#4A5568", marginBottom: 16 }}>
-            Import a JSON blob with cases, status, chat volumes, and brand-level stats.
-            {canEdit && " Click 'Import Data' below to get started."}
+            Sync live case data from Monday.com, or import historical chat/order data.
           </div>
-          {canEdit && (
-            <button onClick={() => setImportOpen(true)} style={primaryBtn}>
-              Import Data
+          <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+            <button onClick={syncFromMonday} disabled={syncing} style={primaryBtn}>
+              {syncing ? "Syncing from Monday…" : "Sync from Monday"}
             </button>
+            {canEdit && (
+              <button onClick={() => setImportOpen(true)} style={{ ...primaryBtn, background: "#64748B" }}>
+                Import JSON
+              </button>
+            )}
+          </div>
+          {syncError && (
+            <div style={{ marginTop: 12, fontSize: 12, color: "#D02B27" }}>
+              Sync error: {syncError}
+            </div>
           )}
         </div>
         {importOpen && <ImportModal
@@ -216,9 +276,27 @@ export default function CSAnalyticsTab({ role, canEdit }) {
         <div style={{ marginLeft: "auto", fontSize: 11, color: "#8A96A8" }}>
           <strong>{group === "all" ? "All groups" : group}</strong> · {brandsInScope.length} brands · {totalCases.toLocaleString()} cases
         </div>
+        <button onClick={syncFromMonday} disabled={syncing} style={{
+          ...smallBtn,
+          background: syncing ? "#94A3B8" : "#0D9488",
+          color: "#fff",
+          cursor: syncing ? "wait" : "pointer",
+        }}>
+          {syncing ? "Syncing…" : "Sync from Monday"}
+        </button>
+        {lastSyncAt && (
+          <span style={{ fontSize: 10, color: "#94A3B8", marginLeft: 6 }}>
+            Last sync: {formatRelativeTime(lastSyncAt)}
+          </span>
+        )}
+        {syncError && (
+          <span style={{ fontSize: 10, color: "#D02B27", marginLeft: 6 }} title={syncError}>
+            ⚠ sync error
+          </span>
+        )}
         {canEdit && (
           <button onClick={() => setImportOpen(true)} style={smallBtn}>
-            Import Data
+            Import JSON
           </button>
         )}
       </div>
@@ -729,6 +807,69 @@ function BrandTable({ brands, months, monthLabels }) {
       </table>
     </div>
   );
+}
+
+// ── Format an ISO timestamp as "5 min ago" / "2 h ago" / "yesterday" ──────
+function formatRelativeTime(iso) {
+  if (!iso) return "";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0 || isNaN(ms)) return "";
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d} d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+// ── Merge Monday-synced data into the existing CS analytics shape ──────────
+// Monday provides: brands (case counts only), cases, status, platformTotals (case counts).
+// Legacy JSON import provides: orders (aprO/mayO/q2), chat volumes (chat object).
+// We merge so Monday data updates case-related fields without wiping chat/order data.
+function mergeMondayInto(existing, monday) {
+  if (!monday || !monday.brands) return existing;
+
+  const out = { ...existing };
+
+  if (monday.period) out.period = monday.period;
+  if (monday.months && monday.months.length) {
+    const set = new Set([...(out.months || []), ...monday.months]);
+    out.months = Array.from(set);
+  }
+  out.monthLabels = { ...(out.monthLabels || {}), ...(monday.monthLabels || {}) };
+
+  const existingBrandMap = new Map((out.brands || []).map(b => [b.name, b]));
+  const mergedBrands = monday.brands.map(mb => {
+    const eb = existingBrandMap.get(mb.name) || {};
+    return {
+      ...eb,
+      name: mb.name,
+      group: mb.group || eb.group || "Other",
+      cases: mb.cases,
+      solved: mb.solved,
+      open: mb.open,
+      comments: mb.comments != null ? mb.comments : (eb.comments || 0),
+    };
+  });
+  for (const eb of (out.brands || [])) {
+    if (!monday.brands.find(mb => mb.name === eb.name)) mergedBrands.push(eb);
+  }
+  out.brands = mergedBrands;
+
+  if (monday.cases) out.cases = monday.cases;
+  if (monday.status) out.status = monday.status;
+
+  if (monday.platformTotals && monday.platformTotals.length) {
+    const ptMap = new Map((out.platformTotals || []).map(p => [p.key, p]));
+    for (const mp of monday.platformTotals) {
+      ptMap.set(mp.key, { ...ptMap.get(mp.key), ...mp });
+    }
+    out.platformTotals = Array.from(ptMap.values());
+  }
+
+  return out;
 }
 
 function ImportModal({ text, setText, err, onCancel, onImport }) {
