@@ -46,12 +46,15 @@ const EMPTY_DATA = {
   brands: [], cases: [], status: [], chat: {}, platformTotals: [],
 };
 
-export default function CSAnalyticsTab({ role, canEdit }) {
+export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, currentMonthCode }) {
   const [data, setData] = useState(EMPTY_DATA);
   const [loaded, setLoaded] = useState(false);
   const [group, setGroup] = useState("all");
-  const [month, setMonth] = useState("all");
+  const [brand, setBrand] = useState("all");
   const [platform, setPlatform] = useState("all");
+  // Month is driven by the global header month picker (currentMonthCode).
+  // Falls back to "all" if no current month code is provided.
+  const month = currentMonthCode || "all";
   const [reasonBrand, setReasonBrand] = useState("all");
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
@@ -132,8 +135,16 @@ export default function CSAnalyticsTab({ role, canEdit }) {
     return ["all", ...Array.from(set).sort()];
   }, [data.brands]);
 
-  // ── Brands filtered by current group ─────────────────────────────────────
+  // ── Brands filtered by current group + (optional) brand selection ───────
   const brandsInScope = useMemo(() => {
+    let list = data.brands;
+    if (group !== "all") list = list.filter((b) => b.group === group);
+    if (brand !== "all") list = list.filter((b) => b.name === brand);
+    return list;
+  }, [data.brands, group, brand]);
+
+  // All brand names within the current group (for the Brand dropdown)
+  const brandsForFilter = useMemo(() => {
     if (group === "all") return data.brands;
     return data.brands.filter((b) => b.group === group);
   }, [data.brands, group]);
@@ -147,10 +158,11 @@ export default function CSAnalyticsTab({ role, canEdit }) {
   const filteredCases = useMemo(() => {
     return data.cases.filter((d) =>
       brandNamesInScope.has(d.brand) &&
+      (brand === "all" || d.brand === brand) &&
       (month === "all" || d.month === month) &&
       (platform === "all" || d.platform === platform)
     );
-  }, [data.cases, brandNamesInScope, month, platform]);
+  }, [data.cases, brandNamesInScope, brand, month, platform]);
 
   const filteredCasesByBrand = useMemo(() => {
     return filteredCases.filter((d) => reasonBrand === "all" || d.brand === reasonBrand);
@@ -159,10 +171,11 @@ export default function CSAnalyticsTab({ role, canEdit }) {
   const filteredStatus = useMemo(() => {
     return data.status.filter((d) =>
       brandNamesInScope.has(d.brand) &&
+      (brand === "all" || d.brand === brand) &&
       (month === "all" || d.month === month) &&
       (platform === "all" || d.platform === platform)
     );
-  }, [data.status, brandNamesInScope, month, platform]);
+  }, [data.status, brandNamesInScope, brand, month, platform]);
 
   const filteredChat = useMemo(() => {
     const months = month === "all" ? data.months : [month];
@@ -186,7 +199,29 @@ export default function CSAnalyticsTab({ role, canEdit }) {
 
   // ── Derived KPIs ─────────────────────────────────────────────────────────
   const totalCases = filteredCases.reduce((s, d) => s + d.count, 0);
-  const totalChats = filteredChat.reduce((s, d) => s + d.chats, 0);
+
+  // Case status counts (In Progress / Resolved) derived from Monday status labels.
+  // Solved-like labels: Done, Solved, Resolved, Closed, Complete, Completed, Finished
+  // Anything else is treated as In Progress.
+  const SOLVED_RE = /^(done|solved|resolved|closed|complete|completed|finished)$/i;
+  const resolvedCount = filteredStatus
+    .filter((d) => SOLVED_RE.test(d.Status || ""))
+    .reduce((s, d) => s + d.count, 0);
+  const inProgressCount = filteredStatus
+    .filter((d) => !SOLVED_RE.test(d.Status || ""))
+    .reduce((s, d) => s + d.count, 0);
+
+  // Chats — sourced from NiRM Performance Replied Chats data (passed via prop).
+  // Falls back to data.chat if Performance data not provided.
+  const totalChats = useMemo(() => {
+    if (chatsByMonth && Object.keys(chatsByMonth).length > 0) {
+      if (month === "all") {
+        return Object.values(chatsByMonth).reduce((s, v) => s + (v || 0), 0);
+      }
+      return chatsByMonth[month] || 0;
+    }
+    return filteredChat.reduce((s, d) => s + d.chats, 0);
+  }, [chatsByMonth, month, filteredChat]);
 
   // ── Import handler ───────────────────────────────────────────────────────
   const handleImport = async () => {
@@ -254,18 +289,18 @@ export default function CSAnalyticsTab({ role, canEdit }) {
       <div style={filterBarStyle}>
         <span style={gfLabelStyle}>Group:</span>
         {groups.map((g) => (
-          <FilterBtn key={g} active={group === g} onClick={() => { setGroup(g); setReasonBrand("all"); }}>
+          <FilterBtn key={g} active={group === g} onClick={() => { setGroup(g); setBrand("all"); setReasonBrand("all"); }}>
             {g === "all" ? "All" : g}
           </FilterBtn>
         ))}
         <div style={sepStyle} />
-        <span style={gfLabelStyle}>Month:</span>
-        <FilterBtn active={month === "all"} onClick={() => setMonth("all")}>All</FilterBtn>
-        {data.months.map((m) => (
-          <FilterBtn key={m} active={month === m} onClick={() => setMonth(m)} colorKey={m}>
-            {data.monthLabels[m] || m}
-          </FilterBtn>
-        ))}
+        <span style={gfLabelStyle}>Brand:</span>
+        <select value={brand} onChange={(e) => setBrand(e.target.value)} style={brandSelectStyle}>
+          <option value="all">All brands</option>
+          {brandsForFilter.map((b) => (
+            <option key={b.name} value={b.name}>{b.name}</option>
+          ))}
+        </select>
         <div style={sepStyle} />
         <span style={gfLabelStyle}>Platform:</span>
         {["all", "shopee", "tiktok", "lazada"].map((p) => (
@@ -304,10 +339,10 @@ export default function CSAnalyticsTab({ role, canEdit }) {
       <div style={{ padding: "20px 28px" }}>
         {/* ── KPI tiles ── */}
         <div style={kpiGrid}>
-          <KPI label="Total Cases" value={totalCases.toLocaleString()} sub={`${brandsInScope.length} brands`} color="#D02B27" />
-          <KPI label="Chats" value={totalChats.toLocaleString()} sub={`${month === "all" ? data.period : data.monthLabels[month] || month}`} color="#1A6FC4" />
-          <KPI label="Solved Rate" value={solvedRate(filteredStatus) + "%"} sub={`${filteredStatus.reduce((s, d) => s + d.count, 0).toLocaleString()} resolved items`} color="#1E8C4A" />
-          <KPI label="Brands" value={brandsInScope.length} sub={group === "all" ? "all groups" : group} color="#D46B08" />
+          <KPI label="Total Cases" value={totalCases.toLocaleString()} sub={brand === "all" ? `${brandsInScope.length} brands` : brand} color="#D02B27" />
+          <KPI label="Chats" value={totalChats.toLocaleString()} sub={`${month === "all" ? data.period : data.monthLabels[month] || month} · from Performance data`} color="#1A6FC4" />
+          <KPI label="In Progress" value={inProgressCount.toLocaleString()} sub={totalCases > 0 ? `${Math.round(inProgressCount/totalCases*100)}% of total` : "—"} color="#D46B08" />
+          <KPI label="Resolved" value={resolvedCount.toLocaleString()} sub={totalCases > 0 ? `${Math.round(resolvedCount/totalCases*100)}% of total` : "—"} color="#1E8C4A" />
         </div>
 
         {/* ── Top row: Reasons + Status + Cases by Platform ── */}
@@ -973,6 +1008,12 @@ const emptyCardStyle = {
   maxWidth: 480, margin: "60px auto", padding: 24, background: "#fff",
   border: "1.5px solid #E4E8F0", borderRadius: 14, textAlign: "center",
   boxShadow: "0 2px 12px rgba(28,34,51,0.07)",
+};
+const brandSelectStyle = {
+  padding: "6px 10px", borderRadius: 6, border: "1.5px solid #E4E8F0",
+  background: "#fff", color: "#1C2233", fontSize: 12, fontWeight: 600,
+  fontFamily: "'Nunito', sans-serif", cursor: "pointer", outline: "none",
+  maxWidth: 220, minWidth: 120,
 };
 const primaryBtn = {
   padding: "10px 18px", borderRadius: 9, border: "none",

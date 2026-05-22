@@ -55,9 +55,11 @@ function monthCodeFromDate(yyyyMmDd) {
 function brandGroup(brandName) {
   if (!brandName) return "Other";
   const lower = brandName.toLowerCase();
-  if (lower.includes("nescafe") || lower.includes("nestle") || lower.includes("nespresso")) return "Nestle";
+  if (lower.includes("nescafe") || lower.includes("nestle") || lower.includes("nespresso") || lower.includes("milo")) return "Nestle";
+  if (lower.includes("pedigree") || lower.includes("whiskas") || lower.includes("mars-")) return "Mars";
+  if (lower.includes("amore") || lower.includes("aestura") || lower.includes("hera-")) return "Amore";
+  if (lower.includes("-cmg") || lower.endsWith(" cmg") || lower.includes("cmg ")) return "CMG";
   if (lower.includes("enfa") || lower.includes("mead")) return "MeadJohnson";
-  if (lower.includes("cmg") || lower.includes("ez")) return "CMG";
   return "Other";
 }
 
