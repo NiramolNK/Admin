@@ -52,13 +52,37 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
   const [group, setGroup] = useState("all");
   const [brand, setBrand] = useState("all");
   const [platform, setPlatform] = useState("all");
-  // Month is driven by the global header month picker (currentMonthCode).
-  // Falls back to "all" if no current month code is provided.
-  const month = currentMonthCode || "all";
   const [reasonBrand, setReasonBrand] = useState("all");
+  // Custom date range (overrides the global single-month picker when set)
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importErr, setImportErr] = useState("");
+
+  // Convert YYYY-MM-DD → month code (jan/feb/.../dec)
+  const dateToMonthCode = (yyyymmdd) => {
+    const m = String(yyyymmdd || "").match(/^\d{4}-(\d{2})/);
+    return m ? ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"][parseInt(m[1],10)-1] : null;
+  };
+
+  // Months falling within the custom date range (inclusive). null if range not set.
+  const monthsInRange = useMemo(() => {
+    if (!dateFrom || !dateTo) return null;
+    const fromCode = dateToMonthCode(dateFrom);
+    const toCode = dateToMonthCode(dateTo);
+    if (!fromCode || !toCode) return null;
+    const all = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+    const fi = all.indexOf(fromCode);
+    const ti = all.indexOf(toCode);
+    if (fi < 0 || ti < 0 || ti < fi) return null;
+    return new Set(all.slice(fi, ti + 1));
+  }, [dateFrom, dateTo]);
+
+  // Effective month filter:
+  //   - If date range set: `month` becomes "all" so the explicit `monthsInRange` filter takes over.
+  //   - Otherwise follow the global header month picker (currentMonthCode).
+  const month = monthsInRange ? "all" : (currentMonthCode || "all");
   // Monday.com sync state
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
@@ -159,10 +183,10 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
     return data.cases.filter((d) =>
       brandNamesInScope.has(d.brand) &&
       (brand === "all" || d.brand === brand) &&
-      (month === "all" || d.month === month) &&
+      (monthsInRange ? monthsInRange.has(d.month) : (month === "all" || d.month === month)) &&
       (platform === "all" || d.platform === platform)
     );
-  }, [data.cases, brandNamesInScope, brand, month, platform]);
+  }, [data.cases, brandNamesInScope, brand, month, monthsInRange, platform]);
 
   const filteredCasesByBrand = useMemo(() => {
     return filteredCases.filter((d) => reasonBrand === "all" || d.brand === reasonBrand);
@@ -172,13 +196,15 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
     return data.status.filter((d) =>
       brandNamesInScope.has(d.brand) &&
       (brand === "all" || d.brand === brand) &&
-      (month === "all" || d.month === month) &&
+      (monthsInRange ? monthsInRange.has(d.month) : (month === "all" || d.month === month)) &&
       (platform === "all" || d.platform === platform)
     );
-  }, [data.status, brandNamesInScope, brand, month, platform]);
+  }, [data.status, brandNamesInScope, brand, month, monthsInRange, platform]);
 
   const filteredChat = useMemo(() => {
-    const months = month === "all" ? data.months : [month];
+    const months = monthsInRange
+      ? data.months.filter(m => monthsInRange.has(m))
+      : (month === "all" ? data.months : [month]);
     let rows = [];
     months.forEach((m) => {
       const list = (data.chat[m] || []).filter(
@@ -195,7 +221,7 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
       map[k].chats += d.chats;
     });
     return Object.values(map).sort((a, b) => b.chats - a.chats);
-  }, [data.chat, data.months, brandNamesInScope, month, platform]);
+  }, [data.chat, data.months, brandNamesInScope, month, monthsInRange, platform]);
 
   // ── Derived KPIs ─────────────────────────────────────────────────────────
   const totalCases = filteredCases.reduce((s, d) => s + d.count, 0);
@@ -211,15 +237,13 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
     .filter((d) => !SOLVED_RE.test(d.Status || ""))
     .reduce((s, d) => s + d.count, 0);
 
-  // Chats — sourced from NiRM Performance Replied Chats data (passed via prop).
-  // Falls back to data.chat if Performance data not provided.
+  // Chats — prefer NiRM Performance Replied Chats data (passed via prop).
+  // Falls back to data.chat (JSON import) for any month where Performance has 0 / no data.
   const totalChats = useMemo(() => {
-    if (chatsByMonth && Object.keys(chatsByMonth).length > 0) {
-      if (month === "all") {
-        return Object.values(chatsByMonth).reduce((s, v) => s + (v || 0), 0);
-      }
-      return chatsByMonth[month] || 0;
-    }
+    const fromPerf = month === "all"
+      ? Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0)
+      : ((chatsByMonth && chatsByMonth[month]) || 0);
+    if (fromPerf > 0) return fromPerf;
     return filteredChat.reduce((s, d) => s + d.chats, 0);
   }, [chatsByMonth, month, filteredChat]);
 
@@ -262,11 +286,7 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
             <button onClick={syncFromMonday} disabled={syncing} style={primaryBtn}>
               {syncing ? "Syncing from Monday…" : "Sync from Monday"}
             </button>
-            {canEdit && (
-              <button onClick={() => setImportOpen(true)} style={{ ...primaryBtn, background: "#64748B" }}>
-                Import JSON
-              </button>
-            )}
+
           </div>
           {syncError && (
             <div style={{ marginTop: 12, fontSize: 12, color: "#D02B27" }}>
@@ -329,10 +349,24 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
             ⚠ sync error
           </span>
         )}
-        {canEdit && (
-          <button onClick={() => setImportOpen(true)} style={smallBtn}>
-            Import JSON
-          </button>
+      </div>
+
+      {/* Date range filter (overrides global month when set) */}
+      <div style={dateRangeBarStyle}>
+        <span style={gfLabelStyle}>Date Range:</span>
+        <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={dateInputStyle} placeholder="From" />
+        <span style={{ color: "#94A3B8", fontSize: 12 }}>to</span>
+        <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={dateInputStyle} placeholder="To" />
+        {(dateFrom || dateTo) && (
+          <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{
+            ...smallBtn,
+            border: "1.5px solid #94A3B8", background: "#fff", color: "#64748B", marginLeft: 4,
+          }}>Clear range</button>
+        )}
+        {monthsInRange && (
+          <span style={{ fontSize: 11, color: "#0D9488", marginLeft: 8, fontWeight: 600 }}>
+            Filtering by {Array.from(monthsInRange).map(m => data.monthLabels[m] || m).join(", ")}
+          </span>
         )}
       </div>
 
@@ -340,7 +374,13 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
         {/* ── KPI tiles ── */}
         <div style={kpiGrid}>
           <KPI label="Total Cases" value={totalCases.toLocaleString()} sub={brand === "all" ? `${brandsInScope.length} brands` : brand} color="#D02B27" />
-          <KPI label="Chats" value={totalChats.toLocaleString()} sub={`${month === "all" ? data.period : data.monthLabels[month] || month} · from Performance data`} color="#1A6FC4" />
+          <KPI label="Chats" value={totalChats.toLocaleString()} sub={(() => {
+            const fromPerf = month === "all"
+              ? Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0)
+              : ((chatsByMonth && chatsByMonth[month]) || 0);
+            const label = month === "all" ? data.period : data.monthLabels[month] || month;
+            return `${label} · ${fromPerf > 0 ? "from Performance" : "from imported data"}`;
+          })()} color="#1A6FC4" />
           <KPI label="In Progress" value={inProgressCount.toLocaleString()} sub={totalCases > 0 ? `${Math.round(inProgressCount/totalCases*100)}% of total` : "—"} color="#D46B08" />
           <KPI label="Resolved" value={resolvedCount.toLocaleString()} sub={totalCases > 0 ? `${Math.round(resolvedCount/totalCases*100)}% of total` : "—"} color="#1E8C4A" />
         </div>
@@ -459,8 +499,7 @@ function Panel({ title, sub, children }) {
 }
 
 function ReasonsBlock({ cases, brandsInScope, reasonBrand, setReasonBrand }) {
-  // Brand filter chips
-  const brandList = ["all", ...brandsInScope.map((b) => b.name)];
+  // (Brand selection is now handled by the top-level Brand filter — chips removed)
 
   // Aggregate
   const map = {};
@@ -488,22 +527,6 @@ function ReasonsBlock({ cases, brandsInScope, reasonBrand, setReasonBrand }) {
 
   return (
     <div>
-      {/* brand chips */}
-      <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 14 }}>
-        {brandList.map((b) => (
-          <button key={b} onClick={() => setReasonBrand(b)} style={{
-            padding: "3px 9px", borderRadius: 14,
-            border: `1px solid ${reasonBrand === b ? "transparent" : "#E4E8F0"}`,
-            background: reasonBrand === b ? "#D02B27" : "#F8F9FC",
-            color: reasonBrand === b ? "#fff" : "#8A96A8",
-            fontSize: 10, fontWeight: 700, fontFamily: "'Nunito', sans-serif",
-            cursor: "pointer", whiteSpace: "nowrap",
-          }}>
-            {b === "all" ? "All" : b}
-          </button>
-        ))}
-      </div>
-
       <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
         <svg width={160} height={160} style={{ flexShrink: 0 }}>
           {total === 0 ? (
@@ -1008,6 +1031,16 @@ const emptyCardStyle = {
   maxWidth: 480, margin: "60px auto", padding: 24, background: "#fff",
   border: "1.5px solid #E4E8F0", borderRadius: 14, textAlign: "center",
   boxShadow: "0 2px 12px rgba(28,34,51,0.07)",
+};
+const dateRangeBarStyle = {
+  background: "#FAFBFC", borderBottom: "1.5px solid #E4E8F0",
+  padding: "8px 28px", display: "flex", alignItems: "center", gap: 8,
+  flexWrap: "wrap",
+};
+const dateInputStyle = {
+  padding: "5px 10px", borderRadius: 6, border: "1.5px solid #E4E8F0",
+  background: "#fff", color: "#1C2233", fontSize: 12, fontWeight: 600,
+  fontFamily: "'Nunito', sans-serif", outline: "none",
 };
 const brandSelectStyle = {
   padding: "6px 10px", borderRadius: 6, border: "1.5px solid #E4E8F0",

@@ -141,3 +141,43 @@ drop trigger if exists trg_app_state_updated_at on public.app_state;
 create trigger trg_app_state_updated_at
   before update on public.app_state
   for each row execute function public.touch_updated_at();
+
+-- ─── 6. History/snapshot table ──────────────────────────────────────────────
+-- Every UPDATE to app_state copies the OLD row here. Lets us recover from
+-- accidental wipes / overwrites. Retained for 90 days.
+
+create table if not exists public.app_state_history (
+  id           bigserial primary key,
+  state_id     text not null,
+  data         jsonb not null,
+  prev_updated_at timestamptz not null,
+  prev_updated_by text,
+  archived_at  timestamptz not null default now()
+);
+
+create index if not exists idx_app_state_history_archived on public.app_state_history(archived_at desc);
+
+alter table public.app_state_history enable row level security;
+create policy "Read history for signed-in"
+  on public.app_state_history for select to authenticated using (true);
+
+create or replace function public.snapshot_app_state()
+returns trigger language plpgsql as $$
+begin
+  insert into public.app_state_history (state_id, data, prev_updated_at, prev_updated_by)
+  values (OLD.id, OLD.data, OLD.updated_at, OLD.updated_by);
+  -- Prune anything older than 90 days
+  delete from public.app_state_history where archived_at < now() - interval '90 days';
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_app_state_snapshot on public.app_state;
+create trigger trg_app_state_snapshot
+  before update on public.app_state
+  for each row execute function public.snapshot_app_state();
+
+-- Quick recovery query (paste in SQL editor when needed):
+-- select archived_at, jsonb_array_length(((data->>'nirm-all')::jsonb)->'userAccounts') as users,
+--        jsonb_array_length(((data->>'nirm-all')::jsonb)->'agents') as agents
+-- from public.app_state_history order by archived_at desc limit 20;

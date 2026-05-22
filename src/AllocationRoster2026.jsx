@@ -747,8 +747,29 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   const flushSave = () => {
     if (!window.storage) return;
+    const state = stateRef.current;
+
+    // ── Safety guards ────────────────────────────────────────────────────────
+    // Refuse to persist a state that has obviously been wiped/corrupted.
+    // This prevents the auto-save from clobbering Supabase with an empty state
+    // when the initial load races against state setters or the load fails silently.
+    // If any of these guards trip, the in-memory state is bad — better to lose
+    // the most-recent UI change than to wipe the source of truth in Supabase.
+    if (!storageLoaded) {
+      console.warn("[save] Refused: storage not loaded yet");
+      return;
+    }
+    if (!state.userAccounts || state.userAccounts.length < 1) {
+      console.warn("[save] Refused: userAccounts is empty (would wipe login data)");
+      return;
+    }
+    if (!state.agents || state.agents.length < 1) {
+      console.warn("[save] Refused: agents list is empty (would wipe roster data)");
+      return;
+    }
+
     needsSave.current = false;
-    window.storage.set("nirm-all", JSON.stringify(stateRef.current)).catch(e => console.error("SAVE FAIL:", e));
+    window.storage.set("nirm-all", JSON.stringify(state)).catch(e => console.error("SAVE FAIL:", e));
   };
 
   const scheduleSave = () => {
