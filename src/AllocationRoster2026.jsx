@@ -4888,6 +4888,42 @@ export default function AllocationPanel({ isAdmin = true }) {
         input::placeholder, textarea::placeholder { color: #94A3B8; }
         select option { background: #FFFFFF; color: #1A1D2E; }
         input:focus, select:focus { border-color: #0D9488 !important; outline: none; }
+
+
+        /* ══════════════════════════════════════════════════════════════
+           MOBILE RESPONSIVENESS — tablets and phones (max-width: 900px)
+           ══════════════════════════════════════════════════════════════ */
+        @media (max-width: 900px) {
+          /* Tab nav: scroll horizontally instead of wrapping */
+          nav, [role="tablist"] {
+            overflow-x: auto !important;
+            white-space: nowrap !important;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          /* Wide tables become horizontally scrollable */
+          table { display: block; max-width: 100vw; overflow-x: auto !important; }
+
+          /* Sticky cells shrink on mobile */
+          th[style*="sticky"], td[style*="sticky"] {
+            min-width: 60px !important; max-width: 110px !important;
+          }
+
+          /* Headings: scale down */
+          h1 { font-size: 18px !important; }
+          h2 { font-size: 15px !important; }
+          h3 { font-size: 13px !important; }
+        }
+
+        /* Phone-specific tightening (max-width: 480px) */
+        @media (max-width: 480px) {
+          body, #root { font-size: 12px !important; }
+        }
+
+        /* Phones don't have hover */
+        @media (hover: none) {
+          button:hover { opacity: 1; }
+        }
       `}</style>
     </div>
   );
