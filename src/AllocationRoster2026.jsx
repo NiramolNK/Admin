@@ -4677,7 +4677,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         ══════════════════════════════════════════ */}
         {allocTab==="analytics" && (
           <div style={{margin:"-24px -28px"}}>
-            <CSAnalyticsTab role={role} canEdit={role==="manager"} currentMonthCode={["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"][volMonth-1]} chatByBrand={(() => {
+            <CSAnalyticsTab role={role} canEdit={role==="manager"} monthlyCost={totalCost} currentMonthCode={["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"][volMonth-1]} chatByBrand={(() => {
               // Aggregate Chat Volume data (per brand × platform × month) for CS Analytics
               const out = {};
               Object.entries(monthlyVol || {}).forEach(([mk, brandsObj]) => {

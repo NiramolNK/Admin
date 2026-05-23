@@ -46,7 +46,7 @@ const EMPTY_DATA = {
   brands: [], cases: [], status: [], chat: {}, platformTotals: [],
 };
 
-export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatByBrand = {}, currentMonthCode }) {
+export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatByBrand = {}, currentMonthCode, monthlyCost = 0 }) {
   const [data, setData] = useState(EMPTY_DATA);
   const [loaded, setLoaded] = useState(false);
   const [group, setGroup] = useState("all");
@@ -408,16 +408,51 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
       <div style={{ padding: "20px 28px" }}>
         {/* ── KPI tiles ── */}
         <div style={kpiGrid}>
-          <KPI label="Total Cases" value={totalCases.toLocaleString()} sub={brand === "all" ? `${brandsInScope.length} brands` : brand} color="#D02B27" />
-          <KPI label="Chats" value={totalChats.toLocaleString()} sub={(() => {
-            const fromPerf = month === "all"
-              ? Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0)
-              : ((chatsByMonth && chatsByMonth[month]) || 0);
-            const label = month === "all" ? data.period : data.monthLabels[month] || month;
-            return `${label} · ${fromPerf > 0 ? "from Performance" : "from imported data"}`;
-          })()} color="#1A6FC4" />
-          <KPI label="In Progress" value={inProgressCount.toLocaleString()} sub={totalCases > 0 ? `${Math.round(inProgressCount/totalCases*100)}% of total` : "—"} color="#D46B08" />
-          <KPI label="Resolved" value={resolvedCount.toLocaleString()} sub={totalCases > 0 ? `${Math.round(resolvedCount/totalCases*100)}% of total` : "—"} color="#1E8C4A" />
+          {/* Total Orders — sum the per-brand monthly order fields (aprO, mayO, junO, etc.) for months in scope */}
+          {(() => {
+            // Active month codes (range / current / all)
+            const activeMonths = monthsInRange
+              ? Array.from(monthsInRange)
+              : (month === "all" ? (data.months || []) : [month]);
+
+            // Sum brand orders across active months
+            let totalOrders = 0;
+            brandsInScope.forEach(b => {
+              activeMonths.forEach(m => {
+                // Try month-letter keys: aprO, mayO, junO, etc.
+                const key = m + "O";  // e.g. "aprO"
+                totalOrders += (b[key] || 0);
+              });
+            });
+            // Fallback: if no monthly keys exist but b.q2 is set and one month is in scope, use q2
+            if (totalOrders === 0 && brandsInScope.length > 0) {
+              brandsInScope.forEach(b => { totalOrders += (b.q2 || 0); });
+            }
+
+            const caseOrderRatio = totalOrders > 0
+              ? `${(totalCases / totalOrders * 100).toFixed(2)}%`
+              : "—";
+
+            // Cost per chat — pulled from monthlyCost prop (passed by parent)
+            // monthlyCost is the T1+T2 cost for the active period; pass via prop
+            const costPerChat = (monthlyCost > 0 && totalChats > 0)
+              ? `฿${(monthlyCost / totalChats).toFixed(2)}`
+              : "—";
+
+            return <>
+              <KPI label="Total Chats" value={totalChats.toLocaleString()} sub={(() => {
+                const fromPerf = month === "all"
+                  ? Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0)
+                  : ((chatsByMonth && chatsByMonth[month]) || 0);
+                const label = month === "all" ? data.period : data.monthLabels[month] || month;
+                return `${label} · ${fromPerf > 0 ? "from Performance" : "from Volume / import"}`;
+              })()} color="#1A6FC4" />
+              <KPI label="Total Orders" value={totalOrders.toLocaleString()} sub={brandsInScope.length + " brands"} color="#7B3FA0" />
+              <KPI label="Total Cases" value={totalCases.toLocaleString()} sub={`Case/Order: ${caseOrderRatio}`} color="#D02B27" />
+              <KPI label="AI %" value="—" sub="not tracked yet" color="#0891B2" />
+              <KPI label="Cost / Chat" value={costPerChat} sub={monthlyCost > 0 ? `฿${monthlyCost.toLocaleString()} cost` : "set in Report tab"} color="#D46B08" />
+            </>;
+          })()}
         </div>
 
         {/* ── Top row: Reasons + Status + Cases by Platform ── */}
