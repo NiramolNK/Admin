@@ -612,7 +612,7 @@ function ReasonsBlock({ cases, brandsInScope, reasonBrand, setReasonBrand }) {
             fontSize={9} fill="#8A96A8">CASES</text>
         </svg>
 
-        <div style={{ flex: 1, minWidth: 0, maxHeight: 200, overflowY: "auto" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           {sorted.length === 0 && (
             <div style={{ fontSize: 12, color: "#8A96A8", textAlign: "center", padding: 20 }}>
               No cases matching current filters
@@ -659,7 +659,7 @@ function StatusBars({ status, brands }) {
   }).sort((a, b) => b.total - a.total);
 
   return (
-    <div style={{ maxHeight: 260, overflowY: "auto" }}>
+    <div>
       {sorted.map((b) => {
         if (b.total === 0) {
           return (
