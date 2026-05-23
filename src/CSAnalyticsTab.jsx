@@ -46,7 +46,7 @@ const EMPTY_DATA = {
   brands: [], cases: [], status: [], chat: {}, platformTotals: [],
 };
 
-export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, currentMonthCode }) {
+export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatByBrand = {}, currentMonthCode }) {
   const [data, setData] = useState(EMPTY_DATA);
   const [loaded, setLoaded] = useState(false);
   const [group, setGroup] = useState("all");
@@ -202,12 +202,20 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
   }, [data.status, brandNamesInScope, brand, month, monthsInRange, platform]);
 
   const filteredChat = useMemo(() => {
+    // Prefer live Chat Volume data (chatByBrand) over the legacy JSON import (data.chat).
+    // Live volume has the brand × platform × month numbers entered in the Performance tab.
+    const hasLive = chatByBrand && Object.values(chatByBrand).some(arr => arr && arr.length > 0);
+    const chatSource = hasLive ? chatByBrand : data.chat;
+    // Use chatSource keys if live data covers more months than data.months
+    const availableMonths = hasLive
+      ? Array.from(new Set([...(data.months||[]), ...Object.keys(chatSource || {})]))
+      : (data.months || []);
     const months = monthsInRange
-      ? data.months.filter(m => monthsInRange.has(m))
-      : (month === "all" ? data.months : [month]);
+      ? availableMonths.filter(m => monthsInRange.has(m))
+      : (month === "all" ? availableMonths : [month]);
     let rows = [];
     months.forEach((m) => {
-      const list = (data.chat[m] || []).filter(
+      const list = (chatSource[m] || []).filter(
         (d) => brandNamesInScope.has(d.brand) &&
                (platform === "all" || d.platform === platform)
       );
@@ -221,7 +229,7 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
       map[k].chats += d.chats;
     });
     return Object.values(map).sort((a, b) => b.chats - a.chats);
-  }, [data.chat, data.months, brandNamesInScope, month, monthsInRange, platform]);
+  }, [data.chat, chatByBrand, data.months, brandNamesInScope, month, monthsInRange, platform]);
 
   // ── Derived KPIs ─────────────────────────────────────────────────────────
   const totalCases = filteredCases.reduce((s, d) => s + d.count, 0);

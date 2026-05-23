@@ -4677,7 +4677,25 @@ export default function AllocationPanel({ isAdmin = true }) {
         ══════════════════════════════════════════ */}
         {allocTab==="analytics" && (
           <div style={{margin:"-24px -28px"}}>
-            <CSAnalyticsTab role={role} canEdit={role==="manager"} currentMonthCode={["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"][volMonth-1]} chatsByMonth={(() => {
+            <CSAnalyticsTab role={role} canEdit={role==="manager"} currentMonthCode={["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"][volMonth-1]} chatByBrand={(() => {
+              // Aggregate Chat Volume data (per brand × platform × month) for CS Analytics
+              const out = {};
+              Object.entries(monthlyVol || {}).forEach(([mk, brandsObj]) => {
+                const m = String(mk).match(/-(\d{2})/);
+                if (!m) return;
+                const code = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"][parseInt(m[1],10)-1];
+                if (!code) return;
+                if (!out[code]) out[code] = [];
+                Object.entries(brandsObj || {}).forEach(([bid, platVol]) => {
+                  const b = brands.find(br => br.id === bid);
+                  if (!b) return;
+                  Object.entries(platVol || {}).forEach(([p, c]) => {
+                    if ((c || 0) > 0) out[code].push({ brand: b.name, platform: p, chats: c, rt: 0 });
+                  });
+                });
+              });
+              return out;
+            })()} chatsByMonth={(() => {
               // Aggregate NiRM Performance Replied Chats by month-of-year code (jan/feb/.../dec).
               const out = {};
               Object.entries(agentPerf || {}).forEach(([mk, byAgent]) => {
