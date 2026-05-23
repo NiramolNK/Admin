@@ -612,7 +612,7 @@ function ReasonsBlock({ cases, brandsInScope, reasonBrand, setReasonBrand }) {
             fontSize={9} fill="#8A96A8">CASES</text>
         </svg>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0, maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
           {sorted.length === 0 && (
             <div style={{ fontSize: 12, color: "#8A96A8", textAlign: "center", padding: 20 }}>
               No cases matching current filters
@@ -659,7 +659,7 @@ function StatusBars({ status, brands }) {
   }).sort((a, b) => b.total - a.total);
 
   return (
-    <div>
+    <div style={{ maxHeight: 360, overflowY: "auto", paddingRight: 4 }}>
       {sorted.map((b) => {
         if (b.total === 0) {
           return (
@@ -1149,6 +1149,4 @@ const closeBtn = {
 const textareaStyle = {
   width: "100%", minHeight: 220, padding: 12, borderRadius: 8,
   border: "1.5px solid #E4E8F0", background: "#F8F9FC", color: "#1C2233",
-  fontFamily: "ui-monospace, monospace", fontSize: 11, lineHeight: 1.5,
-  resize: "vertical", outline: "none", boxSizing: "border-box",
-};
+  fontFamily: "ui-monosp
