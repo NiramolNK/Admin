@@ -1588,26 +1588,80 @@ export default function AllocationPanel({ isAdmin = true }) {
         {/* ── Content Area ── */}
         <div style={{flex:1,padding:"24px 28px",overflowY:"auto"}}>
 
-        {/* ── KPI Bar — Report tab only ── */}
-        {allocTab==="budget" && role!=="viewer" && (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:22}}>
-          <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
-            <div style={{fontSize:10,color:"#1D4ED8",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T2 — Fixed Salary</div>
-            <div style={{fontSize:22,fontWeight:700,color:"#1D4ED8"}}>฿{t2MonthlyCost.toLocaleString()}</div>
-            <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t2Agents.filter(a=>a.active).length} fulltime staff</div>
-          </div>
-          <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
-            <div style={{fontSize:10,color:"#0D9488",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T1 + Return</div>
-            <div style={{fontSize:22,fontWeight:700,color:"#0D9488"}}>฿{t1ReturnCost.toLocaleString()}</div>
-            <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t1ReturnAgents.length} agents × worked days</div>
-          </div>
-          <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:`1px solid ${totalCost>totalBudget?"#FCA5A5":"#BBF7D0"}`,boxShadow:"0 1px 3px #0001"}}>
-            <div style={{fontSize:10,color:"#64748B",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Grand Total</div>
-            <div style={{fontSize:22,fontWeight:700,color:totalCost>totalBudget?"#EF4444":"#059669"}}>฿{totalCost.toLocaleString()}</div>
-            <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>All teams</div>
-          </div>
-        </div>
-        )}
+        {/* ── KPI Bar — Report tab only — range-aware ── */}
+        {allocTab==="budget" && role!=="viewer" && (() => {
+          // Compute range-aware costs (T2 pro-rated, T1+Return summed across range)
+          const rs = reportStartDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-01`;
+          const re = reportEndDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-${new Date(rosterYear, rosterMonth, 0).getDate()}`;
+          const sD = new Date(rs + "T00:00:00");
+          const eD = new Date(re + "T00:00:00");
+          const isRangeSet = !!(reportStartDate || reportEndDate);
+
+          // Months in range
+          const rMonths = [];
+          let cur = new Date(sD.getFullYear(), sD.getMonth(), 1);
+          while (cur <= eD) {
+            rMonths.push({ y: cur.getFullYear(), m: cur.getMonth() + 1 });
+            cur.setMonth(cur.getMonth() + 1);
+          }
+
+          // T2 fulltime — prorate fulltimeSalary per month by (days_in_range / days_in_month)
+          let t2Cost = 0;
+          rMonths.forEach(({ y, m }) => {
+            const daysInMonth = new Date(y, m, 0).getDate();
+            const monthStart = new Date(y, m - 1, 1);
+            const monthEnd = new Date(y, m, 0);
+            const startInM = sD > monthStart ? sD : monthStart;
+            const endInM = eD < monthEnd ? eD : monthEnd;
+            const daysInRange = Math.round((endInM - startInM) / 86400000) + 1;
+            t2Cost += fulltimeSalary * (daysInRange / daysInMonth);
+          });
+
+          // T1+Return — sum worked-day cost across all dates in range (OT 1.5x)
+          let t1rCost = 0;
+          const t1r = agents.filter(a => a.active && a.team !== "T2");
+          rMonths.forEach(({ y, m }) => {
+            const mk = `${y}-${String(m).padStart(2,"0")}`;
+            const monthAsgn = allAsgn[mk] || {};
+            const daysInMonth = new Date(y, m, 0).getDate();
+            for (let d = 1; d <= daysInMonth; d++) {
+              const ds = `${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+              const dt = new Date(ds + "T00:00:00");
+              if (dt < sD || dt > eD) continue;
+              t1r.forEach(ag => {
+                const v = monthAsgn[`${ag.id}_${ds}`];
+                if (v && v !== "Off") t1rCost += ag.costDay * (v === "OT" ? 1.5 : 1);
+              });
+            }
+          });
+
+          const grand = Math.round(t2Cost + t1rCost);
+          const t2Rounded = Math.round(t2Cost);
+          const t1rRounded = Math.round(t1rCost);
+          const rangeLabel = isRangeSet
+            ? `${rs} → ${re}`
+            : `${MONTHS[rosterMonth - 1]} ${rosterYear}`;
+
+          return (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:22}}>
+              <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
+                <div style={{fontSize:10,color:"#1D4ED8",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T2 — Fixed Salary</div>
+                <div style={{fontSize:22,fontWeight:700,color:"#1D4ED8"}}>฿{t2Rounded.toLocaleString()}</div>
+                <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t2Agents.filter(a=>a.active).length} fulltime · {rangeLabel}</div>
+              </div>
+              <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
+                <div style={{fontSize:10,color:"#0D9488",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T1 + Return</div>
+                <div style={{fontSize:22,fontWeight:700,color:"#0D9488"}}>฿{t1rRounded.toLocaleString()}</div>
+                <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t1ReturnAgents.length} agents · {rangeLabel}</div>
+              </div>
+              <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:`1px solid ${grand>totalBudget?"#FCA5A5":"#BBF7D0"}`,boxShadow:"0 1px 3px #0001"}}>
+                <div style={{fontSize:10,color:"#64748B",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Grand Total</div>
+                <div style={{fontSize:22,fontWeight:700,color:grand>totalBudget?"#EF4444":"#059669"}}>฿{grand.toLocaleString()}</div>
+                <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>All teams · {rangeLabel}</div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ══════════════════════════════════════════
             ROSTER TAB
@@ -3603,6 +3657,27 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <button onClick={()=>{setReportStartDate("");setReportEndDate("");}} style={{padding:"4px 10px",borderRadius:6,border:"none",background:"#FEF2F2",color:"#EF4444",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Reset</button>
                     )}
                     <div style={{fontSize:10,color:"#94A3B8",marginLeft:"auto"}}>{rangeMonths.length} month{rangeMonths.length>1?"s":""} · {allRangeDates.length} days</div>
+                  </div>
+
+                  {/* Month-shortcut buttons — click to set range to that month */}
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+                    <div style={{fontSize:11,color:"#94A3B8",fontWeight:600,marginRight:4}}>Quick month:</div>
+                    {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((mn, i) => {
+                      const mNum = i + 1;
+                      const last = new Date(rosterYear, mNum, 0).getDate();
+                      const from = `${rosterYear}-${String(mNum).padStart(2,"0")}-01`;
+                      const to   = `${rosterYear}-${String(mNum).padStart(2,"0")}-${String(last).padStart(2,"0")}`;
+                      const active = reportStartDate === from && reportEndDate === to;
+                      return (
+                        <button key={mn} onClick={()=>{ setReportStartDate(from); setReportEndDate(to); }} style={{
+                          padding:"3px 9px", borderRadius:6,
+                          border: active ? "none" : "1px solid #E2E8F0",
+                          background: active ? "#0D9488" : "#F8FAFC",
+                          color: active ? "#fff" : "#64748B",
+                          fontSize:10, fontWeight:700, cursor:"pointer", fontFamily:"inherit",
+                        }}>{mn}</button>
+                      );
+                    })}
                   </div>
 
                   <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:12,marginBottom:16}}>

@@ -370,6 +370,33 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, curre
         )}
       </div>
 
+      {/* Quick-month buttons — click sets the date range to that month */}
+      <div style={dateRangeBarStyle}>
+        <span style={gfLabelStyle}>Quick Month:</span>
+        {(() => {
+          // Derive year from the data.period label (fallback to current year)
+          const yMatch = String(data.period||"").match(/(20\d{2})/);
+          const y = yMatch ? parseInt(yMatch[1], 10) : new Date().getFullYear();
+          return ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((mn, i) => {
+            const mNum = i + 1;
+            const last = new Date(y, mNum, 0).getDate();
+            const from = `${y}-${String(mNum).padStart(2,"0")}-01`;
+            const to   = `${y}-${String(mNum).padStart(2,"0")}-${String(last).padStart(2,"0")}`;
+            const active = dateFrom === from && dateTo === to;
+            return (
+              <button key={mn} onClick={() => { setDateFrom(from); setDateTo(to); }} style={{
+                padding: "4px 10px", borderRadius: 6,
+                border: active ? "none" : "1.5px solid #E4E8F0",
+                background: active ? "#0D9488" : "#fff",
+                color: active ? "#fff" : "#64748B",
+                fontSize: 11, fontWeight: 700, fontFamily: "'Nunito', sans-serif",
+                cursor: "pointer",
+              }}>{mn}</button>
+            );
+          });
+        })()}
+      </div>
+
       <div style={{ padding: "20px 28px" }}>
         {/* ── KPI tiles ── */}
         <div style={kpiGrid}>
