@@ -638,7 +638,7 @@ function ReasonsBlock({ cases, brandsInScope, reasonBrand, setReasonBrand }) {
             fontSize={9} fill="#8A96A8">CASES</text>
         </svg>
 
-        <div style={{ flex: 1, minWidth: 0, maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           {sorted.length === 0 && (
             <div style={{ fontSize: 12, color: "#8A96A8", textAlign: "center", padding: 20 }}>
               No cases matching current filters
@@ -685,7 +685,7 @@ function StatusBars({ status, brands }) {
   }).sort((a, b) => b.total - a.total);
 
   return (
-    <div style={{ maxHeight: 360, overflowY: "auto", paddingRight: 4 }}>
+    <div>
       {sorted.map((b) => {
         if (b.total === 0) {
           return (
@@ -755,11 +755,14 @@ function PlatformMonthBars({ platformTotals, months, monthLabels }) {
   if (!platformTotals || platformTotals.length === 0) {
     return <div style={{ fontSize: 11, color: "#8A96A8" }}>No data</div>;
   }
-  // Hide platforms with zero data across all months (e.g. S-l-t, Amaze, Line
-  // when there's no chat data) so the panel doesn't stretch unnecessarily.
-  const visiblePlatforms = platformTotals.filter((p) =>
-    months.some((m) => (p[m] || 0) > 0)
-  );
+  // Hide low-volume platforms (S-l-t / Amaze / Line etc. with handful of
+  // chats) so the Cases by Platform panel doesn't stretch unnecessarily.
+  // Threshold: at least 10 total chats across all visible months.
+  const PLATFORM_MIN_CHATS = 10;
+  const visiblePlatforms = platformTotals.filter((p) => {
+    const total = months.reduce((s, m) => s + (p[m] || 0), 0);
+    return total >= PLATFORM_MIN_CHATS;
+  });
   if (visiblePlatforms.length === 0) {
     return <div style={{ fontSize: 11, color: "#8A96A8" }}>No data</div>;
   }
@@ -1094,6 +1097,10 @@ const kpiGrid = {
 const threeColGrid = {
   display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 16, marginBottom: 16,
+  // Don't stretch panels to equal height — each sizes to its own content,
+  // so Reasons / Status panels don't get blank space below when Cases by
+  // Platform is taller.
+  alignItems: "start",
 };
 const statusRow = {
   display: "grid", gridTemplateColumns: "minmax(0, 1fr) 2fr 45px",
