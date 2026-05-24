@@ -409,11 +409,15 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
       {/* Quick-month buttons — click sets the date range to that month */}
       <div style={dateRangeBarStyle}>
         <span style={gfLabelStyle}>Quick Month:</span>
-        {/* "All" — clears the date range so KPIs / tables use every month */}
+        {/* "All" — selects Jan 1 → Dec 31 of the selected year so every
+            month is filtered in (the header single-month picker is overridden
+            because the date range takes precedence). */}
         {(() => {
-          const allActive = !dateFrom && !dateTo;
+          const allFrom = `${quickYear}-01-01`;
+          const allTo = `${quickYear}-12-31`;
+          const allActive = dateFrom === allFrom && dateTo === allTo;
           return (
-            <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{
+            <button onClick={() => { setDateFrom(allFrom); setDateTo(allTo); }} style={{
               padding: "4px 10px", borderRadius: 6,
               border: allActive ? "none" : "1.5px solid #E4E8F0",
               background: allActive ? "#0D9488" : "#fff",
@@ -451,15 +455,23 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
         <span style={{ ...gfLabelStyle, marginLeft: 8 }}>Year:</span>
         <select value={quickYear} onChange={(e) => {
           const newY = parseInt(e.target.value, 10);
-          // If a quick-month is currently active, re-apply for the new year
-          // so the same month code resolves to the new year's range.
+          // If a quick-month or All is currently active, re-apply for the
+          // new year so the same selection resolves to the new year's range.
           if (dateFrom && dateTo) {
-            const m = String(dateFrom).match(/^\d{4}-(\d{2})/);
-            if (m) {
-              const mNum = parseInt(m[1], 10);
-              const last = new Date(newY, mNum, 0).getDate();
-              setDateFrom(`${newY}-${String(mNum).padStart(2,"0")}-01`);
-              setDateTo(`${newY}-${String(mNum).padStart(2,"0")}-${String(last).padStart(2,"0")}`);
+            const yearRangeRe = /^\d{4}-01-01$/;
+            // If currently "All" (Jan 1 → Dec 31), span the new year fully.
+            if (yearRangeRe.test(dateFrom) && /^\d{4}-12-31$/.test(dateTo)) {
+              setDateFrom(`${newY}-01-01`);
+              setDateTo(`${newY}-12-31`);
+            } else {
+              // Single-month selection — keep the same month for the new year.
+              const m = String(dateFrom).match(/^\d{4}-(\d{2})/);
+              if (m) {
+                const mNum = parseInt(m[1], 10);
+                const last = new Date(newY, mNum, 0).getDate();
+                setDateFrom(`${newY}-${String(mNum).padStart(2,"0")}-01`);
+                setDateTo(`${newY}-${String(mNum).padStart(2,"0")}-${String(last).padStart(2,"0")}`);
+              }
             }
           }
           setQuickYear(newY);
