@@ -56,6 +56,8 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
   // Custom date range (overrides the global single-month picker when set)
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // Year used by the Quick Month shortcut buttons. Defaults to current year.
+  const [quickYear, setQuickYear] = useState(() => new Date().getFullYear());
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importErr, setImportErr] = useState("");
@@ -407,15 +409,31 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
       {/* Quick-month buttons — click sets the date range to that month */}
       <div style={dateRangeBarStyle}>
         <span style={gfLabelStyle}>Quick Month:</span>
+        {/* "All" — clears the date range so KPIs / tables use every month */}
         {(() => {
-          // Derive year from the data.period label (fallback to current year)
-          const yMatch = String(data.period||"").match(/(20\d{2})/);
-          const y = yMatch ? parseInt(yMatch[1], 10) : new Date().getFullYear();
+          const allActive = !dateFrom && !dateTo;
+          return (
+            <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{
+              padding: "4px 10px", borderRadius: 6,
+              border: allActive ? "none" : "1.5px solid #E4E8F0",
+              background: allActive ? "#0D9488" : "#fff",
+              color: allActive ? "#fff" : "#64748B",
+              fontSize: 11, fontWeight: 700, fontFamily: "'Nunito', sans-serif",
+              cursor: "pointer",
+            }}>All</button>
+          );
+        })()}
+        {(() => {
+          // Year buttons: current year ± 2. Selecting a year DOES re-apply the
+          // active month if one is selected, so the same month resolves to
+          // the chosen year (e.g. Jan 2025 vs Jan 2026).
+          const thisYear = new Date().getFullYear();
+          const years = [thisYear - 1, thisYear, thisYear + 1];
           return ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((mn, i) => {
             const mNum = i + 1;
-            const last = new Date(y, mNum, 0).getDate();
-            const from = `${y}-${String(mNum).padStart(2,"0")}-01`;
-            const to   = `${y}-${String(mNum).padStart(2,"0")}-${String(last).padStart(2,"0")}`;
+            const last = new Date(quickYear, mNum, 0).getDate();
+            const from = `${quickYear}-${String(mNum).padStart(2,"0")}-01`;
+            const to   = `${quickYear}-${String(mNum).padStart(2,"0")}-${String(last).padStart(2,"0")}`;
             const active = dateFrom === from && dateTo === to;
             return (
               <button key={mn} onClick={() => { setDateFrom(from); setDateTo(to); }} style={{
@@ -429,6 +447,34 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
             );
           });
         })()}
+        {/* Year selector — affects the year of any Quick Month click */}
+        <span style={{ ...gfLabelStyle, marginLeft: 8 }}>Year:</span>
+        <select value={quickYear} onChange={(e) => {
+          const newY = parseInt(e.target.value, 10);
+          // If a quick-month is currently active, re-apply for the new year
+          // so the same month code resolves to the new year's range.
+          if (dateFrom && dateTo) {
+            const m = String(dateFrom).match(/^\d{4}-(\d{2})/);
+            if (m) {
+              const mNum = parseInt(m[1], 10);
+              const last = new Date(newY, mNum, 0).getDate();
+              setDateFrom(`${newY}-${String(mNum).padStart(2,"0")}-01`);
+              setDateTo(`${newY}-${String(mNum).padStart(2,"0")}-${String(last).padStart(2,"0")}`);
+            }
+          }
+          setQuickYear(newY);
+        }} style={{
+          padding: "4px 8px", borderRadius: 6, border: "1.5px solid #E4E8F0",
+          background: "#fff", color: "#1C2233", fontSize: 11, fontWeight: 700,
+          fontFamily: "'Nunito', sans-serif", cursor: "pointer", outline: "none",
+        }}>
+          {(() => {
+            const thisYear = new Date().getFullYear();
+            return [thisYear - 1, thisYear, thisYear + 1].map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ));
+          })()}
+        </select>
       </div>
 
       <div style={{ padding: "20px 28px" }}>
@@ -1141,22 +1187,6 @@ const emptyCardStyle = {
   maxWidth: 480, margin: "60px auto", padding: 24, background: "#fff",
   border: "1.5px solid #E4E8F0", borderRadius: 14, textAlign: "center",
   boxShadow: "0 2px 12px rgba(28,34,51,0.07)",
-};
-const dateRangeBarStyle = {
-  background: "#FAFBFC", borderBottom: "1.5px solid #E4E8F0",
-  padding: "8px 28px", display: "flex", alignItems: "center", gap: 8,
-  flexWrap: "wrap",
-};
-const dateInputStyle = {
-  padding: "5px 10px", borderRadius: 6, border: "1.5px solid #E4E8F0",
-  background: "#fff", color: "#1C2233", fontSize: 12, fontWeight: 600,
-  fontFamily: "'Nunito', sans-serif", outline: "none",
-};
-const brandSelectStyle = {
-  padding: "6px 10px", borderRadius: 6, border: "1.5px solid #E4E8F0",
-  background: "#fff", color: "#1C2233", fontSize: 12, fontWeight: 600,
-  fontFamily: "'Nunito', sans-serif", cursor: "pointer", outline: "none",
-  maxWidth: 220, minWidth: 120,
 };
 const primaryBtn = {
   padding: "10px 18px", borderRadius: 9, border: "none",
