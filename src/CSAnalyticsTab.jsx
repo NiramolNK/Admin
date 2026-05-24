@@ -755,9 +755,17 @@ function PlatformMonthBars({ platformTotals, months, monthLabels }) {
   if (!platformTotals || platformTotals.length === 0) {
     return <div style={{ fontSize: 11, color: "#8A96A8" }}>No data</div>;
   }
-  const max = Math.max(...platformTotals.flatMap((p) => months.map((m) => p[m] || 0)));
+  // Hide platforms with zero data across all months (e.g. S-l-t, Amaze, Line
+  // when there's no chat data) so the panel doesn't stretch unnecessarily.
+  const visiblePlatforms = platformTotals.filter((p) =>
+    months.some((m) => (p[m] || 0) > 0)
+  );
+  if (visiblePlatforms.length === 0) {
+    return <div style={{ fontSize: 11, color: "#8A96A8" }}>No data</div>;
+  }
+  const max = Math.max(...visiblePlatforms.flatMap((p) => months.map((m) => p[m] || 0)));
   const monthColors = { apr: "#D02B27", may: "#1A6FC4", jun: "#1E8C4A", jul: "#D46B08" };
-  return platformTotals.map((p) => (
+  return visiblePlatforms.map((p) => (
     <div key={p.name} style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
         <span style={{
