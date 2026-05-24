@@ -685,7 +685,7 @@ function StatusBars({ status, brands }) {
   }).sort((a, b) => b.total - a.total);
 
   return (
-    <div>
+    <div style={{ maxHeight: 500, overflowY: "auto", paddingRight: 4 }}>
       {sorted.map((b) => {
         if (b.total === 0) {
           return (
@@ -1097,10 +1097,9 @@ const kpiGrid = {
 const threeColGrid = {
   display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 16, marginBottom: 16,
-  // Don't stretch panels to equal height — each sizes to its own content,
-  // so Reasons / Status panels don't get blank space below when Cases by
-  // Platform is taller.
-  alignItems: "start",
+  // alignItems: "stretch" (default) — all three panels share the tallest
+  // panel's height. Reasons is the natural reference height (longest list).
+  // Status content is capped + scrolled so it never exceeds Reasons.
 };
 const statusRow = {
   display: "grid", gridTemplateColumns: "minmax(0, 1fr) 2fr 45px",
