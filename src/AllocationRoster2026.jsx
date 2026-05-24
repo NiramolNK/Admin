@@ -543,7 +543,10 @@ export default function AllocationPanel({ isAdmin = true }) {
   const [agents, setAgents]         = useState(ALLOC_AGENTS_INIT);
   
   const [budget, setBudget]         = useState(ALLOC_BUDGET);
-  const [fulltimeSalary, setFulltimeSalary] = useState(0); // Total T2 monthly salary (manager fills in)
+  // T2 monthly salary — per-month object keyed by "YYYY-MM" (e.g. "2026-04": 171730).
+  // Manager enters one value per month; range-aware totals look up the right
+  // month for each month the date range covers.
+  const [fulltimeSalary, setFulltimeSalary] = useState({});
   
   const [editAgent, setEditAgent]   = useState(null);
   const [agentModal, setAgentModal] = useState(false);
@@ -814,7 +817,18 @@ export default function AllocationPanel({ isAdmin = true }) {
           if (d.agents) setAgents(d.agents);
           if (d.brands) setBrands(d.brands);
           if (d.budget) setBudget(d.budget);
-          if (d.fulltimeSalary != null) setFulltimeSalary(d.fulltimeSalary);
+          if (d.fulltimeSalary != null) {
+            // Legacy migration: if stored value was a single number, apply it
+            // to the current month only so existing data isn't lost.
+            if (typeof d.fulltimeSalary === "number") {
+              const legacyMK = d.prefs?.rosterYear && d.prefs?.rosterMonth
+                ? `${d.prefs.rosterYear}-${String(d.prefs.rosterMonth).padStart(2,"0")}`
+                : `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`;
+              setFulltimeSalary({ [legacyMK]: d.fulltimeSalary });
+            } else if (typeof d.fulltimeSalary === "object") {
+              setFulltimeSalary(d.fulltimeSalary);
+            }
+          }
           if (d.monthlyVol) setMonthlyVol(d.monthlyVol);
           if (d.agentPerf) setAgentPerf(d.agentPerf);
           if (d.lockedMonths) setLockedMonths(d.lockedMonths);
@@ -943,7 +957,8 @@ export default function AllocationPanel({ isAdmin = true }) {
     return {m, me, e, total: m+me+e+other};
   });
   const t2Agents       = agents.filter(a => a.active && a.team==="T2");
-  const t2MonthlyCost  = fulltimeSalary;
+  // T2 salary for the currently selected roster month (looked up by mkKey)
+  const t2MonthlyCost  = (fulltimeSalary && fulltimeSalary[currentMK]) || 0;
   const t2DailyShare   = dates.length > 0 ? t2MonthlyCost / dates.length : 0;
 
   const dayCosts = dates.map(d => {
@@ -1605,16 +1620,19 @@ export default function AllocationPanel({ isAdmin = true }) {
             cur.setMonth(cur.getMonth() + 1);
           }
 
-          // T2 fulltime — prorate fulltimeSalary per month by (days_in_range / days_in_month)
+          // T2 fulltime — prorate per-month salary by (days_in_range / days_in_month)
+          // Each month uses its own salary value from the fulltimeSalary object.
           let t2Cost = 0;
           rMonths.forEach(({ y, m }) => {
+            const mk = `${y}-${String(m).padStart(2,"0")}`;
+            const monthSalary = (fulltimeSalary && fulltimeSalary[mk]) || 0;
             const daysInMonth = new Date(y, m, 0).getDate();
             const monthStart = new Date(y, m - 1, 1);
             const monthEnd = new Date(y, m, 0);
             const startInM = sD > monthStart ? sD : monthStart;
             const endInM = eD < monthEnd ? eD : monthEnd;
             const daysInRange = Math.round((endInM - startInM) / 86400000) + 1;
-            t2Cost += fulltimeSalary * (daysInRange / daysInMonth);
+            t2Cost += monthSalary * (daysInRange / daysInMonth);
           });
 
           // T1+Return — sum worked-day cost across all dates in range (OT 1.5x)
@@ -2674,12 +2692,22 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </div>
                 <div style={{background:"#fff",borderRadius:12,border:"1px solid #E2E8F0",padding:16,display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
                   <div style={{flex:1,minWidth:200}}>
-                    <label style={{fontSize:11,fontWeight:600,color:"#64748B",display:"block",marginBottom:6}}>Total T2 salary this month (฿)</label>
+                    <label style={{fontSize:11,fontWeight:600,color:"#64748B",display:"block",marginBottom:6}}>
+                      Total T2 salary — {MONTHS[rosterMonth-1]} {rosterYear} (฿)
+                    </label>
                     <div style={{position:"relative"}}>
                       <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#94A3B8",fontWeight:700}}>฿</span>
-                      <input type="number" min="0" value={fulltimeSalary||""} placeholder="e.g. 171730"
-                        onChange={e=>setFulltimeSalary(Number(e.target.value)||0)}
+                      <input type="number" min="0"
+                        value={(fulltimeSalary && fulltimeSalary[currentMK]) || ""}
+                        placeholder="e.g. 171730"
+                        onChange={e=>{
+                          const n = Number(e.target.value) || 0;
+                          setFulltimeSalary(prev => ({ ...(prev||{}), [currentMK]: n }));
+                        }}
                         style={{width:"100%",padding:"10px 10px 10px 28px",borderRadius:8,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#1D4ED8",fontSize:15,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+                    </div>
+                    <div style={{fontSize:10,color:"#94A3B8",marginTop:6}}>
+                      Each month has its own value. Switch month at the top to enter a different month's salary.
                     </div>
                   </div>
                   <div style={{textAlign:"center",minWidth:120}}>
@@ -3603,11 +3631,13 @@ export default function AllocationPanel({ isAdmin = true }) {
                       if (v && v!=="Off") rangeTotalCost += ag.costDay;
                     });
                   });
-                  // T2 salary for this month (pro-rated if partial month)
+                  // T2 salary for this month (pro-rated if partial month).
+                  // Look up the salary for this specific month.
                   const [my, mm] = mk.split("-").map(Number);
+                  const monthSalary = (fulltimeSalary && fulltimeSalary[mk]) || 0;
                   const daysInMonth = new Date(my, mm, 0).getDate();
                   const daysInRange = allRangeDates.filter(d => d.y===my && d.m===mm).length;
-                  rangeTotalCost += fulltimeSalary * (daysInRange / daysInMonth);
+                  rangeTotalCost += monthSalary * (daysInRange / daysInMonth);
                 });
               }
 
