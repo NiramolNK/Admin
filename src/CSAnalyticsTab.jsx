@@ -160,12 +160,38 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
   }, [data.brands]);
 
   // ── Brands filtered by current group + (optional) brand selection ───────
+  // Also augments each brand with monthly chat counts ({m}C) computed from
+  // chatByBrand (live Chat Volume from Performance tab). This is what powers
+  // the "{Month} Chats" columns in the Brand-Level Performance Overview table
+  // and the Brand × Month bar chart above it.
   const brandsInScope = useMemo(() => {
     let list = data.brands;
     if (group !== "all") list = list.filter((b) => b.group === group);
     if (brand !== "all") list = list.filter((b) => b.name === brand);
-    return list;
-  }, [data.brands, group, brand]);
+
+    // Build a per-brand-per-month chat total from chatByBrand (or fall back to
+    // legacy data.chat from JSON import). Sum across platforms.
+    const hasLive = chatByBrand && Object.values(chatByBrand).some(arr => arr && arr.length > 0);
+    const chatSource = hasLive ? chatByBrand : data.chat;
+    const monthlyByBrand = {}; // { brandName: { apr: n, may: n, ... } }
+    Object.entries(chatSource || {}).forEach(([m, rows]) => {
+      (rows || []).forEach((d) => {
+        if (!monthlyByBrand[d.brand]) monthlyByBrand[d.brand] = {};
+        monthlyByBrand[d.brand][m] = (monthlyByBrand[d.brand][m] || 0) + (d.chats || 0);
+      });
+    });
+
+    return list.map((b) => {
+      const monthly = monthlyByBrand[b.name] || {};
+      const merged = { ...b };
+      Object.entries(monthly).forEach(([m, n]) => {
+        // Only overwrite if the new value is non-zero, so legacy values stick
+        // when live data is empty for that brand/month.
+        if (n > 0 || !(`${m}C` in merged)) merged[`${m}C`] = n;
+      });
+      return merged;
+    });
+  }, [data.brands, data.chat, chatByBrand, group, brand]);
 
   // All brand names within the current group (for the Brand dropdown)
   const brandsForFilter = useMemo(() => {
@@ -1149,4 +1175,6 @@ const closeBtn = {
 const textareaStyle = {
   width: "100%", minHeight: 220, padding: 12, borderRadius: 8,
   border: "1.5px solid #E4E8F0", background: "#F8F9FC", color: "#1C2233",
-  fontFamily: "ui-monosp
+  fontFamily: "ui-monospace, monospace", fontSize: 11, lineHeight: 1.5,
+  resize: "vertical", outline: "none", boxSizing: "border-box",
+};
