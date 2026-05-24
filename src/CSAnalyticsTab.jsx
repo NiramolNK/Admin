@@ -154,6 +154,35 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
     setSyncing(false);
   };
 
+  // ── Sync from CUSP — fetches monthly order data per brand × month × platform
+  // from /api/cusp-sync (which currently returns a static snapshot from
+  // crea_reporting.t_crea_all_perf_w_target). Merges into data.brands by
+  // adding {m}O monthly order fields and q2 (period total).
+  const [cuspSyncing, setCuspSyncing] = useState(false);
+  const [cuspSyncAt, setCuspSyncAt] = useState(null);
+  const syncFromCusp = async () => {
+    if (cuspSyncing) return;
+    setCuspSyncing(true);
+    setSyncError("");
+    try {
+      const res = await fetch("/api/cusp-sync");
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      const cuspData = await res.json();
+      setData(prev => mergeCuspInto(prev, cuspData));
+      setCuspSyncAt(cuspData.lastSyncAt || new Date().toISOString());
+      if (window.storage) {
+        await window.storage.set("cs-analytics-cusp", JSON.stringify(cuspData));
+      }
+    } catch (e) {
+      setSyncError(e.message || "CUSP sync failed");
+      console.error("CUSP sync error:", e);
+    }
+    setCuspSyncing(false);
+  };
+
   // ── Available brand groups (derived from data) ───────────────────────────
   const groups = useMemo(() => {
     const set = new Set();
@@ -375,9 +404,23 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
         }}>
           {syncing ? "Syncing…" : "Sync from Monday"}
         </button>
+        <button onClick={syncFromCusp} disabled={cuspSyncing} style={{
+          ...smallBtn,
+          background: cuspSyncing ? "#94A3B8" : "#7B3FA0",
+          color: "#fff",
+          cursor: cuspSyncing ? "wait" : "pointer",
+          marginLeft: 6,
+        }}>
+          {cuspSyncing ? "Syncing…" : "Sync from CUSP"}
+        </button>
         {lastSyncAt && (
           <span style={{ fontSize: 10, color: "#94A3B8", marginLeft: 6 }}>
             Last sync: {formatRelativeTime(lastSyncAt)}
+          </span>
+        )}
+        {cuspSyncAt && (
+          <span style={{ fontSize: 10, color: "#7B3FA0", marginLeft: 6 }}>
+            CUSP: {formatRelativeTime(cuspSyncAt)}
           </span>
         )}
         {syncError && (
@@ -1095,6 +1138,57 @@ function mergeMondayInto(existing, monday) {
   return out;
 }
 
+// ── Merge CUSP order data into the existing CS analytics shape ─────────────
+// CUSP provides: brands with monthly orders ({m}O fields + q2 period total),
+// and brand→month→platform order breakdown. Case/chat/status fields are
+// preserved from existing data (Monday + Performance tab).
+function mergeCuspInto(existing, cusp) {
+  if (!cusp || !cusp.brands) return existing;
+
+  const out = { ...existing };
+
+  // Don't overwrite period/months from Monday — CUSP just adds orders to brands.
+  // But ensure all CUSP months are in the months list.
+  if (cusp.months && cusp.months.length) {
+    const set = new Set([...(out.months || []), ...cusp.months]);
+    out.months = Array.from(set);
+  }
+  out.monthLabels = { ...(out.monthLabels || {}), ...(cusp.monthLabels || {}) };
+
+  const existingBrandMap = new Map((out.brands || []).map(b => [b.name, b]));
+  const cuspBrandMap = new Map(cusp.brands.map(b => [b.name, b]));
+
+  // For every existing brand, merge in CUSP order fields if present.
+  // For brands in CUSP but not yet in existing data, add them with order fields only.
+  const mergedBrands = [];
+  for (const eb of (out.brands || [])) {
+    const cb = cuspBrandMap.get(eb.name);
+    if (cb) {
+      // Copy over {m}O monthly order fields + q2 period total
+      const orderFields = {};
+      for (const k of Object.keys(cb)) {
+        if (/^[a-z]+O$/.test(k) || k === "q2") orderFields[k] = cb[k];
+      }
+      mergedBrands.push({ ...eb, ...orderFields });
+    } else {
+      mergedBrands.push(eb);
+    }
+  }
+  // Add CUSP-only brands (new brands not yet in existing data)
+  for (const cb of cusp.brands) {
+    if (!existingBrandMap.has(cb.name)) {
+      mergedBrands.push({
+        ...cb,
+        // Fill missing case fields with zeros so the UI doesn't NaN
+        cases: 0, solved: 0, open: 0, comments: 0,
+      });
+    }
+  }
+  out.brands = mergedBrands;
+
+  return out;
+}
+
 function ImportModal({ text, setText, err, onCancel, onImport }) {
   return (
     <div style={modalOverlay} onClick={onCancel}>
@@ -1233,20 +1327,4 @@ const textareaStyle = {
   border: "1.5px solid #E4E8F0", background: "#F8F9FC", color: "#1C2233",
   fontFamily: "ui-monospace, monospace", fontSize: 11, lineHeight: 1.5,
   resize: "vertical", outline: "none", boxSizing: "border-box",
-};
-const dateRangeBarStyle = {
-  background: "#FAFBFC", borderBottom: "1.5px solid #E4E8F0",
-  padding: "8px 28px", display: "flex", alignItems: "center", gap: 8,
-  flexWrap: "wrap",
-};
-const dateInputStyle = {
-  padding: "5px 10px", borderRadius: 6, border: "1.5px solid #E4E8F0",
-  background: "#fff", color: "#1C2233", fontSize: 12, fontWeight: 600,
-  fontFamily: "'Nunito', sans-serif", outline: "none",
-};
-const brandSelectStyle = {
-  padding: "6px 10px", borderRadius: 6, border: "1.5px solid #E4E8F0",
-  background: "#fff", color: "#1C2233", fontSize: 12, fontWeight: 600,
-  fontFamily: "'Nunito', sans-serif", cursor: "pointer", outline: "none",
-  maxWidth: 220, minWidth: 120,
 };
