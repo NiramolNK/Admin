@@ -1328,3 +1328,19 @@ const textareaStyle = {
   fontFamily: "ui-monospace, monospace", fontSize: 11, lineHeight: 1.5,
   resize: "vertical", outline: "none", boxSizing: "border-box",
 };
+const dateRangeBarStyle = {
+  background: "#FAFBFC", borderBottom: "1.5px solid #E4E8F0",
+  padding: "8px 28px", display: "flex", alignItems: "center", gap: 8,
+  flexWrap: "wrap",
+};
+const dateInputStyle = {
+  padding: "5px 10px", borderRadius: 6, border: "1.5px solid #E4E8F0",
+  background: "#fff", color: "#1C2233", fontSize: 12, fontWeight: 600,
+  fontFamily: "'Nunito', sans-serif", outline: "none",
+};
+const brandSelectStyle = {
+  padding: "6px 10px", borderRadius: 6, border: "1.5px solid #E4E8F0",
+  background: "#fff", color: "#1C2233", fontSize: 12, fontWeight: 600,
+  fontFamily: "'Nunito', sans-serif", cursor: "pointer", outline: "none",
+  maxWidth: 220, minWidth: 120,
+};
