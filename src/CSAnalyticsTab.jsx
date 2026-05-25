@@ -91,8 +91,10 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
   const [lastSyncAt, setLastSyncAt] = useState(null);
 
   // ── Load saved analytics data + Monday sync ──────────────────────────────
-  // 1. Load whatever's cached (legacy JSON import OR previous Monday sync)
-  // 2. If cache is older than 15 min, trigger a fresh Monday sync in background
+  // 1. Load whatever's cached (legacy JSON import OR previous Monday sync OR CUSP order sync)
+  // 2. If Monday cache is older than 15 min, trigger a fresh Monday sync in background
+  // NOTE: CUSP order data does NOT auto-sync. It persists in cache until the user
+  // clicks "Sync from CUSP" — orders survive page reloads and Monday auto-syncs.
   useEffect(() => {
     (async () => {
       if (!window.storage) { setLoaded(true); return; }
@@ -101,6 +103,8 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
         const legacy = await window.storage.get("cs-analytics");
         // Monday-synced data (cases, status) — refreshed periodically
         const monday = await window.storage.get("cs-analytics-monday");
+        // CUSP-synced data (monthly orders per brand) — persistent until force sync
+        const cusp = await window.storage.get("cs-analytics-cusp");
 
         let merged = { ...EMPTY_DATA };
         if (legacy?.value) {
@@ -111,6 +115,11 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
           const m = typeof monday.value === "string" ? JSON.parse(monday.value) : monday.value;
           merged = mergeMondayInto(merged, m);
           if (m.lastSyncAt) setLastSyncAt(m.lastSyncAt);
+        }
+        if (cusp?.value) {
+          const c = typeof cusp.value === "string" ? JSON.parse(cusp.value) : cusp.value;
+          merged = mergeCuspInto(merged, c);
+          if (c.lastSyncAt) setCuspSyncAt(c.lastSyncAt);
         }
         setData(merged);
       } catch (e) {
