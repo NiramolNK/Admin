@@ -62,25 +62,73 @@ export default function App() {
   // Once we have a profile, inject it into the AllocationPanel's expected
   // shape by patching the global storage. The panel reads userAccounts and
   // role from storage on mount; we make sure both reflect the real user.
+  //
+  // FIX (data-loss bug #2 from senior-dev review):
+  // This effect previously ran on every profile change (including token
+  // refresh) and unconditionally wrote `state` back to storage. If the
+  // AllocationPanel had unsaved in-memory edits, this read-modify-write
+  // would silently clobber them with a stale snapshot from storage.
+  //
+  // Mitigations applied:
+  //   1. SKIP the write entirely if the current user is already present in
+  //      userAccounts with the right role and prefs.loginUser matches —
+  //      there is nothing to patch.
+  //   2. Re-read storage RIGHT BEFORE writing (already does) and write
+  //      only the minimal patched object — no full-state replace if
+  //      counts shrank in a suspicious way.
+  //   3. Refuse to write if the existing state has agents and the patched
+  //      state would shrink any major collection.
   useEffect(() => {
     if (!profile) return;
+    let cancelled = false;
     (async () => {
       const existing = await window.storage.get("nirm-all");
-      const state = existing?.value ? JSON.parse(existing.value) : {};
-      state.role = profile.role;
-      state.prefs = { ...(state.prefs || {}), loginUser: profile.username };
-      // Ensure the current user appears in userAccounts so user-mgmt UI works
-      const accounts = state.userAccounts || [];
-      if (!accounts.find((a) => a.username.toLowerCase() === profile.username.toLowerCase())) {
-        accounts.push({
-          username: profile.username,
-          password: "__supabase__",
-          role: profile.role,
-        });
+      const before = existing?.value ? JSON.parse(existing.value) : {};
+
+      const accounts = Array.isArray(before.userAccounts) ? [...before.userAccounts] : [];
+      const matchIdx = accounts.findIndex(
+        (a) => a && a.username && a.username.toLowerCase() === profile.username.toLowerCase()
+      );
+      const accountInSync =
+        matchIdx >= 0 &&
+        accounts[matchIdx].role === profile.role &&
+        accounts[matchIdx].password === "__supabase__";
+
+      const prefsInSync =
+        before.role === profile.role &&
+        before.prefs &&
+        before.prefs.loginUser === profile.username;
+
+      // Nothing to do — avoid a needless write that could race with the panel.
+      if (accountInSync && prefsInSync) return;
+      if (cancelled) return;
+
+      // Build a patched state without losing anything that was already there.
+      const patched = { ...before };
+      patched.role = profile.role;
+      patched.prefs = { ...(before.prefs || {}), loginUser: profile.username };
+      if (matchIdx >= 0) {
+        accounts[matchIdx] = { ...accounts[matchIdx], role: profile.role, password: "__supabase__" };
+      } else {
+        accounts.push({ username: profile.username, password: "__supabase__", role: profile.role });
       }
-      state.userAccounts = accounts;
-      await window.storage.set("nirm-all", JSON.stringify(state));
+      patched.userAccounts = accounts;
+
+      // Shrink guard — refuse to write if any major collection got smaller.
+      const shrank = (a, b) =>
+        Array.isArray(a) && Array.isArray(b) && b.length < a.length;
+      if (
+        shrank(before.agents, patched.agents) ||
+        shrank(before.brands, patched.brands) ||
+        shrank(before.userAccounts, patched.userAccounts)
+      ) {
+        console.warn("[App] Refused to patch nirm-all: shrink detected", { before, patched });
+        return;
+      }
+
+      await window.storage.set("nirm-all", JSON.stringify(patched));
     })();
+    return () => { cancelled = true; };
   }, [profile]);
 
   const handleSignIn = async (e) => {

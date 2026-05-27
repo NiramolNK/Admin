@@ -747,6 +747,33 @@ export default function AllocationPanel({ isAdmin = true }) {
   // ── Save: write stateRef.current to storage ───────────────────────────────
   const saveTimer = useRef(null);
   const needsSave = useRef(false);
+  // FIX (data-loss bug #5 from senior-dev review):
+  // Track the last good snapshot we loaded from storage so the shrink guard
+  // can compare against real data, not against an empty defaults blob.
+  const lastLoadedSnapshot = useRef(null);
+  // Visible save status — surfaced as a small banner in the UI.
+  // null = idle, "saving" = in-flight, "error" = failed (banner stays
+  // until next successful save). Bumped via setSaveStatus below.
+  const [saveStatus, setSaveStatus] = useState(null);
+  const saveAttemptRef = useRef(0);
+
+  const doSaveWithRetry = async (payload, attempt = 0) => {
+    try {
+      await window.storage.set("nirm-all", payload);
+      setSaveStatus(s => (s === "error" ? null : null));
+    } catch (e) {
+      console.error("SAVE FAIL (attempt", attempt + 1, "):", e);
+      if (attempt < 2) {
+        // Exponential backoff: 500ms, 1500ms
+        const delay = 500 * Math.pow(3, attempt);
+        setTimeout(() => doSaveWithRetry(payload, attempt + 1), delay);
+      } else {
+        // All 3 attempts failed — keep needsSave true so future scheduleSave fires
+        needsSave.current = true;
+        setSaveStatus("error");
+      }
+    }
+  };
 
   const flushSave = () => {
     if (!window.storage) return;
@@ -756,23 +783,51 @@ export default function AllocationPanel({ isAdmin = true }) {
     // Refuse to persist a state that has obviously been wiped/corrupted.
     // This prevents the auto-save from clobbering Supabase with an empty state
     // when the initial load races against state setters or the load fails silently.
-    // If any of these guards trip, the in-memory state is bad — better to lose
-    // the most-recent UI change than to wipe the source of truth in Supabase.
     if (!storageLoaded) {
       console.warn("[save] Refused: storage not loaded yet");
       return;
     }
-    if (!state.userAccounts || state.userAccounts.length < 1) {
-      console.warn("[save] Refused: userAccounts is empty (would wipe login data)");
-      return;
-    }
-    if (!state.agents || state.agents.length < 1) {
-      console.warn("[save] Refused: agents list is empty (would wipe roster data)");
-      return;
+
+    // FIX (data-loss bug #3 from senior-dev review):
+    // Previous guard refused saves when userAccounts.length < 1. But the
+    // initial load doesn't populate userAccounts if the stored value is
+    // missing (see load: `if (d.userAccounts?.length)`), so on a fresh
+    // project the in-memory list stays `[]` forever and EVERY save is
+    // dropped silently. New shrink-detection guard: only refuse if the
+    // current in-memory state is SMALLER than the last good snapshot.
+    const snap = lastLoadedSnapshot.current;
+    if (snap) {
+      const shrinkRefuse = (label, before, after) => {
+        if (!Array.isArray(before) || !Array.isArray(after)) return false;
+        if (after.length < Math.max(1, Math.floor(before.length * 0.5))) {
+          console.warn(`[save] Refused: ${label} shrank from ${before.length} to ${after.length} (would wipe data)`);
+          return true;
+        }
+        return false;
+      };
+      if (shrinkRefuse("agents", snap.agents, state.agents)) return;
+      if (shrinkRefuse("brands", snap.brands, state.brands)) return;
+      if (shrinkRefuse("userAccounts", snap.userAccounts, state.userAccounts)) return;
+    } else {
+      // No snapshot yet — fall back to the loosest possible check:
+      // never persist a state with zero agents AND zero brands AND zero
+      // userAccounts. That combination means we have nothing useful at all.
+      const isEmpty = (a) => !Array.isArray(a) || a.length === 0;
+      if (isEmpty(state.agents) && isEmpty(state.brands) && isEmpty(state.userAccounts)) {
+        console.warn("[save] Refused: completely empty state (likely failed load)");
+        return;
+      }
     }
 
     needsSave.current = false;
-    window.storage.set("nirm-all", JSON.stringify(state)).catch(e => console.error("SAVE FAIL:", e));
+    const id = ++saveAttemptRef.current;
+    setSaveStatus("saving");
+    doSaveWithRetry(JSON.stringify(state)).finally(() => {
+      // If a newer save started while we were waiting, don't reset status.
+      if (id === saveAttemptRef.current && needsSave.current === false) {
+        setSaveStatus(s => (s === "error" ? "error" : null));
+      }
+    });
   };
 
   const scheduleSave = () => {
@@ -839,6 +894,16 @@ export default function AllocationPanel({ isAdmin = true }) {
           if (d.changeRequests) setChangeRequests(d.changeRequests);
           if (d.userProfiles) setUserProfiles(d.userProfiles);
           if (d.userAccounts?.length) setUserAccounts(d.userAccounts);
+
+          // FIX (data-loss bug #3 from senior-dev review):
+          // Stash a snapshot of what we just loaded so the save-shrink guard
+          // can detect when in-memory state regressed (load race, bad merge,
+          // etc.) and refuse to clobber storage with a smaller state.
+          lastLoadedSnapshot.current = {
+            agents: Array.isArray(d.agents) ? d.agents.slice() : [],
+            brands: Array.isArray(d.brands) ? d.brands.slice() : [],
+            userAccounts: Array.isArray(d.userAccounts) ? d.userAccounts.slice() : [],
+          };
           if (d.prefs) {
             if (d.prefs.rosterYear) setRosterYear(d.prefs.rosterYear);
             if (d.prefs.rosterMonth) setRosterMonth(d.prefs.rosterMonth);
@@ -985,9 +1050,25 @@ export default function AllocationPanel({ isAdmin = true }) {
   const openAgent = ag => { setEditAgent({...ag,days:[...ag.days]}); setInviteEmail(""); setInviteSent(false); setInviteSending(false); setAgentModal(true); };
   const saveAgent = () => {
     setAgents(p => {
-      const i=p.findIndex(a=>a.id===editAgent.id);
-      if(i>=0){const n=[...p];n[i]=editAgent;return n;}
-      return [...p,editAgent];
+      // FIX (data-loss bug): if this is a brand-new agent and the id already exists
+      // in the list, bump the suffix until unique so we never silently overwrite an
+      // existing staff record. For an edit (no _isNew flag) keep the original behaviour
+      // of replacing the matching record.
+      let candidate = editAgent;
+      if (candidate._isNew) {
+        let id = candidate.id;
+        while (p.some(a => a.id === id)) {
+          const num = parseInt(String(id).replace(/^A/,""),10);
+          id = `A${String((isNaN(num)?p.length:num)+1).padStart(2,"0")}`;
+        }
+        candidate = { ...candidate, id };
+        // strip the internal flag before persisting
+        delete candidate._isNew;
+        return [...p, candidate];
+      }
+      const i = p.findIndex(a => a.id === candidate.id);
+      if (i >= 0) { const n = [...p]; n[i] = candidate; return n; }
+      return [...p, candidate];
     });
     setAgentModal(false);
   };
@@ -1582,6 +1663,20 @@ export default function AllocationPanel({ isAdmin = true }) {
 
       {/* ═══ MAIN CONTENT ═══ */}
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+        {/* ── Save status banner (FIX #5 from senior-dev review) ── */}
+        {saveStatus === "error" && (
+          <div style={{background:"#FEF2F2",borderBottom:"1px solid #FCA5A5",color:"#991B1B",padding:"8px 16px",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:10,position:"sticky",top:0,zIndex:50}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:"#EF4444",flexShrink:0}}/>
+            <span>Couldn't save your last change. We'll keep retrying — please don't close this tab until it succeeds.</span>
+            <button onClick={()=>{ needsSave.current = true; scheduleSave(); }} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:6,border:"1px solid #991B1B",background:"transparent",color:"#991B1B",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Retry now</button>
+          </div>
+        )}
+        {saveStatus === "saving" && (
+          <div style={{background:"#EFF6FF",borderBottom:"1px solid #BFDBFE",color:"#1D4ED8",padding:"4px 16px",fontSize:11,fontWeight:600,display:"flex",alignItems:"center",gap:8,position:"sticky",top:0,zIndex:50}}>
+            <span style={{width:6,height:6,borderRadius:"50%",background:"#3B82F6",flexShrink:0,animation:"spin 1s linear infinite"}}/>
+            <span>Saving…</span>
+          </div>
+        )}
         {/* ── Top Bar ── */}
         <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"14px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap",position:"sticky",top:0,zIndex:40}}>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
@@ -2677,7 +2772,21 @@ export default function AllocationPanel({ isAdmin = true }) {
                   }}>{l}</button>
                 ))}
               </div>
-              {role==="manager" && <button onClick={()=>{setEditAgent({id:`A${String(agents.length+1).padStart(2,"0")}`,name:"",email:"",team:"T1",active:true,shifts:["M"],days:[...ALLOC_ALL],costDay:400,rule:""});setAgentModal(true);}}
+              {role==="manager" && <button onClick={()=>{
+                // FIX (data-loss bug): previously generated id as `A${agents.length+1}` which
+                // collided with seeded agent "Prim" at A16 when agents.length===15 — saveAgent's
+                // findIndex matched A16 and OVERWROTE Prim instead of appending the new staff.
+                // Now compute the next id from the highest existing numeric suffix +1.
+                const nums = agents.map(a => parseInt(String(a.id||"").replace(/^A/,""),10)).filter(n => !isNaN(n));
+                const nextNum = (nums.length ? Math.max(...nums) : 0) + 1;
+                let nextId = `A${String(nextNum).padStart(2,"0")}`;
+                // Belt-and-suspenders: if somehow still colliding, bump until unique.
+                while (agents.some(a => a.id === nextId)) {
+                  nextId = `A${String(parseInt(nextId.slice(1),10)+1).padStart(2,"0")}`;
+                }
+                setEditAgent({id:nextId,name:"",email:"",team:"T1",active:true,shifts:["M"],days:[...ALLOC_ALL],costDay:400,rule:"",_isNew:true});
+                setAgentModal(true);
+              }}
                 style={{padding:"8px 16px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginLeft:"auto"}}>
                 + Add Agent
               </button>}
@@ -4970,6 +5079,9 @@ export default function AllocationPanel({ isAdmin = true }) {
           const x = (e.clientX - rect.left) * (c.width / rect.width);
           const y = (e.clientY - rect.top) * (c.height / rect.height);
           const ctx = c.getContext("2d");
+          ctx.lineWidth = 2;
+          ctx.lineCap = "round";
+          ctx.strokeStyle = "#0F172A";
           ctx.beginPath();
           ctx.moveTo(signDrawingRef.current.last.x, signDrawingRef.current.last.y);
           ctx.lineTo(x, y);
@@ -5012,38 +5124,24 @@ export default function AllocationPanel({ isAdmin = true }) {
         select option { background: #FFFFFF; color: #1A1D2E; }
         input:focus, select:focus { border-color: #0D9488 !important; outline: none; }
 
-
-        /* ══════════════════════════════════════════════════════════════
-           MOBILE RESPONSIVENESS — tablets and phones (max-width: 900px)
-           ══════════════════════════════════════════════════════════════ */
+        /* MOBILE RESPONSIVENESS — tablets and phones (max-width: 900px) */
         @media (max-width: 900px) {
-          /* Tab nav: scroll horizontally instead of wrapping */
           nav, [role="tablist"] {
             overflow-x: auto !important;
             white-space: nowrap !important;
             -webkit-overflow-scrolling: touch;
           }
-
-          /* Wide tables become horizontally scrollable */
           table { display: block; max-width: 100vw; overflow-x: auto !important; }
-
-          /* Sticky cells shrink on mobile */
           th[style*="sticky"], td[style*="sticky"] {
             min-width: 60px !important; max-width: 110px !important;
           }
-
-          /* Headings: scale down */
           h1 { font-size: 18px !important; }
           h2 { font-size: 15px !important; }
           h3 { font-size: 13px !important; }
         }
-
-        /* Phone-specific tightening (max-width: 480px) */
         @media (max-width: 480px) {
           body, #root { font-size: 12px !important; }
         }
-
-        /* Phones don't have hover */
         @media (hover: none) {
           button:hover { opacity: 1; }
         }

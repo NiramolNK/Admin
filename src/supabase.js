@@ -43,6 +43,24 @@ let cacheLoaded = false;
 let subscribers = new Set();
 let realtimeChannel = null;
 
+// FIX (data-loss bug #4 from senior-dev review):
+// Each tab stamps its own writes with a unique CLIENT_ID. When Realtime
+// echoes our own write back, we ignore it instead of letting it overwrite
+// `stateCache`, which would race with any pending local set() calls in
+// the current debounce window. Cross-tab writes from a different client
+// still come through normally.
+const CLIENT_ID =
+  (globalThis.crypto && globalThis.crypto.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : Math.random().toString(36).slice(2) + Date.now().toString(36));
+
+// Track which writer made each pending in-flight save so we can detect
+// our own echo when it arrives via Realtime.
+let lastSentBy = null;
+// While a save is mid-flight (between scheduleSave fire and Supabase ack)
+// we defensively ignore ANY realtime payload — local state is authoritative.
+let saveInFlight = false;
+
 async function loadCache() {
   const { data, error } = await supabase
     .from("app_state")
@@ -59,11 +77,26 @@ async function loadCache() {
 }
 
 async function saveCache(updatedBy) {
-  const { error } = await supabase
-    .from("app_state")
-    .update({ data: stateCache, updated_by: updatedBy || null })
-    .eq("id", "main");
-  if (error) console.error("Failed to save app_state:", error);
+  saveInFlight = true;
+  lastSentBy = CLIENT_ID;
+  // Stamp the payload with the client id so we can detect our own echo
+  // (the column `updated_by` doubles as the echo discriminator — it's
+  // either the user email OR the synthetic client id when no email).
+  const stampedUpdatedBy = updatedBy ? `${updatedBy}#${CLIENT_ID}` : `__client__#${CLIENT_ID}`;
+  try {
+    const { error } = await supabase
+      .from("app_state")
+      .update({ data: stateCache, updated_by: stampedUpdatedBy })
+      .eq("id", "main");
+    if (error) {
+      console.error("Failed to save app_state:", error);
+      // Re-throw so the caller (window.storage.set) can catch and the
+      // app-level retry kicks in.
+      throw error;
+    }
+  } finally {
+    saveInFlight = false;
+  }
 }
 
 // Subscribe to remote changes — when Prim writes, Vee's cache updates.
@@ -75,6 +108,17 @@ function subscribeRealtime() {
       "postgres_changes",
       { event: "UPDATE", schema: "public", table: "app_state", filter: "id=eq.main" },
       (payload) => {
+        // Ignore our own echo: the payload's updated_by ends with our
+        // CLIENT_ID, meaning we just wrote this — local state is already
+        // up to date and applying the echo could clobber a newer local
+        // mutation that hasn't flushed yet.
+        const updatedBy = payload?.new?.updated_by;
+        if (typeof updatedBy === "string" && updatedBy.endsWith(`#${CLIENT_ID}`)) {
+          return;
+        }
+        // Also drop the echo if a write is currently mid-flight from this
+        // tab — even if the stamp matching fails for any reason.
+        if (saveInFlight) return;
         stateCache = payload.new.data || {};
         subscribers.forEach((fn) => fn(stateCache));
       }
@@ -90,13 +134,28 @@ export async function initStorage() {
   // Track recent writes to debounce — multiple set() calls in the same tick
   // batch into one network round-trip.
   let pendingSave = null;
-  const scheduleSave = (updatedBy) => {
-    if (pendingSave) clearTimeout(pendingSave);
-    pendingSave = setTimeout(() => {
-      pendingSave = null;
-      saveCache(updatedBy);
-    }, 250);
-  };
+  // FIX (data-loss bug #5): expose save errors to callers so the AllocationPanel
+  // retry loop and banner can react. The most recent set() returns a promise
+  // resolved only AFTER the debounced save round-trips successfully.
+  let pendingResolves = [];
+  let pendingRejects = [];
+  const scheduleSave = (updatedBy) =>
+    new Promise((resolve, reject) => {
+      pendingResolves.push(resolve);
+      pendingRejects.push(reject);
+      if (pendingSave) clearTimeout(pendingSave);
+      pendingSave = setTimeout(async () => {
+        pendingSave = null;
+        const resolves = pendingResolves; pendingResolves = [];
+        const rejects = pendingRejects;   pendingRejects = [];
+        try {
+          await saveCache(updatedBy);
+          resolves.forEach((r) => r());
+        } catch (e) {
+          rejects.forEach((r) => r(e));
+        }
+      }, 250);
+    });
 
   window.storage = {
     async get(key) {
@@ -109,7 +168,8 @@ export async function initStorage() {
     async set(key, value) {
       stateCache = { ...stateCache, [key]: value };
       const user = (await supabase.auth.getUser()).data.user;
-      scheduleSave(user?.email || null);
+      // Await the debounced save so failures propagate to the caller's catch.
+      await scheduleSave(user?.email || null);
       return { key, value, shared: true };
     },
 
@@ -118,7 +178,7 @@ export async function initStorage() {
       delete next[key];
       stateCache = next;
       const user = (await supabase.auth.getUser()).data.user;
-      scheduleSave(user?.email || null);
+      await scheduleSave(user?.email || null);
       return { key, deleted: true, shared: true };
     },
 
