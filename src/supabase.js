@@ -189,12 +189,12 @@ async function saveCache(updatedBy, retryDepth = 0) {
       }
       console.warn(`[supabase] Save conflict detected (attempt ${retryDepth + 1}). Reloading latest and merging local changes.`);
 
-      // FIX (review round 3, suggestion #9): exponential backoff between
-      // conflict retries so a write-heavy tab can't busy-loop the network
-      // (and gives the other client's write time to fully propagate).
-      // 0ms on first conflict, 200ms on second, 800ms on third.
+      // FIX (review round 3, suggestion #9; corrected in round 4): exponential
+      // backoff between conflict retries. 0ms on first conflict, 200ms on
+      // second, 400ms on third. Capped to keep worst-case latency reasonable
+      // (previous Math.pow(4, ...) gave 3.2s on third retry — too long).
       if (retryDepth > 0) {
-        const delay = 200 * Math.pow(4, retryDepth - 1);
+        const delay = 200 * Math.pow(2, retryDepth - 1);
         await new Promise(r => setTimeout(r, delay));
       }
 
@@ -225,7 +225,12 @@ async function saveCache(updatedBy, retryDepth = 0) {
       // correct map.
       subscribers.forEach((fn) => fn(stateCache));
 
-      saveInFlight = false;
+      // FIX (review round 4): DO NOT flip saveInFlight to false here. The
+      // recursive saveCache call below will keep its own try/finally and
+      // its own saveInFlight=true on entry. If we set it false in between,
+      // a realtime payload arriving during the microsecond gap would run
+      // the NON-buffering branch and clobber our just-merged stateCache.
+      // The outer finally{} handles the eventual flip.
       return saveCache(updatedBy, retryDepth + 1);
     }
 
@@ -402,6 +407,16 @@ export async function signIn(email, password) {
 }
 
 export async function signOut() {
+  // FIX (review round 4): clear all module-level concurrency state so the
+  // next signed-in user can't accidentally flush a prior user's pending
+  // writes or load with a stale lastKnownUpdatedAt.
+  pendingWrites = {};
+  lastKnownUpdatedAt = null;
+  stateCache = {};
+  cacheLoaded = false;
+  loadFailed = false;
+  pendingForeignUpdate = null;
+  saveInFlight = false;
   await supabase.auth.signOut();
 }
 
