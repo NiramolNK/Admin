@@ -303,8 +303,29 @@ function subscribeRealtime() {
         subscribers.forEach((fn) => fn(stateCache));
       }
     )
-    .subscribe();
+    .subscribe((status) => {
+      // FIX (round 6): handle realtime reconnect. supabase-js does NOT replay
+      // missed events after a channel drop, so a tab that went offline (sleep,
+      // network blip, suspended background tab) wakes up with a STALE
+      // stateCache. The very next save would clobber any changes made by
+      // other clients while we were offline. By reloading on every successful
+      // SUBSCRIBED transition, we resync before any save fires.
+      if (status === "SUBSCRIBED" && cacheLoaded) {
+        // Skip the very first subscribe (loadCache already ran in initStorage).
+        // We track this by checking if the channel has connected before.
+        if (realtimeHasConnectedOnce) {
+          console.warn("[supabase] Realtime resubscribed after disconnect — reloading state to avoid clobbering newer writes.");
+          loadCache();
+        }
+        realtimeHasConnectedOnce = true;
+      }
+    });
 }
+
+// Tracks whether the realtime channel has connected at least once. A second
+// SUBSCRIBED event means we reconnected after a drop, and any missed events
+// during the gap mean our stateCache may be stale.
+let realtimeHasConnectedOnce = false;
 
 // Public API — call once on app startup, before mounting the component.
 export async function initStorage() {
@@ -477,10 +498,6 @@ export async function updateProfile(id, updates) {
 }
 
 export async function deleteProfile(id) {
-  // Note: this deletes the profile row. Auth user deletion requires a
-  // service-role key and must run server-side; for now this just orphans
-  // the auth record (the user can no longer sign in via the app because
-  // role lookup returns null).
   const { error } = await supabase.from("profiles").delete().eq("id", id);
   return { error };
 }
