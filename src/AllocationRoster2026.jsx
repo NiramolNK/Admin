@@ -438,7 +438,9 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       return a.shifts.length - b.shifts.length;
     });
     for (const ag of mPool) {
-      if (coveredM + coveredME >= needM) break;
+      // FIX: was `coveredM + coveredME >= needM` which counted 1 ME agent as filling 1 M slot,
+      // so requesting M=4 ME=1 only assigned 3 M agents. Now M and ME are independent counts.
+      if (coveredM >= needM) break;
       const k = `${ag.id}_${d.date}`;
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
@@ -456,7 +458,9 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       return a.shifts.length - b.shifts.length;
     });
     for (const ag of ePool) {
-      if (coveredE + coveredME >= needE) break;
+      // FIX: was `coveredE + coveredME >= needE` (ME double-counted as E).
+      // Now E is its own count so requesting M=4 ME=1 E=4 produces exactly 4+1+4=9.
+      if (coveredE >= needE) break;
       const k = `${ag.id}_${d.date}`;
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
@@ -467,7 +471,7 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
     // If still short on M, try ME-capable agents for M coverage
     const mFill = unassigned.filter(a => a.shifts.includes("ME") || a.shifts.includes("M"));
     for (const ag of mFill) {
-      if (coveredM + coveredME >= needM) break;
+      if (coveredM >= needM) break;  // FIX: same as above — no ME double-counting
       const k = `${ag.id}_${d.date}`;
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
@@ -481,7 +485,7 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
     // If still short on E, try ME-capable agents for E coverage
     const eFill = unassigned.filter(a => a.shifts.includes("ME") || a.shifts.includes("E"));
     for (const ag of eFill) {
-      if (coveredE + coveredME >= needE) break;
+      if (coveredE >= needE) break;  // FIX: same as above — no ME double-counting
       const k = `${ag.id}_${d.date}`;
       if (nxt[k]) continue;
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) continue;
@@ -491,12 +495,20 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       const idx = unassigned.indexOf(ag); if (idx>=0) unassigned.splice(idx, 1);
     }
 
-    // Pass 2: remaining agents — assign or give Off
+    // Pass 2: remaining agents — assign or give Off.
+    // FIX: when the manager has set an explicit shift quota (needM + needME + needE > 0),
+    // Pass 1 already met that quota EXACTLY. Pass 2 used to push extras in via
+    // `shifts[shiftIdx % length]`, defaulting most M-only agents to M and
+    // inflating the M count. Now we only top up to minNeeded when the user
+    // has NOT set explicit shift counts (so chatCap-driven minimums still work).
+    const userSetQuota = (needM + needME + needE) > 0;
     const stillLeft = pool.filter(ag => !nxt[`${ag.id}_${d.date}`])
                           .sort((a, b) => dayCount[a.id] - dayCount[b.id]);
 
     stillLeft.forEach(ag => {
       const k = `${ag.id}_${d.date}`;
+      // If user set a quota, the quota IS the schedule — anyone left over is Off.
+      if (userSetQuota)                                       { nxt[k] = "Off"; return; }
       if (assigned >= minNeeded)                              { nxt[k] = "Off"; return; }
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) { nxt[k] = "Off"; return; }
 
@@ -5181,7 +5193,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
         ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
-        button { transition: all 0.15s ease; }
+        button { transition: transition: all 0.15s ease; }
         button:hover { opacity: 0.85; }
         input::placeholder, textarea::placeholder { color: #94A3B8; }
         select option { background: #FFFFFF; color: #1A1D2E; }
