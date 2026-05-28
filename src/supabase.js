@@ -319,21 +319,35 @@ export async function initStorage() {
   // resolved only AFTER the debounced save round-trips successfully.
   let pendingResolves = [];
   let pendingRejects = [];
+  // FIX (round 5): serialize saves. The previous code cleared `pendingSave`
+  // BEFORE awaiting `saveCache`, so a second debounce timer could fire and
+  // call saveCache CONCURRENTLY while the first save was still in flight.
+  // Two concurrent UPDATEs racing on `updated_at` produced spurious conflicts
+  // that exhausted the 3-retry budget and showed the "Couldn't save" banner.
+  // We now chain saves through a single promise so at most one saveCache
+  // runs at any time.
+  let inFlightChain = Promise.resolve();
   const scheduleSave = (updatedBy) =>
     new Promise((resolve, reject) => {
       pendingResolves.push(resolve);
       pendingRejects.push(reject);
       if (pendingSave) clearTimeout(pendingSave);
-      pendingSave = setTimeout(async () => {
+      pendingSave = setTimeout(() => {
         pendingSave = null;
         const resolves = pendingResolves; pendingResolves = [];
         const rejects = pendingRejects;   pendingRejects = [];
-        try {
-          await saveCache(updatedBy);
-          resolves.forEach((r) => r());
-        } catch (e) {
-          rejects.forEach((r) => r(e));
-        }
+        // Chain this save to run AFTER any in-flight one. The `.catch`
+        // swallows the prior save's error so a single failure doesn't
+        // permanently break the chain (each save's own error still
+        // rejects its own caller via `rejects` above).
+        inFlightChain = inFlightChain.catch(() => {}).then(async () => {
+          try {
+            await saveCache(updatedBy);
+            resolves.forEach((r) => r());
+          } catch (e) {
+            rejects.forEach((r) => r(e));
+          }
+        });
       }, 250);
     });
 
