@@ -43,28 +43,48 @@ let cacheLoaded = false;
 let subscribers = new Set();
 let realtimeChannel = null;
 
-// FIX (data-loss bug #4 from senior-dev review):
-// Each tab stamps its own writes with a unique CLIENT_ID. When Realtime
-// echoes our own write back, we ignore it instead of letting it overwrite
-// `stateCache`, which would race with any pending local set() calls in
-// the current debounce window. Cross-tab writes from a different client
-// still come through normally.
+// FIX (data-loss bug #4 from senior-dev review — full version):
+// Two-layer concurrency control:
+//
+//  1. Per-tab CLIENT_ID stamp on every write so a tab can ignore the
+//     realtime echo of its own write (preserves any local edits made
+//     during the save window).
+//
+//  2. Optimistic locking via the `updated_at` column. Every save sends a
+//     conditional UPDATE that only succeeds if `updated_at` hasn't moved
+//     since we last loaded. On conflict, we reload the latest server
+//     state, merge our pending local writes on top, and retry (up to
+//     3 times). This is what prevents a stale tab from blindly clobbering
+//     newer writes from another tab.
+//
+//  3. `pendingWrites` tracks every set/delete made by THIS tab since our
+//     last successful save. After a conflict reload, we replay these
+//     on top of the new server state so our edits aren't lost.
 const CLIENT_ID =
   (globalThis.crypto && globalThis.crypto.randomUUID
     ? globalThis.crypto.randomUUID()
     : Math.random().toString(36).slice(2) + Date.now().toString(36));
 
-// Track which writer made each pending in-flight save so we can detect
-// our own echo when it arrives via Realtime.
+// Sentinel marking that a key was deleted locally (so the conflict-merge
+// path can re-apply the delete onto the freshly-reloaded server state).
+const TOMBSTONE = Symbol.for("nirm.tombstone.v1");
+
+// Server's `updated_at` as we last observed it (load OR successful save OR
+// realtime echo from another client). Used as the WHERE-clause version
+// anchor on the next save.
+let lastKnownUpdatedAt = null;
+
+// Map of key → value (or TOMBSTONE) modified locally since the last
+// successful save. Snapshot-and-clear at save start, restore on failure.
+let pendingWrites = {};
+
 let lastSentBy = null;
-// While a save is mid-flight (between scheduleSave fire and Supabase ack)
-// we defensively ignore ANY realtime payload — local state is authoritative.
 let saveInFlight = false;
 
 async function loadCache() {
   const { data, error } = await supabase
     .from("app_state")
-    .select("data")
+    .select("data, updated_at")
     .eq("id", "main")
     .single();
   if (error) {
@@ -72,28 +92,84 @@ async function loadCache() {
     return;
   }
   stateCache = data?.data || {};
+  lastKnownUpdatedAt = data?.updated_at || null;
   cacheLoaded = true;
   subscribers.forEach((fn) => fn(stateCache));
 }
 
-async function saveCache(updatedBy) {
+async function saveCache(updatedBy, retryDepth = 0) {
+  // Snapshot the writes we're about to flush. On conflict / error we
+  // restore these so the next scheduleSave picks them up.
+  const writesAtSave = { ...pendingWrites };
+  pendingWrites = {};
+
   saveInFlight = true;
   lastSentBy = CLIENT_ID;
-  // Stamp the payload with the client id so we can detect our own echo
-  // (the column `updated_by` doubles as the echo discriminator — it's
-  // either the user email OR the synthetic client id when no email).
   const stampedUpdatedBy = updatedBy ? `${updatedBy}#${CLIENT_ID}` : `__client__#${CLIENT_ID}`;
+
   try {
-    const { error } = await supabase
+    let q = supabase
       .from("app_state")
       .update({ data: stateCache, updated_by: stampedUpdatedBy })
       .eq("id", "main");
+    if (lastKnownUpdatedAt !== null) {
+      // Conditional update: only succeed if NOBODY ELSE has written since
+      // we last saw the row. Zero rows affected ⇒ someone else got there
+      // first ⇒ conflict-resolution branch below.
+      q = q.eq("updated_at", lastKnownUpdatedAt);
+    }
+    const { data, error } = await q.select("updated_at").maybeSingle();
+
     if (error) {
+      // Hard failure (RLS, network, auth). Restore pending writes so the
+      // caller's retry can flush them again.
+      pendingWrites = { ...writesAtSave, ...pendingWrites };
       console.error("Failed to save app_state:", error);
-      // Re-throw so the caller (window.storage.set) can catch and the
-      // app-level retry kicks in.
       throw error;
     }
+
+    if (!data) {
+      // Optimistic-lock conflict: another client updated the row.
+      if (retryDepth >= 3) {
+        pendingWrites = { ...writesAtSave, ...pendingWrites };
+        const e = new Error("[supabase] Save conflict not resolved after 3 attempts — refusing to clobber");
+        console.error(e);
+        throw e;
+      }
+      console.warn(`[supabase] Save conflict detected (attempt ${retryDepth + 1}). Reloading latest and merging local changes.`);
+
+      // Pull the newest server state.
+      const reload = await supabase
+        .from("app_state")
+        .select("data, updated_at")
+        .eq("id", "main")
+        .single();
+      if (reload.error) {
+        pendingWrites = { ...writesAtSave, ...pendingWrites };
+        throw reload.error;
+      }
+      stateCache = reload.data?.data || {};
+      lastKnownUpdatedAt = reload.data?.updated_at || null;
+
+      // Re-apply OUR pending writes on top of the freshly-reloaded state.
+      for (const k of Object.keys(writesAtSave)) {
+        const v = writesAtSave[k];
+        if (v === TOMBSTONE) delete stateCache[k];
+        else stateCache[k] = v;
+      }
+      // Tell React/subscribers about the merged state so their in-memory
+      // copy doesn't go stale.
+      subscribers.forEach((fn) => fn(stateCache));
+
+      // Restore pendingWrites so the recursive retry's snapshot picks them up.
+      pendingWrites = { ...writesAtSave };
+
+      saveInFlight = false;
+      return saveCache(updatedBy, retryDepth + 1);
+    }
+
+    // Success — record the server's new version for the next conditional save.
+    lastKnownUpdatedAt = data.updated_at;
   } finally {
     saveInFlight = false;
   }
@@ -108,17 +184,23 @@ function subscribeRealtime() {
       "postgres_changes",
       { event: "UPDATE", schema: "public", table: "app_state", filter: "id=eq.main" },
       (payload) => {
-        // Ignore our own echo: the payload's updated_by ends with our
-        // CLIENT_ID, meaning we just wrote this — local state is already
-        // up to date and applying the echo could clobber a newer local
-        // mutation that hasn't flushed yet.
         const updatedBy = payload?.new?.updated_by;
+        const newUpdatedAt = payload?.new?.updated_at;
+
+        // Own echo — we already updated lastKnownUpdatedAt from the save
+        // response. Ignore the payload so it can't clobber any newer
+        // in-memory mutations that haven't flushed yet.
         if (typeof updatedBy === "string" && updatedBy.endsWith(`#${CLIENT_ID}`)) {
           return;
         }
-        // Also drop the echo if a write is currently mid-flight from this
-        // tab — even if the stamp matching fails for any reason.
+        // Mid-save defense: drop any payload that arrives while WE'RE
+        // currently writing. Our optimistic-lock retry will handle the
+        // actual merge.
         if (saveInFlight) return;
+
+        // Another client wrote. Track their new version so OUR next save's
+        // WHERE clause is up to date (else we'd needlessly conflict).
+        if (newUpdatedAt) lastKnownUpdatedAt = newUpdatedAt;
         stateCache = payload.new.data || {};
         subscribers.forEach((fn) => fn(stateCache));
       }
@@ -167,6 +249,9 @@ export async function initStorage() {
 
     async set(key, value) {
       stateCache = { ...stateCache, [key]: value };
+      // Track this write so the conflict-resolution merge can re-apply it
+      // after a reload.
+      pendingWrites[key] = value;
       const user = (await supabase.auth.getUser()).data.user;
       // Await the debounced save so failures propagate to the caller's catch.
       await scheduleSave(user?.email || null);
@@ -177,6 +262,10 @@ export async function initStorage() {
       const next = { ...stateCache };
       delete next[key];
       stateCache = next;
+      // Track the delete with a TOMBSTONE so the conflict-resolution merge
+      // can re-apply it after a reload (otherwise the reload would
+      // resurrect the key).
+      pendingWrites[key] = TOMBSTONE;
       const user = (await supabase.auth.getUser()).data.user;
       await scheduleSave(user?.email || null);
       return { key, deleted: true, shared: true };
