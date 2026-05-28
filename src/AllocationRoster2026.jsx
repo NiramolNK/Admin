@@ -869,12 +869,29 @@ export default function AllocationPanel({ isAdmin = true }) {
         const r = await window.storage.get("nirm-all");
         if (r && r.value) {
           const d = JSON.parse(r.value);
-          if (d.agents) setAgents(d.agents);
-          if (d.brands) setBrands(d.brands);
-          if (d.budget) setBudget(d.budget);
+          // FIX (HIGH from senior-dev review): collapse the load `if(d.x) setX(d.x)`
+          // chain into a single KEYS-driven loop. Adding a new key to the nirm-all
+          // blob now requires touching only this list — same bug class as the CUSP
+          // cache-miss we fixed before, just for the main blob.
+          const LOAD_KEYS = [
+            ["agents", setAgents],
+            ["brands", setBrands],
+            ["budget", setBudget],
+            ["monthlyVol", setMonthlyVol],
+            ["agentPerf", setAgentPerf],
+            ["lockedMonths", setLockedMonths],
+            ["allAsgn", setAllAsgn],
+            ["allBrandAsgn", setAllBrandAsgn],
+            ["globalFlags", setGlobalFlags],
+            ["changeRequests", setChangeRequests],
+            ["userProfiles", setUserProfiles],
+          ];
+          for (const [key, setter] of LOAD_KEYS) {
+            if (d[key] != null) setter(d[key]);
+          }
+          // Keys with special handling stay inline:
           if (d.fulltimeSalary != null) {
-            // Legacy migration: if stored value was a single number, apply it
-            // to the current month only so existing data isn't lost.
+            // Legacy migration: single number → per-month object on current month.
             if (typeof d.fulltimeSalary === "number") {
               const legacyMK = d.prefs?.rosterYear && d.prefs?.rosterMonth
                 ? `${d.prefs.rosterYear}-${String(d.prefs.rosterMonth).padStart(2,"0")}`
@@ -884,15 +901,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               setFulltimeSalary(d.fulltimeSalary);
             }
           }
-          if (d.monthlyVol) setMonthlyVol(d.monthlyVol);
-          if (d.agentPerf) setAgentPerf(d.agentPerf);
-          if (d.lockedMonths) setLockedMonths(d.lockedMonths);
           if (d.role && ROLES[d.role]) { setRole(d.role); setLoggedIn(true); }
-          if (d.allAsgn) setAllAsgn(d.allAsgn);
-          if (d.allBrandAsgn) setAllBrandAsgn(d.allBrandAsgn);
-          if (d.globalFlags) setGlobalFlags(d.globalFlags);
-          if (d.changeRequests) setChangeRequests(d.changeRequests);
-          if (d.userProfiles) setUserProfiles(d.userProfiles);
           if (d.userAccounts?.length) setUserAccounts(d.userAccounts);
 
           // FIX (data-loss bug #3 from senior-dev review):
@@ -1641,7 +1650,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 // PRESERVE userAccounts and userProfiles across reset — don't wipe storage entirely.
                 // Instead, reset only the operational state and let the save loop overwrite it.
                 setAgents(ALLOC_AGENTS_INIT); setBrands(CS_BRANDS_INIT);
-                setBudget(ALLOC_BUDGET); setFulltimeSalary(0);
+                setBudget(ALLOC_BUDGET); setFulltimeSalary({}); // FIX (HIGH): per-month object schema, not a bare number
                 setAllAsgn({}); setAllBrandAsgn({}); setGlobalFlags(ALLOC_FLAGS_INIT);
                 const seed={}; CS_BRANDS_INIT.forEach(b=>{seed[b.id]={...(b.chats||{})};});
                 setMonthlyVol({"2026-03":seed});
@@ -2893,9 +2902,12 @@ export default function AllocationPanel({ isAdmin = true }) {
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:14}}>
                     <div style={{display:"grid",gridTemplateColumns:"110px 1fr 1fr",gap:12}}>
-                      <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>PCode {role!=="manager"&&<span style={{marginLeft:4,color:"#94A3B8",fontWeight:500,textTransform:"none"}}>(read-only)</span>}</label>
-                        <input value={editAgent.id} readOnly={role!=="manager"} onChange={e=>{if(role==="manager")setEditAgent({...editAgent,id:e.target.value.trim().toUpperCase()})}}
-                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:role!=="manager"?"#F1F5F9":"#FAFBFC",color:role!=="manager"?"#64748B":"#1A1D2E",fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box",cursor:role!=="manager"?"not-allowed":"text"}}/></div>
+                      <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>PCode <span style={{marginLeft:4,color:"#94A3B8",fontWeight:500,textTransform:"none"}}>(auto)</span></label>
+                        {/* FIX (HIGH): PCode is auto-generated and now ALWAYS read-only.
+                            Manually changing an id risked silently overwriting another agent
+                            (same root cause as the A16 collision bug). */}
+                        <input value={editAgent.id} readOnly
+                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#F1F5F9",color:"#64748B",fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box",cursor:"not-allowed"}}/></div>
                       <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Name</label>
                         <input value={editAgent.name} onChange={e=>setEditAgent({...editAgent,name:e.target.value})}
                           style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
