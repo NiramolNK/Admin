@@ -3059,10 +3059,15 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </div>
               </div>
             )}
+          </div>
+        )}
 
-
-            {/* ── Agent Self-Fill Payroll Form (opened via invite link) ── */}
-            {inviteFormModal && (
+        {/* FIX: this modal used to be nested inside the `allocTab==="agents"`
+            block, which meant T1/Return agents (who can't access the Teams
+            tab) couldn't see it when clicking "Fill it now" on the invoice
+            page. Moved out to top-level so it renders regardless of tab. */}
+        {/* ── Agent Self-Fill Payroll Form (opened via invite link) ── */}
+        {inviteFormModal && (
               <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.7)",backdropFilter:"blur(6px)"}} onMouseDown={(e)=>{ if (e.target === e.currentTarget) setInviteFormModal(false); }}>
                 <div style={{background:"#FFFFFF",borderRadius:18,padding:28,width:500,maxWidth:"94vw",maxHeight:"90vh",overflow:"auto",boxShadow:"0 24px 64px #00000099"}} onClick={e=>e.stopPropagation()}>
                   <div style={{textAlign:"center",marginBottom:22}}>
@@ -3199,8 +3204,6 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </div>
               </div>
             )}
-          </div>
-        )}
 
         {/* ══════════════════════════════════════════
             ALLOCATION TAB — Brands × Platforms × T1 Agents
