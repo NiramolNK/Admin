@@ -110,14 +110,27 @@ async function loadCache() {
   subscribers.forEach((fn) => fn(stateCache));
 }
 
-// Internal helper used by both the conflict-merge path and the realtime
-// handler so the "reapply local pending writes on top of remote state"
-// rule lives in exactly one place.
+// FIX (review round 3, suggestion #7): single code path that knows how
+// to mutate stateCache for one (key, value-or-TOMBSTONE) pair. set/delete
+// AND the conflict-resolution merge AND the realtime echo merge all go
+// through this so the semantics live in exactly one place.
+function _applyToCache(key, valueOrTombstone) {
+  if (valueOrTombstone === TOMBSTONE) {
+    if (key in stateCache) {
+      const next = { ...stateCache };
+      delete next[key];
+      stateCache = next;
+    }
+  } else {
+    stateCache = { ...stateCache, [key]: valueOrTombstone };
+  }
+}
+
+// Apply every (key, value) entry from `writes` on top of stateCache.
+// Used by the conflict-merge path and the realtime handler.
 function _applyPendingWritesOnTop(writes) {
   for (const k of Object.keys(writes)) {
-    const v = writes[k];
-    if (v === TOMBSTONE) delete stateCache[k];
-    else stateCache[k] = v;
+    _applyToCache(k, writes[k]);
   }
 }
 
@@ -141,6 +154,11 @@ async function saveCache(updatedBy, retryDepth = 0) {
   const stampedUpdatedBy = updatedBy ? `${updatedBy}#${CLIENT_ID}` : `__client__#${CLIENT_ID}`;
 
   try {
+    // FIX (review round 3, suggestion #8): the server-side trigger
+    // `trg_app_state_updated_at` (function `touch_updated_at()`) auto-
+    // refreshes the `updated_at` column on every UPDATE, so we don't have
+    // to send it ourselves. The .select("updated_at") below pulls the new
+    // value back so we can use it as the version anchor on the next save.
     let q = supabase
       .from("app_state")
       .update({ data: stateCache, updated_by: stampedUpdatedBy })
@@ -170,6 +188,15 @@ async function saveCache(updatedBy, retryDepth = 0) {
         throw e;
       }
       console.warn(`[supabase] Save conflict detected (attempt ${retryDepth + 1}). Reloading latest and merging local changes.`);
+
+      // FIX (review round 3, suggestion #9): exponential backoff between
+      // conflict retries so a write-heavy tab can't busy-loop the network
+      // (and gives the other client's write time to fully propagate).
+      // 0ms on first conflict, 200ms on second, 800ms on third.
+      if (retryDepth > 0) {
+        const delay = 200 * Math.pow(4, retryDepth - 1);
+        await new Promise(r => setTimeout(r, delay));
+      }
 
       // Pull the newest server state.
       const reload = await supabase
@@ -239,6 +266,15 @@ function subscribeRealtime() {
         if (typeof updatedBy === "string" && updatedBy.endsWith(`#${CLIENT_ID}`)) {
           return;
         }
+        // FIX (review round 3, suggestion #6): a payload arriving without
+        // a string updated_by means either a legacy row, a server-side
+        // admin update (SQL console), or a buggy client that didn't stamp.
+        // We DO still apply it — preserving the operator's ability to fix
+        // things via SQL — but log so an unexpected source is visible in
+        // the console.
+        if (typeof updatedBy !== "string" || updatedBy === "") {
+          console.warn("[supabase] Realtime payload has no client stamp on updated_by — applying anyway. Source:", updatedBy);
+        }
         // FIX (review round 2): mid-save, BUFFER the foreign payload
         // instead of dropping it. The save's finally{} block will
         // replay it after our write completes, preserving any local
@@ -305,23 +341,18 @@ export async function initStorage() {
     },
 
     async set(key, value) {
-      stateCache = { ...stateCache, [key]: value };
-      // Track this write so the conflict-resolution merge can re-apply it
-      // after a reload.
+      // FIX (review round 3, suggestion #7): mutate via _applyToCache so
+      // the stateCache update logic lives in ONE place shared with
+      // conflict-resolution and realtime merge.
+      _applyToCache(key, value);
       pendingWrites[key] = value;
       const user = (await supabase.auth.getUser()).data.user;
-      // Await the debounced save so failures propagate to the caller's catch.
       await scheduleSave(user?.email || null);
       return { key, value, shared: true };
     },
 
     async delete(key) {
-      const next = { ...stateCache };
-      delete next[key];
-      stateCache = next;
-      // Track the delete with a TOMBSTONE so the conflict-resolution merge
-      // can re-apply it after a reload (otherwise the reload would
-      // resurrect the key).
+      _applyToCache(key, TOMBSTONE);
       pendingWrites[key] = TOMBSTONE;
       const user = (await supabase.auth.getUser()).data.user;
       await scheduleSave(user?.email || null);
