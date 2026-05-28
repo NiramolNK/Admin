@@ -81,6 +81,17 @@ let pendingWrites = {};
 let lastSentBy = null;
 let saveInFlight = false;
 
+// FIX (review round 2): the previous load swallowed errors silently and left
+// lastKnownUpdatedAt = null, which made the next save unconditionally clobber
+// whatever was on the server. Now we surface the failure and refuse to save
+// until a successful load lands.
+let loadFailed = false;
+
+// FIX (review round 2): if a foreign realtime update arrives WHILE we're
+// mid-save, the previous code silently dropped it and left stateCache stale.
+// Now we buffer the latest such payload and re-merge after our save completes.
+let pendingForeignUpdate = null;
+
 async function loadCache() {
   const { data, error } = await supabase
     .from("app_state")
@@ -89,15 +100,37 @@ async function loadCache() {
     .single();
   if (error) {
     console.error("Failed to load app_state:", error);
+    loadFailed = true;
     return;
   }
   stateCache = data?.data || {};
   lastKnownUpdatedAt = data?.updated_at || null;
   cacheLoaded = true;
+  loadFailed = false;
   subscribers.forEach((fn) => fn(stateCache));
 }
 
+// Internal helper used by both the conflict-merge path and the realtime
+// handler so the "reapply local pending writes on top of remote state"
+// rule lives in exactly one place.
+function _applyPendingWritesOnTop(writes) {
+  for (const k of Object.keys(writes)) {
+    const v = writes[k];
+    if (v === TOMBSTONE) delete stateCache[k];
+    else stateCache[k] = v;
+  }
+}
+
 async function saveCache(updatedBy, retryDepth = 0) {
+  // FIX (review round 2): refuse to save if our last load failed.
+  // Saving with lastKnownUpdatedAt = null would unconditionally clobber
+  // the server with whatever stale stateCache we happen to have.
+  if (loadFailed) {
+    const e = new Error("[supabase] Refusing to save: initial load failed, in-memory state is untrusted");
+    console.error(e);
+    throw e;
+  }
+
   // Snapshot the writes we're about to flush. On conflict / error we
   // restore these so the next scheduleSave picks them up.
   const writesAtSave = { ...pendingWrites };
@@ -121,8 +154,8 @@ async function saveCache(updatedBy, retryDepth = 0) {
     const { data, error } = await q.select("updated_at").maybeSingle();
 
     if (error) {
-      // Hard failure (RLS, network, auth). Restore pending writes so the
-      // caller's retry can flush them again.
+      // Hard failure (RLS, network, auth). Merge pending writes back so
+      // any sets that arrived during the save aren't lost.
       pendingWrites = { ...writesAtSave, ...pendingWrites };
       console.error("Failed to save app_state:", error);
       throw error;
@@ -152,17 +185,18 @@ async function saveCache(updatedBy, retryDepth = 0) {
       lastKnownUpdatedAt = reload.data?.updated_at || null;
 
       // Re-apply OUR pending writes on top of the freshly-reloaded state.
-      for (const k of Object.keys(writesAtSave)) {
-        const v = writesAtSave[k];
-        if (v === TOMBSTONE) delete stateCache[k];
-        else stateCache[k] = v;
-      }
-      // Tell React/subscribers about the merged state so their in-memory
-      // copy doesn't go stale.
-      subscribers.forEach((fn) => fn(stateCache));
+      _applyPendingWritesOnTop(writesAtSave);
 
-      // Restore pendingWrites so the recursive retry's snapshot picks them up.
-      pendingWrites = { ...writesAtSave };
+      // FIX (review round 2): MERGE rather than REPLACE pendingWrites.
+      // If a set() ran during the reload round-trip it's already in
+      // pendingWrites; the previous `pendingWrites = { ...writesAtSave }`
+      // dropped it. Now we keep both, with newer writes winning.
+      pendingWrites = { ...writesAtSave, ...pendingWrites };
+
+      // FIX (review round 2): notify subscribers AFTER pendingWrites has
+      // been restored so a subscriber's reactive set() lands in the
+      // correct map.
+      subscribers.forEach((fn) => fn(stateCache));
 
       saveInFlight = false;
       return saveCache(updatedBy, retryDepth + 1);
@@ -172,6 +206,18 @@ async function saveCache(updatedBy, retryDepth = 0) {
     lastKnownUpdatedAt = data.updated_at;
   } finally {
     saveInFlight = false;
+    // FIX (review round 2): if a foreign update arrived while we were
+    // saving (we deferred it to avoid clobbering our in-flight write),
+    // apply it now — but only AFTER our pending writes so local edits
+    // survive.
+    if (pendingForeignUpdate) {
+      const p = pendingForeignUpdate;
+      pendingForeignUpdate = null;
+      if (p.updated_at) lastKnownUpdatedAt = p.updated_at;
+      stateCache = p.data || {};
+      _applyPendingWritesOnTop(pendingWrites);
+      subscribers.forEach((fn) => fn(stateCache));
+    }
   }
 }
 
@@ -193,15 +239,26 @@ function subscribeRealtime() {
         if (typeof updatedBy === "string" && updatedBy.endsWith(`#${CLIENT_ID}`)) {
           return;
         }
-        // Mid-save defense: drop any payload that arrives while WE'RE
-        // currently writing. Our optimistic-lock retry will handle the
-        // actual merge.
-        if (saveInFlight) return;
+        // FIX (review round 2): mid-save, BUFFER the foreign payload
+        // instead of dropping it. The save's finally{} block will
+        // replay it after our write completes, preserving any local
+        // pending writes on top.
+        if (saveInFlight) {
+          pendingForeignUpdate = payload?.new || null;
+          return;
+        }
 
         // Another client wrote. Track their new version so OUR next save's
         // WHERE clause is up to date (else we'd needlessly conflict).
         if (newUpdatedAt) lastKnownUpdatedAt = newUpdatedAt;
         stateCache = payload.new.data || {};
+
+        // FIX (review round 2): if THIS tab has unsaved local writes in
+        // pendingWrites, re-apply them on top of the foreign update.
+        // Without this, a foreign update silently wipes our unflushed
+        // local edits.
+        _applyPendingWritesOnTop(pendingWrites);
+
         subscribers.forEach((fn) => fn(stateCache));
       }
     )
