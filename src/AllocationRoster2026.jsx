@@ -3328,22 +3328,40 @@ export default function AllocationPanel({ isAdmin = true }) {
                     count = assignedBrands.size;
                     return (
                       <button key={ag.id} onClick={()=>setAllocAgentFilter(active?"":ag.name)}
+                        title={count>0 ? `${count} brand${count>1?"s":""} · ~${totalChats} chats/day for ${ag.name} on this date+shift` : ag.name}
                         style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",borderRadius:20,cursor:"pointer",fontFamily:"inherit",fontSize:11,fontWeight:active?700:400,
                           border:`1px solid ${active?"#5EEAD4":"#E2E8F0"}`,
                           background:active?"#F0FDFA":"transparent",
                           color:active?"#0D9488":"#475569"}}>
                         {ag.name}
                         {count>0 && (
-                          <span style={{fontSize:10,fontWeight:700,padding:"1px 5px",borderRadius:8,background:active?"#99F6E4":"#F1F5F9",color:active?"#0D9488":"#94A3B8"}}>{count}</span>
+                          <span title="brands assigned" style={{fontSize:10,fontWeight:700,padding:"1px 5px",borderRadius:8,background:active?"#99F6E4":"#F1F5F9",color:active?"#0D9488":"#94A3B8"}}>{count}</span>
+                        )}
+                        {totalChats>0 && (
+                          <span title="estimated chats per day on this shift" style={{fontSize:10,fontWeight:700,padding:"1px 5px",borderRadius:8,background:active?"#FDE68A":"#FEF3C7",color:active?"#92400E":"#B45309"}}>~{totalChats}c</span>
                         )}
                       </button>
                     );
                   })}
-                  {allocAgentFilter && (
-                    <span style={{fontSize:11,color:"#94A3B8",marginLeft:4}}>
-                      — showing <strong style={{color:"#1A1D2E"}}>{filteredBrands.length}</strong> brand{filteredBrands.length!==1?"s":""} assigned to <strong style={{color:"#0D9488"}}>{allocAgentFilter}</strong>
-                    </span>
-                  )}
+                  {allocAgentFilter && (() => {
+                    // Compute total estimated chats/day for the currently-filtered agent
+                    let agentChats = 0;
+                    brands.forEach(b => {
+                      (b.platforms||[]).forEach(plat => {
+                        const k=`${b.id}_${selDate.date}_${allocShiftF}_${plat}`;
+                        const raw=brandAsgn[k];
+                        const names=[...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+                        if(names.includes(allocAgentFilter)) {
+                          agentChats += Math.round((b.chats?.[plat]||0) / 30 / 2 / Math.max(names.length,1));
+                        }
+                      });
+                    });
+                    return (
+                      <span style={{fontSize:11,color:"#94A3B8",marginLeft:4}}>
+                        — showing <strong style={{color:"#1A1D2E"}}>{filteredBrands.length}</strong> brand{filteredBrands.length!==1?"s":""} · <strong style={{color:"#B45309"}}>~{agentChats} chats/day</strong> for <strong style={{color:"#0D9488"}}>{allocAgentFilter}</strong>
+                      </span>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -5193,7 +5211,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
         ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
-        button { transition: transition: all 0.15s ease; }
+        button { transition: all 0.15s ease; }
         button:hover { opacity: 0.85; }
         input::placeholder, textarea::placeholder { color: #94A3B8; }
         select option { background: #FFFFFF; color: #1A1D2E; }
