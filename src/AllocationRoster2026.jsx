@@ -5031,7 +5031,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                       const finalPw = isInvite
                         ? `Inv${Math.random().toString(36).slice(2,10)}${Math.random().toString(36).slice(2,10).toUpperCase()}!`
                         : pw;
-                      const { error: signUpError } = await supabase.auth.signUp({ email, password: finalPw });
+                      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password: finalPw });
                       // Restore the current admin's session (signUp swaps to the new user)
                       if(currentSession) {
                         await supabase.auth.setSession({ access_token: currentSession.access_token, refresh_token: currentSession.refresh_token });
@@ -5039,6 +5039,24 @@ export default function AllocationPanel({ isAdmin = true }) {
                       if(signUpError && !/already.*registered|already.*exists|user.*exists/i.test(signUpError.message)){
                         alert("Could not create Supabase user: "+signUpError.message+"\n\nThe user was NOT added.");
                         return;
+                      }
+                      // FIX: also create a profiles row. Without it, getCurrentRole()
+                      // returns null on sign-in and the user gets stuck on the login
+                      // screen even with a valid Auth account.
+                      const newUserId = signUpData?.user?.id;
+                      if (newUserId) {
+                        const { error: profErr } = await supabase
+                          .from("profiles")
+                          .upsert({
+                            id: newUserId,
+                            username: email,
+                            role: editingUser.role,
+                            display_name: email.split("@")[0],
+                          }, { onConflict: "id" });
+                        if (profErr) {
+                          console.error("Failed to create profile row:", profErr);
+                          alert("Auth account created, but profile row could not be saved: " + profErr.message + "\n\nThe user may need their role set manually before signing in.");
+                        }
                       }
                       if(isInvite){
                         // Send the password recovery email so they can set their own password
