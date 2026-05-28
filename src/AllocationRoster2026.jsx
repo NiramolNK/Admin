@@ -2695,7 +2695,37 @@ export default function AllocationPanel({ isAdmin = true }) {
               </div>
               {completeness.filled < completeness.total && (
                 <div style={{padding:"10px 18px",background:"#FEF3C7",borderBottom:"1px solid #FDE68A",fontSize:11,color:"#92400E"}}>
-                  ⚠️ Your personal information is incomplete ({completeness.filled}/{completeness.total} fields). The invoice may not print correctly. <a href="#" onClick={(e)=>{e.preventDefault(); window.location.href = `${window.location.origin}${window.location.pathname}?invite=${myPayrollAgent.id}&name=${encodeURIComponent(myPayrollAgent.name)}`;}} style={{color:"#92400E",textDecoration:"underline",fontWeight:700}}>Fill it now</a>
+                  ⚠️ Your personal information is incomplete ({completeness.filled}/{completeness.total} fields). The invoice may not print correctly. <a href="#" onClick={(e)=>{
+                    e.preventDefault();
+                    // FIX: open the modal directly via state instead of a
+                    // full-page reload to `?invite=...`. The redirect approach
+                    // depended on a useEffect[storageLoaded] firing after the
+                    // reload, which could miss the param if the navigation
+                    // didn't refresh the page (same-origin same-path edge),
+                    // and it cleared the user's current scroll/tab context.
+                    if (!myPayrollAgent) return;
+                    setInviteFormAgentId(myPayrollAgent.id);
+                    setInviteFormData(d => ({
+                      ...d,
+                      fullName:        myPayrollAgent.fullName || myPayrollAgent.name || "",
+                      thaiName:        myPayrollAgent.thaiName || "",
+                      phone:           myPayrollAgent.phone || "",
+                      idCard:          myPayrollAgent.idCard || "",
+                      taxId:           myPayrollAgent.taxId || "",
+                      idCardAddress:   myPayrollAgent.idCardAddress || "",
+                      docDeliveryAddress: myPayrollAgent.docDeliveryAddress || "",
+                      sameAddress:     !myPayrollAgent.docDeliveryAddress || myPayrollAgent.docDeliveryAddress === myPayrollAgent.idCardAddress,
+                      bankName:        myPayrollAgent.bankName || "",
+                      bankAccount:     myPayrollAgent.bankAccount || "",
+                      bankAccountName: myPayrollAgent.bankAccountName || "",
+                      startDate:       myPayrollAgent.startDate || "",
+                      costDay:         myPayrollAgent.costDay || "",
+                      profilePhotoUrl: myPayrollAgent.profilePhotoUrl || "",
+                      idCardPhotoUrl:  myPayrollAgent.idCardPhotoUrl || "",
+                      bookbankPhotoUrl: myPayrollAgent.bookbankPhotoUrl || "",
+                    }));
+                    setInviteFormModal(true);
+                  }} style={{color:"#92400E",textDecoration:"underline",fontWeight:700,cursor:"pointer"}}>Fill it now</a>
                 </div>
               )}
               <div style={{padding:"20px 24px",fontSize:12,fontFamily:"'Sarabun',sans-serif"}}>
@@ -5136,7 +5166,6 @@ export default function AllocationPanel({ isAdmin = true }) {
         select option { background: #FFFFFF; color: #1A1D2E; }
         input:focus, select:focus { border-color: #0D9488 !important; outline: none; }
 
-        /* MOBILE RESPONSIVENESS — tablets and phones (max-width: 900px) */
         @media (max-width: 900px) {
           nav, [role="tablist"] {
             overflow-x: auto !important;
