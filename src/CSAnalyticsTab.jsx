@@ -313,13 +313,24 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
 
   // Chats — prefer NiRM Performance Replied Chats data (passed via prop).
   // Falls back to data.chat (JSON import) for any month where Performance has 0 / no data.
+  // FIX: when a date range is set (monthsInRange), filter chatsByMonth to ONLY
+  // the months in range. Previously this used `month` which collapsed to "all"
+  // whenever a date range was active, so the KPI showed Q2 totals regardless
+  // of the user's date filter.
   const totalChats = useMemo(() => {
-    const fromPerf = month === "all"
-      ? Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0)
-      : ((chatsByMonth && chatsByMonth[month]) || 0);
+    let fromPerf;
+    if (monthsInRange) {
+      fromPerf = Array.from(monthsInRange).reduce(
+        (s, m) => s + ((chatsByMonth || {})[m] || 0), 0
+      );
+    } else if (month === "all") {
+      fromPerf = Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0);
+    } else {
+      fromPerf = (chatsByMonth && chatsByMonth[month]) || 0;
+    }
     if (fromPerf > 0) return fromPerf;
     return filteredChat.reduce((s, d) => s + d.chats, 0);
-  }, [chatsByMonth, month, filteredChat]);
+  }, [chatsByMonth, month, monthsInRange, filteredChat]);
 
   // ── Import handler ───────────────────────────────────────────────────────
   const handleImport = async () => {
@@ -577,10 +588,19 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
 
             return <>
               <KPI label="Total Chats" value={totalChats.toLocaleString()} sub={(() => {
-                const fromPerf = month === "all"
-                  ? Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0)
-                  : ((chatsByMonth && chatsByMonth[month]) || 0);
-                const label = month === "all" ? data.period : data.monthLabels[month] || month;
+                // FIX: respect date-range filter same as the totalChats computation
+                let fromPerf;
+                let label;
+                if (monthsInRange) {
+                  fromPerf = Array.from(monthsInRange).reduce((s, m) => s + ((chatsByMonth || {})[m] || 0), 0);
+                  label = Array.from(monthsInRange).map(m => data.monthLabels[m] || m).join(", ");
+                } else if (month === "all") {
+                  fromPerf = Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0);
+                  label = data.period;
+                } else {
+                  fromPerf = (chatsByMonth && chatsByMonth[month]) || 0;
+                  label = data.monthLabels[month] || month;
+                }
                 return `${label} · ${fromPerf > 0 ? "from Performance" : "from Volume / import"}`;
               })()} color="#1A6FC4" />
               <KPI label="Total Orders" value={totalOrders.toLocaleString()} sub={brandsInScope.length + " brands"} color="#7B3FA0" />
