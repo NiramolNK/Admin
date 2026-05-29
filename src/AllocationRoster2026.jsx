@@ -4480,14 +4480,23 @@ export default function AllocationPanel({ isAdmin = true }) {
                           if(idx<0) idx = updatedBrands.findIndex(b=>norm.includes(normalise(b.name))||normalise(b.name).includes(norm));
                           if(idx>=0){
                             const plats = [...new Set([...(updatedBrands[idx].platforms||[]),...Object.keys(platChats).filter(p=>platChats[p]>0)])];
-                            const newChats = {...(updatedBrands[idx].chats||{})};
-                            Object.entries(platChats).forEach(([p,v])=>{ newChats[p]=v; });
                             const newPerf = {...(updatedBrands[idx].perf||{}), ...(perfAgg[storeName]||{})};
-                            updatedBrands[idx] = {...updatedBrands[idx], platforms:plats, chats:newChats, perf:newPerf};
+                            // FIX: do NOT overwrite brands[].chats globally on import. The
+                            // imported numbers belong to the SPECIFIC month being imported,
+                            // not to the brand globally. Previously, the chats overwrite
+                            // here caused every month's display to inherit the last-imported
+                            // month's values (because getVol fell back to brands.chats).
+                            // The per-month data is stored in monthlyVol[mk] below; this
+                            // brand record just gets platform/perf metadata updates.
+                            updatedBrands[idx] = {...updatedBrands[idx], platforms:plats, perf:newPerf};
                             matched++;
                           } else {
                             const plats = Object.keys(platChats).filter(p=>platChats[p]>0);
                             if(plats.length>0){
+                              // For brand-new brands (not yet in roster), seed chats from
+                              // the import so allocation has SOMETHING to work with. This
+                              // is a one-time bootstrap — subsequent re-imports won't
+                              // touch chats again (see existing-brand branch above).
                               newBrands.push({
                                 id:`imp${Date.now()}${Math.random().toString(36).slice(2,6)}`,
                                 name:storeName, group:"", wh: storeName.includes("-") ? storeName.split("-").pop().trim() : "",
@@ -4499,10 +4508,18 @@ export default function AllocationPanel({ isAdmin = true }) {
                         });
 
                         setBrands([...updatedBrands,...newBrands]);
+                        // monthlyVol gets the import's per-month chat data.
+                        // Pull chats directly from the imported `agg` (not from brands.chats)
+                        // since we no longer overwrite brands.chats above.
                         setMonthlyVol(prev=>{
-                          const newVol = {};
+                          const newVol = {...(prev[mk] || {})};
                           [...updatedBrands,...newBrands].forEach(b=>{
-                            newVol[b.id] = Object.fromEntries(PLATFORMS.map(p=>[p, b.chats?.[p]||0]));
+                            const importChats = agg[b.name] || {};
+                            // Use the import's per-platform chats, falling back to brand's
+                            // existing chats only for brand-new brands (the bootstrap path).
+                            const isNewBrand = newBrands.some(nb => nb.id === b.id);
+                            const source = isNewBrand ? (b.chats || {}) : importChats;
+                            newVol[b.id] = Object.fromEntries(PLATFORMS.map(p=>[p, source[p] || 0]));
                           });
                           return {...prev,[mk]:newVol};
                         });
