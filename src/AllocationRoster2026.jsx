@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import CSAnalyticsTab from "./CSAnalyticsTab.jsx";
-import { supabase } from "./supabase.js";
+import { supabase, onStateChange } from "./supabase.js";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const Ico = ({size=16,color="currentColor",style={},children}) => (
@@ -959,10 +959,68 @@ export default function AllocationPanel({ isAdmin = true }) {
     })();
   }, []);
 
-  // ── Auto-save AFTER every render that changes data ─────────────────────────
-  // This useEffect runs AFTER render, so stateRef.current is guaranteed up-to-date
+  // ── Re-sync React state when storage changes from another client ──────────
+  // FIX (architectural): without this, a tab that loaded 15 agents stays at
+  // 15 forever in React, even after server gets updated to 13. Any setState
+  // here then auto-saves the stale 15-agent blob, clobbering the newer write.
+  // We subscribe to stateCache changes (fired by realtime updates from other
+  // clients and by round-6 reload-on-reconnect) and re-apply the relevant
+  // top-level state setters. The autosave-suspend ref stops the resulting
+  // setState cascade from triggering an immediate save echo of the data we
+  // just received.
+  const suspendAutoSave = useRef(false);
   useEffect(() => {
-    if (storageLoaded) scheduleSave();
+    if (!storageLoaded) return;
+    const handler = (newCache) => {
+      const raw = newCache?.["nirm-all"];
+      if (!raw) return;
+      try {
+        const d = typeof raw === "string" ? JSON.parse(raw) : raw;
+        suspendAutoSave.current = true;
+        const KEYS = [
+          ["agents", setAgents],
+          ["brands", setBrands],
+          ["budget", setBudget],
+          ["monthlyVol", setMonthlyVol],
+          ["agentPerf", setAgentPerf],
+          ["lockedMonths", setLockedMonths],
+          ["allAsgn", setAllAsgn],
+          ["allBrandAsgn", setAllBrandAsgn],
+          ["globalFlags", setGlobalFlags],
+          ["changeRequests", setChangeRequests],
+          ["userProfiles", setUserProfiles],
+        ];
+        for (const [k, setter] of KEYS) {
+          if (d[k] != null) setter(d[k]);
+        }
+        if (d.userAccounts?.length) setUserAccounts(d.userAccounts);
+        // Refresh the load snapshot so the shrink-guard compares against the
+        // newly-received state, not the stale initial-load snapshot.
+        lastLoadedSnapshot.current = {
+          agents: Array.isArray(d.agents) ? d.agents.slice() : [],
+          brands: Array.isArray(d.brands) ? d.brands.slice() : [],
+          userAccounts: Array.isArray(d.userAccounts) ? d.userAccounts.slice() : [],
+        };
+        // Release the suspend in the next tick so the dependency-driven
+        // auto-save effect re-evaluates with the new state but doesn't fire
+        // a save (the scheduleSave call below is gated on suspendAutoSave).
+        setTimeout(() => { suspendAutoSave.current = false; }, 50);
+      } catch (e) {
+        console.error("Re-sync from realtime failed:", e);
+      }
+    };
+    const unsub = onStateChange(handler);
+    return () => { unsub && unsub(); };
+  }, [storageLoaded]);
+
+  // ── Auto-save AFTER every render that changes data ─────────────────────────
+  // This useEffect runs AFTER render, so stateRef.current is guaranteed up-to-date.
+  // FIX (architectural): skip when suspendAutoSave is true. The re-sync handler
+  // above sets that flag while it cascades setState calls from a foreign update,
+  // so we don't fire a save that echoes the data we just received (which would
+  // become a self-clobber on round-6 conflict resolution).
+  useEffect(() => {
+    if (storageLoaded && !suspendAutoSave.current) scheduleSave();
   }, [agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, userProfiles, userAccounts, rosterYear, rosterMonth, allocTab, volYear, volMonth, allAsgn, allBrandAsgn, globalFlags, storageLoaded]);
 
   // Flush save on unmount
