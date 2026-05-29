@@ -1448,9 +1448,12 @@ export default function AllocationPanel({ isAdmin = true }) {
     const mk = volKey(y, m);
     const fromVol = monthlyVol[mk]?.[brandId]?.[platform];
     if (fromVol !== undefined) return fromVol;
-    // Only fall back to brands.chats if viewing the current display month (no historical data yet)
-    const currentMk = volKey(volYear, volMonth);
-    if (mk === currentMk) return brands.find(b=>b.id===brandId)?.chats?.[platform] ?? 0;
+    // FIX: previously fell back to brands.chats (the global default) when the
+    // current month had no monthlyVol entry. Because the duoke import updates
+    // brands.chats as a side-effect, every unimported month inherited the
+    // last-imported month's values — making all months look identical.
+    // Now: each month must have its own monthlyVol entry. Use "Copy from
+    // previous month" or re-import to seed a new month explicitly.
     return 0;
   };
   const setVol = (brandId, platform, value, y=volYear, m=volMonth) => {
