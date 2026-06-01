@@ -171,6 +171,17 @@ function mkDateRange(from, to) {
   }
   return out;
 }
+// Read per-month chat volume for a brand+platform from monthlyVol, falling
+// back to brand.chats global default if no per-month entry exists.
+// Allocation and auto-fill use this so each month routes through its own
+// imported numbers, with a sensible default for unimported months.
+function getBrandChats(brand, platform, monthlyVol, mk) {
+  if (!brand) return 0;
+  const fromMonth = monthlyVol?.[mk]?.[brand.id]?.[platform];
+  if (fromMonth !== undefined && fromMonth !== null) return fromMonth;
+  return brand.chats?.[platform] || 0;
+}
+
 function allocAutoFill(agents, dates, flags) {
   // Use the same fair constrained logic with no constraints
   return allocAutoFillConstrained(agents, dates, flags, { needM:0, needME:0, needE:0 }, []);
@@ -181,14 +192,18 @@ function allocAutoFill(agents, dates, flags) {
 // Key format: brandId_date_shift_platform
 // Auto-allocate: 1 agent per brand+platform, balanced by chat volume (greedy fewest-load-first)
 // Always starts completely fresh. Additional agents can be added manually afterward.
-function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn) {
+// FIX (round-7 follow-up): added monthlyVol+mk parameters so the function
+// can read per-month chat volumes. Callers pass the active roster month so
+// brand allocation reflects THIS month's chat data (when imported per-month)
+// instead of the global brand defaults.
+function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, mk) {
   const result = {};
   const t1Agents = agents.filter(a => a.active && a.team === "T1");
 
-  // Sort brands by total volume
+  // Sort brands by total volume — per-month aware via getBrandChats
   const brandVol = {};
   brands.forEach(b => {
-    brandVol[b.id] = (b.platforms||[]).reduce((s,p) => s + (b.chats?.[p]||0), 0);
+    brandVol[b.id] = (b.platforms||[]).reduce((s,p) => s + getBrandChats(b, p, monthlyVol, mk), 0);
   });
   const sortedBrandIds = brands.map(b=>b.id).sort((a,b) => (brandVol[b]||0) - (brandVol[a]||0));
 
@@ -219,11 +234,11 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn) {
       const totalWorking = allPool.length;
       const topBrandAgents = totalWorking >= 6 ? 3 : totalWorking >= 4 ? 2 : Math.min(2, totalWorking);
 
-      // Build tasks sorted by volume desc
+      // Build tasks sorted by volume desc — per-month aware
       const tasks = [];
       brands.forEach(b => {
         (b.platforms||[]).forEach(plat => {
-          const vol = b.chats?.[plat] || 0;
+          const vol = getBrandChats(b, plat, monthlyVol, mk);
           if (vol <= 0) return;
           // How many agents for this brand+platform
           const agentCount = top3.has(b.id) ? topBrandAgents : 1;
@@ -266,7 +281,10 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn) {
 //     - Days-off are spaced as evenly as possible (not clustered)
 //     - Shift assignment respects each agent's allowed shifts
 //     - When multiple agents are eligible, always pick the one with fewest days assigned so far
-function allocAutoFillConstrained(agents, dates, flags, constraints, brands, existing = {}) {
+// FIX (round-7 follow-up): added monthlyVol+mk parameters so chat-cap based
+// minimum-headcount calculations route through the active roster month's
+// imported chat data instead of brand defaults.
+function allocAutoFillConstrained(agents, dates, flags, constraints, brands, existing = {}, monthlyVol = {}, mk = null) {
   const nxt = {};
   // Honor pre-existing manual assignments — they are kept as-is.
   // For "Off" days set by manager (day-off requests), we treat them as fixed days off.
@@ -385,7 +403,9 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
     // Total brand chat load for this day
     let totalDailyChats = 0;
     brands.forEach(b =>
-      (b.platforms || []).forEach(p => { totalDailyChats += b.chats?.[p] || 0; })
+      // FIX (round-7 follow-up): per-month chat volume so chatCap-based min
+      // headcount uses the active month's actual import, not brand defaults.
+      (b.platforms || []).forEach(p => { totalDailyChats += getBrandChats(b, p, monthlyVol, mk); })
     );
 
     // Split agents into available (can work today) and unavailable (forced off).
@@ -2336,7 +2356,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         dateOverrides: fillDateOverrides,
                       };
                       // Pass current asgn so fairness math accounts for manual pre-assignments
-                      const filled = allocAutoFillConstrained(agents, dates, flags, constraints, brands, fillMode === "fill" ? asgn : {});
+                      const filled = allocAutoFillConstrained(agents, dates, flags, constraints, brands, fillMode === "fill" ? asgn : {}, monthlyVol, currentMK);
 
                       if (fillMode === "fill") {
                         // Fill Empty: only write cells that have no existing assignment
@@ -3357,7 +3377,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 }} style={{padding:"8px 14px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
                   + Add Brand
                 </button>
-                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}safeSetBrandAsgn(autoAllocateBrands(brands,agents,asgn,dates,brandAsgn));}}
+                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}safeSetBrandAsgn(autoAllocateBrands(brands,agents,asgn,dates,brandAsgn,monthlyVol,currentMK));}}
                   style={{padding:"8px 14px",borderRadius:9,border:"none",background:isLocked?"#CBD5E1":"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit"}}>
                   Auto-Allocate All
                 </button>
