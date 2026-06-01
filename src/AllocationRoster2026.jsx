@@ -3398,7 +3398,12 @@ export default function AllocationPanel({ isAdmin = true }) {
                         const names=[...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
                         if(names.includes(ag.name)) {
                           assignedBrands.add(b.id);
-                          totalChats += Math.round((b.chats?.[plat]||0) / 30 / 2 / Math.max(names.length,1));
+                          // FIX (round-7 review LOW): use per-month chats from monthlyVol
+                          // (the displayed month context) instead of brands.chats global default.
+                          // Pills now move when you switch month, matching the Performance display.
+                          const selMk = (selDate?.date || "").slice(0, 7);
+                          const monthChats = selMk ? (monthlyVol[selMk]?.[b.id]?.[plat] ?? b.chats?.[plat] ?? 0) : (b.chats?.[plat] || 0);
+                          totalChats += Math.round(monthChats / 30 / 2 / Math.max(names.length,1));
                         }
                       });
                     });
@@ -3422,6 +3427,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                   })}
                   {allocAgentFilter && (() => {
                     // Compute total estimated chats/day for the currently-filtered agent
+                    // FIX (round-7): per-month chats so the footer label matches what the pills now show
+                    const selMk = (selDate?.date || "").slice(0, 7);
                     let agentChats = 0;
                     brands.forEach(b => {
                       (b.platforms||[]).forEach(plat => {
@@ -3429,7 +3436,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                         const raw=brandAsgn[k];
                         const names=[...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
                         if(names.includes(allocAgentFilter)) {
-                          agentChats += Math.round((b.chats?.[plat]||0) / 30 / 2 / Math.max(names.length,1));
+                          const monthChats = selMk ? (monthlyVol[selMk]?.[b.id]?.[plat] ?? b.chats?.[plat] ?? 0) : (b.chats?.[plat] || 0);
+                          agentChats += Math.round(monthChats / 30 / 2 / Math.max(names.length,1));
                         }
                       });
                     });
@@ -5170,13 +5178,42 @@ export default function AllocationPanel({ isAdmin = true }) {
                       if(currentSession) {
                         await supabase.auth.setSession({ access_token: currentSession.access_token, refresh_token: currentSession.refresh_token });
                       }
-                      if(signUpError && !/already.*registered|already.*exists|user.*exists/i.test(signUpError.message)){
+                      const isAlreadyRegistered = signUpError && /already.*registered|already.*exists|user.*exists/i.test(signUpError.message);
+                      if(signUpError && !isAlreadyRegistered){
                         alert("Could not create Supabase user: "+signUpError.message+"\n\nThe user was NOT added.");
                         return;
+                      }
+                      // FIX (round-7 review MEDIUM): the "already registered" branch.
+                      // signUp returns no user-id when the email already has an Auth
+                      // account, so we can't auto-create a profiles row. Surface a
+                      // clear alert instructing the manager to handle this case
+                      // explicitly rather than silently leaving the user half-
+                      // configured (in userAccounts but with no profile row → stuck
+                      // on login screen because getCurrentRole returns null).
+                      if (isAlreadyRegistered) {
+                        alert(
+                          "This email already has a Supabase Auth account.\n\n" +
+                          "If they can sign in already, no action needed — they'll use their existing password.\n\n" +
+                          "If their profile row is missing (they get stuck on the login screen after signing in), have them use 'Forgot Password' to reset, OR remove them from this User Accounts list and have a developer manually create the profiles row via SQL."
+                        );
+                        // Still add to userAccounts so the role mapping is recorded
+                        // — even without a profile row, the app's local logic uses
+                        // this list as a fallback.
                       }
                       // FIX: also create a profiles row. Without it, getCurrentRole()
                       // returns null on sign-in and the user gets stuck on the login
                       // screen even with a valid Auth account.
+                      // NOTE (round-7 review): this upsert requires an RLS policy on
+                      // `profiles` allowing the manager to INSERT/UPDATE rows for
+                      // *other* users (not just their own). Default Supabase RLS
+                      // only lets users edit their own profile. If you see
+                      // "row-level security policy" errors here, add a policy like:
+                      //   CREATE POLICY "manager can write any profile"
+                      //     ON public.profiles FOR ALL TO authenticated
+                      //     USING (EXISTS (SELECT 1 FROM profiles
+                      //                    WHERE id = auth.uid() AND role = 'manager'))
+                      //     WITH CHECK (EXISTS (SELECT 1 FROM profiles
+                      //                         WHERE id = auth.uid() AND role = 'manager'));
                       const newUserId = signUpData?.user?.id;
                       if (newUserId) {
                         const { error: profErr } = await supabase
@@ -5189,7 +5226,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                           }, { onConflict: "id" });
                         if (profErr) {
                           console.error("Failed to create profile row:", profErr);
-                          alert("Auth account created, but profile row could not be saved: " + profErr.message + "\n\nThe user may need their role set manually before signing in.");
+                          alert("Auth account created, but profile row could not be saved: " + profErr.message + "\n\nThe user may need their role set manually before signing in.\n\n(This usually means the 'profiles' table RLS policy doesn't allow the manager to write rows for other users. See the source comment for the SQL fix.)");
                         }
                       }
                       if(isInvite){
