@@ -968,7 +968,12 @@ export default function AllocationPanel({ isAdmin = true }) {
   // top-level state setters. The autosave-suspend ref stops the resulting
   // setState cascade from triggering an immediate save echo of the data we
   // just received.
-  const suspendAutoSave = useRef(false);
+  // FIX (round-7 senior review HIGH): was a single boolean flag with a race —
+  // two overlapping foreign updates A then B would have A's 50ms timer fire
+  // mid-B and flip the flag false while B was still cascading setState, allowing
+  // the auto-save useEffect to fire with stale data. Counter-style depth track
+  // means the flag only releases when the last in-flight sync's timer fires.
+  const suspendDepth = useRef(0);
   useEffect(() => {
     if (!storageLoaded) return;
     const handler = (newCache) => {
@@ -976,7 +981,7 @@ export default function AllocationPanel({ isAdmin = true }) {
       if (!raw) return;
       try {
         const d = typeof raw === "string" ? JSON.parse(raw) : raw;
-        suspendAutoSave.current = true;
+        suspendDepth.current++;
         const KEYS = [
           ["agents", setAgents],
           ["brands", setBrands],
@@ -994,17 +999,30 @@ export default function AllocationPanel({ isAdmin = true }) {
           if (d[k] != null) setter(d[k]);
         }
         if (d.userAccounts?.length) setUserAccounts(d.userAccounts);
-        // Refresh the load snapshot so the shrink-guard compares against the
-        // newly-received state, not the stale initial-load snapshot.
-        lastLoadedSnapshot.current = {
-          agents: Array.isArray(d.agents) ? d.agents.slice() : [],
-          brands: Array.isArray(d.brands) ? d.brands.slice() : [],
-          userAccounts: Array.isArray(d.userAccounts) ? d.userAccounts.slice() : [],
-        };
-        // Release the suspend in the next tick so the dependency-driven
-        // auto-save effect re-evaluates with the new state but doesn't fire
-        // a save (the scheduleSave call below is gated on suspendAutoSave).
-        setTimeout(() => { suspendAutoSave.current = false; }, 50);
+        // FIX (round-7 senior review): only refresh the load snapshot when the
+        // incoming payload is at least as large as the prior snapshot. Otherwise
+        // a stale/malicious payload with shrunken arrays would silently widen
+        // what the shrink-guard accepts on subsequent local saves.
+        const prev = lastLoadedSnapshot.current || {};
+        const safeLen = (a, fallback) =>
+          Array.isArray(a) && a.length >= (Array.isArray(fallback) ? fallback.length : 0);
+        if (
+          safeLen(d.agents, prev.agents) &&
+          safeLen(d.brands, prev.brands) &&
+          safeLen(d.userAccounts, prev.userAccounts)
+        ) {
+          lastLoadedSnapshot.current = {
+            agents: Array.isArray(d.agents) ? d.agents.slice() : [],
+            brands: Array.isArray(d.brands) ? d.brands.slice() : [],
+            userAccounts: Array.isArray(d.userAccounts) ? d.userAccounts.slice() : [],
+          };
+        }
+        // Release one level of suspension after React has had a chance to flush
+        // the cascaded setState calls and re-run the auto-save useEffect (which
+        // is gated on suspendDepth === 0 — see below).
+        setTimeout(() => {
+          if (suspendDepth.current > 0) suspendDepth.current--;
+        }, 100);
       } catch (e) {
         console.error("Re-sync from realtime failed:", e);
       }
@@ -1015,12 +1033,10 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // ── Auto-save AFTER every render that changes data ─────────────────────────
   // This useEffect runs AFTER render, so stateRef.current is guaranteed up-to-date.
-  // FIX (architectural): skip when suspendAutoSave is true. The re-sync handler
-  // above sets that flag while it cascades setState calls from a foreign update,
-  // so we don't fire a save that echoes the data we just received (which would
-  // become a self-clobber on round-6 conflict resolution).
+  // FIX (round-7): gate on suspendDepth counter (not a boolean) so overlapping
+  // foreign updates don't race-condition the suspension flag.
   useEffect(() => {
-    if (storageLoaded && !suspendAutoSave.current) scheduleSave();
+    if (storageLoaded && suspendDepth.current === 0) scheduleSave();
   }, [agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, userProfiles, userAccounts, rosterYear, rosterMonth, allocTab, volYear, volMonth, allAsgn, allBrandAsgn, globalFlags, storageLoaded]);
 
   // Flush save on unmount
@@ -4511,10 +4527,20 @@ export default function AllocationPanel({ isAdmin = true }) {
                         // monthlyVol gets the import's per-month chat data.
                         // Pull chats directly from the imported `agg` (not from brands.chats)
                         // since we no longer overwrite brands.chats above.
+                        // FIX (round-7 senior review HIGH): `agg` is keyed by the file's literal
+                        // storeName (e.g. "Crocs-CMG"). Existing brands may have a slightly
+                        // different stored name (case/whitespace). The match loop above used
+                        // `normalise()` to find them, but the lookup here was using `b.name`
+                        // directly — so any case/punctuation mismatch silently wrote zeros.
+                        // Now we build a parallel normalised lookup table.
+                        const aggByNorm = {};
+                        for (const [storeName, platChats] of Object.entries(agg)) {
+                          aggByNorm[normalise(storeName)] = platChats;
+                        }
                         setMonthlyVol(prev=>{
                           const newVol = {...(prev[mk] || {})};
                           [...updatedBrands,...newBrands].forEach(b=>{
-                            const importChats = agg[b.name] || {};
+                            const importChats = aggByNorm[normalise(b.name)] || agg[b.name] || {};
                             // Use the import's per-platform chats, falling back to brand's
                             // existing chats only for brand-new brands (the bootstrap path).
                             const isNewBrand = newBrands.some(nb => nb.id === b.id);
