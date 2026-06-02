@@ -134,18 +134,16 @@ function _applyPendingWritesOnTop(writes) {
   }
 }
 
-async function saveCache(updatedBy, retryDepth = 0) {
+async function saveCache(updatedBy) {
   // FIX (review round 2): refuse to save if our last load failed.
-  // Saving with lastKnownUpdatedAt = null would unconditionally clobber
-  // the server with whatever stale stateCache we happen to have.
   if (loadFailed) {
     const e = new Error("[supabase] Refusing to save: initial load failed, in-memory state is untrusted");
     console.error(e);
     throw e;
   }
 
-  // Snapshot the writes we're about to flush. On conflict / error we
-  // restore these so the next scheduleSave picks them up.
+  // Snapshot the writes we're about to flush. On error we restore them so
+  // the next scheduleSave picks them up.
   const writesAtSave = { ...pendingWrites };
   pendingWrites = {};
 
@@ -153,23 +151,33 @@ async function saveCache(updatedBy, retryDepth = 0) {
   lastSentBy = CLIENT_ID;
   const stampedUpdatedBy = updatedBy ? `${updatedBy}#${CLIENT_ID}` : `__client__#${CLIENT_ID}`;
 
+  // FIX (per-domain split): split pending writes into per-key patches and
+  // per-key deletes. We then call the `app_state_patch` RPC which uses
+  // Postgres jsonb merge (`||`) to apply ONLY the affected keys. Other keys
+  // in the data column are left untouched — so a concurrent client editing
+  // a different key never collides with our save. Postgres row-level locks
+  // serialize concurrent writes, so two clients writing different keys
+  // succeed in order with no clobbering.
+  //
+  // This replaces the previous optimistic-lock + conflict-resolution +
+  // retry path, which was needed when a save sent the WHOLE data column
+  // (every key, every time). With per-key patches there's no whole-blob
+  // clobber to detect — same-key concurrent writes still last-writer-wins
+  // (acceptable for our use case), and the architectural fix in
+  // AllocationRoster's storage subscriber keeps React state fresh.
+  const updates = {};
+  const deletes = [];
+  for (const [k, v] of Object.entries(writesAtSave)) {
+    if (v === TOMBSTONE) deletes.push(k);
+    else updates[k] = v;
+  }
+
   try {
-    // FIX (review round 3, suggestion #8): the server-side trigger
-    // `trg_app_state_updated_at` (function `touch_updated_at()`) auto-
-    // refreshes the `updated_at` column on every UPDATE, so we don't have
-    // to send it ourselves. The .select("updated_at") below pulls the new
-    // value back so we can use it as the version anchor on the next save.
-    let q = supabase
-      .from("app_state")
-      .update({ data: stateCache, updated_by: stampedUpdatedBy })
-      .eq("id", "main");
-    if (lastKnownUpdatedAt !== null) {
-      // Conditional update: only succeed if NOBODY ELSE has written since
-      // we last saw the row. Zero rows affected ⇒ someone else got there
-      // first ⇒ conflict-resolution branch below.
-      q = q.eq("updated_at", lastKnownUpdatedAt);
-    }
-    const { data, error } = await q.select("updated_at").maybeSingle();
+    const { data, error } = await supabase.rpc('app_state_patch', {
+      p_updates: updates,
+      p_deletes: deletes.length > 0 ? deletes : null,
+      p_updated_by: stampedUpdatedBy,
+    });
 
     if (error) {
       // Hard failure (RLS, network, auth). Merge pending writes back so
@@ -179,63 +187,9 @@ async function saveCache(updatedBy, retryDepth = 0) {
       throw error;
     }
 
-    if (!data) {
-      // Optimistic-lock conflict: another client updated the row.
-      if (retryDepth >= 3) {
-        pendingWrites = { ...writesAtSave, ...pendingWrites };
-        const e = new Error("[supabase] Save conflict not resolved after 3 attempts — refusing to clobber");
-        console.error(e);
-        throw e;
-      }
-      console.warn(`[supabase] Save conflict detected (attempt ${retryDepth + 1}). Reloading latest and merging local changes.`);
-
-      // FIX (review round 3, suggestion #9; corrected in round 4): exponential
-      // backoff between conflict retries. 0ms on first conflict, 200ms on
-      // second, 400ms on third. Capped to keep worst-case latency reasonable
-      // (previous Math.pow(4, ...) gave 3.2s on third retry — too long).
-      if (retryDepth > 0) {
-        const delay = 200 * Math.pow(2, retryDepth - 1);
-        await new Promise(r => setTimeout(r, delay));
-      }
-
-      // Pull the newest server state.
-      const reload = await supabase
-        .from("app_state")
-        .select("data, updated_at")
-        .eq("id", "main")
-        .single();
-      if (reload.error) {
-        pendingWrites = { ...writesAtSave, ...pendingWrites };
-        throw reload.error;
-      }
-      stateCache = reload.data?.data || {};
-      lastKnownUpdatedAt = reload.data?.updated_at || null;
-
-      // Re-apply OUR pending writes on top of the freshly-reloaded state.
-      _applyPendingWritesOnTop(writesAtSave);
-
-      // FIX (review round 2): MERGE rather than REPLACE pendingWrites.
-      // If a set() ran during the reload round-trip it's already in
-      // pendingWrites; the previous `pendingWrites = { ...writesAtSave }`
-      // dropped it. Now we keep both, with newer writes winning.
-      pendingWrites = { ...writesAtSave, ...pendingWrites };
-
-      // FIX (review round 2): notify subscribers AFTER pendingWrites has
-      // been restored so a subscriber's reactive set() lands in the
-      // correct map.
-      subscribers.forEach((fn) => fn(stateCache));
-
-      // FIX (review round 4): DO NOT flip saveInFlight to false here. The
-      // recursive saveCache call below will keep its own try/finally and
-      // its own saveInFlight=true on entry. If we set it false in between,
-      // a realtime payload arriving during the microsecond gap would run
-      // the NON-buffering branch and clobber our just-merged stateCache.
-      // The outer finally{} handles the eventual flip.
-      return saveCache(updatedBy, retryDepth + 1);
-    }
-
-    // Success — record the server's new version for the next conditional save.
-    lastKnownUpdatedAt = data.updated_at;
+    // RPC returns rows of {updated_at}. Pick the first row's value.
+    const newUpdatedAt = Array.isArray(data) ? data[0]?.updated_at : data?.updated_at;
+    if (newUpdatedAt) lastKnownUpdatedAt = newUpdatedAt;
   } finally {
     saveInFlight = false;
     // FIX (review round 2): if a foreign update arrived while we were

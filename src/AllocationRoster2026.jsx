@@ -789,6 +789,29 @@ export default function AllocationPanel({ isAdmin = true }) {
   const [saveStatus, setSaveStatus] = useState(null);
   const saveAttemptRef = useRef(0);
 
+  // FIX (per-domain key split): saveKey writes ONE domain to its own storage
+  // key. Combined with the supabase.js app_state_patch RPC, this lets
+  // concurrent edits to DIFFERENT domains coexist without clobbering. The
+  // helper handles retry + banner per call so the existing UX is preserved.
+  const saveKey = async (key, value, attempt = 0) => {
+    try {
+      await window.storage.set(key, value);
+      setSaveStatus(s => (s === "error" ? null : null));
+    } catch (e) {
+      console.error(`SAVE FAIL [${key}] (attempt ${attempt + 1}):`, e);
+      if (attempt < 2) {
+        const delay = 500 * Math.pow(3, attempt);
+        setTimeout(() => saveKey(key, value, attempt + 1), delay);
+      } else {
+        needsSave.current = true;
+        setSaveStatus("error");
+      }
+    }
+  };
+
+  // Legacy single-blob save (kept for backward compatibility — wired only by
+  // the "Retry now" banner button which forces a full re-flush). Day-to-day
+  // saves now go through per-domain useEffects below.
   const doSaveWithRetry = async (payload, attempt = 0) => {
     try {
       await window.storage.set("nirm-all", payload);
@@ -796,11 +819,9 @@ export default function AllocationPanel({ isAdmin = true }) {
     } catch (e) {
       console.error("SAVE FAIL (attempt", attempt + 1, "):", e);
       if (attempt < 2) {
-        // Exponential backoff: 500ms, 1500ms
         const delay = 500 * Math.pow(3, attempt);
         setTimeout(() => doSaveWithRetry(payload, attempt + 1), delay);
       } else {
-        // All 3 attempts failed — keep needsSave true so future scheduleSave fires
         needsSave.current = true;
         setSaveStatus("error");
       }
@@ -811,22 +832,13 @@ export default function AllocationPanel({ isAdmin = true }) {
     if (!window.storage) return;
     const state = stateRef.current;
 
-    // ── Safety guards ────────────────────────────────────────────────────────
-    // Refuse to persist a state that has obviously been wiped/corrupted.
-    // This prevents the auto-save from clobbering Supabase with an empty state
-    // when the initial load races against state setters or the load fails silently.
     if (!storageLoaded) {
       console.warn("[save] Refused: storage not loaded yet");
       return;
     }
 
-    // FIX (data-loss bug #3 from senior-dev review):
-    // Previous guard refused saves when userAccounts.length < 1. But the
-    // initial load doesn't populate userAccounts if the stored value is
-    // missing (see load: `if (d.userAccounts?.length)`), so on a fresh
-    // project the in-memory list stays `[]` forever and EVERY save is
-    // dropped silently. New shrink-detection guard: only refuse if the
-    // current in-memory state is SMALLER than the last good snapshot.
+    // Shrink-guard (unchanged): refuse to persist a state where critical
+    // arrays have shrunk more than 50%. Protects against stale-state writes.
     const snap = lastLoadedSnapshot.current;
     if (snap) {
       const shrinkRefuse = (label, before, after) => {
@@ -841,9 +853,6 @@ export default function AllocationPanel({ isAdmin = true }) {
       if (shrinkRefuse("brands", snap.brands, state.brands)) return;
       if (shrinkRefuse("userAccounts", snap.userAccounts, state.userAccounts)) return;
     } else {
-      // No snapshot yet — fall back to the loosest possible check:
-      // never persist a state with zero agents AND zero brands AND zero
-      // userAccounts. That combination means we have nothing useful at all.
       const isEmpty = (a) => !Array.isArray(a) || a.length === 0;
       if (isEmpty(state.agents) && isEmpty(state.brands) && isEmpty(state.userAccounts)) {
         console.warn("[save] Refused: completely empty state (likely failed load)");
@@ -854,11 +863,35 @@ export default function AllocationPanel({ isAdmin = true }) {
     needsSave.current = false;
     const id = ++saveAttemptRef.current;
     setSaveStatus("saving");
-    doSaveWithRetry(JSON.stringify(state)).finally(() => {
-      // If a newer save started while we were waiting, don't reset status.
+    // FIX (per-domain split): flushSave now writes per-domain keys instead
+    // of one giant nirm-all blob. The supabase.js shim batches these into
+    // one RPC patch (multiple keys in p_updates), so it's still one network
+    // round-trip but each key lives at its own JSONB path on the server.
+    // A concurrent editor's per-key save no longer collides with this one.
+    Promise.all([
+      window.storage.set("nirm-agents",       state.agents),
+      window.storage.set("nirm-brands",       state.brands),
+      window.storage.set("nirm-budget",       state.budget),
+      window.storage.set("nirm-fulltimeSalary", state.fulltimeSalary),
+      window.storage.set("nirm-monthlyVol",   state.monthlyVol),
+      window.storage.set("nirm-agentPerf",    state.agentPerf),
+      window.storage.set("nirm-lockedMonths", state.lockedMonths),
+      window.storage.set("nirm-role",         state.role),
+      window.storage.set("nirm-changeRequests", state.changeRequests),
+      window.storage.set("nirm-userProfiles", state.userProfiles),
+      window.storage.set("nirm-userAccounts", state.userAccounts),
+      window.storage.set("nirm-prefs",        state.prefs),
+      window.storage.set("nirm-allAsgn",      state.allAsgn),
+      window.storage.set("nirm-allBrandAsgn", state.allBrandAsgn),
+      window.storage.set("nirm-globalFlags",  state.globalFlags),
+    ]).then(() => {
       if (id === saveAttemptRef.current && needsSave.current === false) {
         setSaveStatus(s => (s === "error" ? "error" : null));
       }
+    }).catch(e => {
+      console.error("Per-domain save failed:", e);
+      needsSave.current = true;
+      setSaveStatus("error");
     });
   };
 
@@ -894,17 +927,76 @@ export default function AllocationPanel({ isAdmin = true }) {
   };
 
   // ── Load on first mount ───────────────────────────────────────────────────
+  // FIX (per-domain split): read each domain from its own storage key.
+  // Falls back to the legacy nirm-all blob if per-domain keys are empty
+  // (first run after upgrading) and writes them back so subsequent loads
+  // skip the migration path.
   useEffect(() => {
     (async () => {
       if (!window.storage) { setStorageLoaded(true); return; }
       try {
-        const r = await window.storage.get("nirm-all");
-        if (r && r.value) {
-          const d = JSON.parse(r.value);
-          // FIX (HIGH from senior-dev review): collapse the load `if(d.x) setX(d.x)`
-          // chain into a single KEYS-driven loop. Adding a new key to the nirm-all
-          // blob now requires touching only this list — same bug class as the CUSP
-          // cache-miss we fixed before, just for the main blob.
+        // Try per-domain reads first.
+        const PER_DOMAIN = [
+          ["nirm-agents",         "agents",         setAgents],
+          ["nirm-brands",         "brands",         setBrands],
+          ["nirm-budget",         "budget",         setBudget],
+          ["nirm-monthlyVol",     "monthlyVol",     setMonthlyVol],
+          ["nirm-agentPerf",      "agentPerf",      setAgentPerf],
+          ["nirm-lockedMonths",   "lockedMonths",   setLockedMonths],
+          ["nirm-allAsgn",        "allAsgn",        setAllAsgn],
+          ["nirm-allBrandAsgn",   "allBrandAsgn",   setAllBrandAsgn],
+          ["nirm-globalFlags",    "globalFlags",    setGlobalFlags],
+          ["nirm-changeRequests", "changeRequests", setChangeRequests],
+          ["nirm-userProfiles",   "userProfiles",   setUserProfiles],
+        ];
+        const fetched = {};
+        for (const [storageKey, fieldName] of PER_DOMAIN) {
+          const r = await window.storage.get(storageKey);
+          if (r?.value !== undefined && r?.value !== null) fetched[fieldName] = r.value;
+        }
+        const fsR = await window.storage.get("nirm-fulltimeSalary");
+        if (fsR?.value !== undefined && fsR?.value !== null) fetched.fulltimeSalary = fsR.value;
+        const roleR = await window.storage.get("nirm-role");
+        if (roleR?.value !== undefined && roleR?.value !== null) fetched.role = roleR.value;
+        const uaR = await window.storage.get("nirm-userAccounts");
+        if (uaR?.value !== undefined && uaR?.value !== null) fetched.userAccounts = uaR.value;
+        const prefsR = await window.storage.get("nirm-prefs");
+        if (prefsR?.value !== undefined && prefsR?.value !== null) fetched.prefs = prefsR.value;
+
+        // Migration fallback: if NO per-domain keys had data, try the legacy
+        // nirm-all blob and split it across the new keys.
+        const hasAnyPerDomain = Object.keys(fetched).length > 0;
+        let d = fetched;
+        if (!hasAnyPerDomain) {
+          const r = await window.storage.get("nirm-all");
+          if (r && r.value) {
+            const legacy = typeof r.value === "string" ? JSON.parse(r.value) : r.value;
+            d = legacy;
+            // Write back to per-domain keys so subsequent loads use them.
+            const seed = (key, val) => {
+              if (val !== undefined && val !== null) {
+                window.storage.set(key, val).catch(e => console.warn("seed", key, e));
+              }
+            };
+            seed("nirm-agents",         legacy.agents);
+            seed("nirm-brands",         legacy.brands);
+            seed("nirm-budget",         legacy.budget);
+            seed("nirm-monthlyVol",     legacy.monthlyVol);
+            seed("nirm-agentPerf",      legacy.agentPerf);
+            seed("nirm-lockedMonths",   legacy.lockedMonths);
+            seed("nirm-allAsgn",        legacy.allAsgn);
+            seed("nirm-allBrandAsgn",   legacy.allBrandAsgn);
+            seed("nirm-globalFlags",    legacy.globalFlags);
+            seed("nirm-changeRequests", legacy.changeRequests);
+            seed("nirm-userProfiles",   legacy.userProfiles);
+            seed("nirm-fulltimeSalary", legacy.fulltimeSalary);
+            seed("nirm-role",           legacy.role);
+            seed("nirm-userAccounts",   legacy.userAccounts);
+            seed("nirm-prefs",          legacy.prefs);
+          }
+        }
+
+        if (d) {
           const LOAD_KEYS = [
             ["agents", setAgents],
             ["brands", setBrands],
