@@ -1,457 +1,506 @@
 // ════════════════════════════════════════════════════════════════════════════
-// NiRM Roster — Supabase client and storage shim
-// Drop this file into src/supabase.js. Import { initStorage, signIn, signOut,
-// signUp, getCurrentRole, supabase } from "./supabase" in your component.
+// App.jsx — top-level wrapper
+//
+// Responsibilities:
+//   1. Initialize Supabase storage shim (sets window.storage globally)
+//   2. Handle sign-in / sign-up / sign-out via Supabase Auth
+//   3. Bridge Supabase auth into the existing AllocationPanel by pre-seeding
+//      the userAccounts state and overriding the role detection
+//
+// The original AllocationPanel keeps its login screen as a fallback, but
+// once you're signed in via Supabase, we skip straight to the app.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { createClient } from "@supabase/supabase-js";
+import { useState, useEffect, useRef } from "react";
+import AllocationPanel from "./AllocationRoster2026.jsx";
+import {
+  initStorage,
+  signIn,
+  signUp,
+  signOut,
+  getCurrentRole,
+  onAuthChange,
+  supabase,
+  consumeRecoveryFlag,
+  clearRecoveryFlag,
+} from "./supabase.js";
 
-// ─── Configuration ─────────────────────────────────────────────────────────
-// Set these via Vite env vars in .env.local:
-//   VITE_SUPABASE_URL=https://xxxxx.supabase.co
-//   VITE_SUPABASE_ANON_KEY=eyJhbGc...
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
+export default function App() {
+  const [booting, setBooting]   = useState(true);
+  const [profile, setProfile]   = useState(null);
+  // Modes: "signin" | "forgot" | "recovery" (after clicking email link)
+  const [authMode, setAuthMode] = useState("signin");
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState(""); // kept for backward-compat; unused
+  const [err, setErr]           = useState("");
+  const [info, setInfo]         = useState("");
+  const [busy, setBusy]         = useState(false);
 
-if (!SUPABASE_URL || !SUPABASE_ANON) {
-  console.error(
-    "Missing Supabase env vars. Add VITE_SUPABASE_URL and " +
-    "VITE_SUPABASE_ANON_KEY to .env.local"
+  // FIX (password reset reliability v2): the onAuthChange listener captures
+  // `authMode` in a stale closure (set at the time useEffect ran, never re-
+  // closed because the effect has [] deps). When Supabase fires SIGNED_IN
+  // after exchanging the recovery token, the listener can't see that we just
+  // entered recovery mode and bounces the user into the app. Use a ref so
+  // the listener always reads the LIVE value.
+  const inRecoveryRef = useRef(false);
+
+  // Bootstrap: init storage shim, check current session
+  useEffect(() => {
+    // FIX (password reset reliability): the Supabase client parses the URL
+    // hash SYNCHRONOUSLY at module-import time, so the PASSWORD_RECOVERY event
+    // can fire before our onAuthChange listener below is registered. Detect
+    // the recovery flag directly from the URL on mount as a safety net — if
+    // the user landed here from an email link, force "recovery" mode no
+    // matter whether the event fired in time.
+    const hash = typeof window !== "undefined" ? (window.location.hash || "") : "";
+    const search = typeof window !== "undefined" ? (window.location.search || "") : "";
+    // FIX (round-3): also check the module-level flag captured by supabase.js
+    // BEFORE we mounted — supabase clears the URL hash and fires
+    // PASSWORD_RECOVERY synchronously, so by the time we're here both
+    // signals are gone unless we caught the event in supabase.js's
+    // module-load-time listener.
+    const moduleSawRecovery = typeof consumeRecoveryFlag === "function"
+      ? consumeRecoveryFlag()
+      : false;
+    const isRecoveryLink =
+      moduleSawRecovery ||
+      hash.includes("type=recovery") ||
+      hash.includes("type%3Drecovery") ||
+      search.includes("type=recovery");
+    if (isRecoveryLink) {
+      inRecoveryRef.current = true;
+      setAuthMode("recovery");
+    }
+
+    (async () => {
+      await initStorage();
+      const p = await getCurrentRole();
+      // Don't bounce a recovery-link user into the signed-in app. They need to
+      // see the "Set a new password" form first.
+      if (!inRecoveryRef.current) setProfile(p);
+      setBooting(false);
+    })();
+
+    const { data: sub } = onAuthChange(async (event) => {
+      if (event === "SIGNED_OUT") {
+        inRecoveryRef.current = false;
+        setProfile(null);
+      } else if (event === "PASSWORD_RECOVERY") {
+        // User clicked the recovery email link. Force them to set a new password.
+        inRecoveryRef.current = true;
+        setAuthMode("recovery");
+        setProfile(null);
+      } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        // If we're in the middle of a recovery flow, the SIGNED_IN event fires
+        // as a side-effect of the recovery token being exchanged. Don't bounce
+        // the user into the app before they've set a new password.
+        if (inRecoveryRef.current) return;
+        const p = await getCurrentRole();
+        // FIX (Add User unmount race): when an admin invites a new user, the
+        // SDK's signUp() transiently signs the new user in BEFORE the admin's
+        // session is restored. During that window SIGNED_IN fires for a user
+        // whose profile row doesn't exist yet, so getCurrentRole returns null
+        // and we used to setProfile(null) — which unmounts AllocationPanel
+        // mid-click and drops the setUserAccounts call that adds the new user
+        // to the list. Only update profile when we have a valid one; if the
+        // lookup fails, keep the current profile until SIGNED_OUT fires.
+        if (p) setProfile(p);
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Once we have a profile, inject it into the AllocationPanel's expected
+  // shape by patching the global storage. The panel reads userAccounts and
+  // role from storage on mount; we make sure both reflect the real user.
+  //
+  // FIX (data-loss bug #2 from senior-dev review):
+  // This effect previously ran on every profile change (including token
+  // refresh) and unconditionally wrote `state` back to storage. If the
+  // AllocationPanel had unsaved in-memory edits, this read-modify-write
+  // would silently clobber them with a stale snapshot from storage.
+  //
+  // Mitigations applied:
+  //   1. SKIP the write entirely if the current user is already present in
+  //      userAccounts with the right role and prefs.loginUser matches —
+  //      there is nothing to patch.
+  //   2. Re-read storage RIGHT BEFORE writing (already does) and write
+  //      only the minimal patched object — no full-state replace if
+  //      counts shrank in a suspicious way.
+  //   3. Refuse to write if the existing state has agents and the patched
+  //      state would shrink any major collection.
+  useEffect(() => {
+    if (!profile) return;
+    let cancelled = false;
+    (async () => {
+      const existing = await window.storage.get("nirm-all");
+      const before = existing?.value ? JSON.parse(existing.value) : {};
+
+      const accounts = Array.isArray(before.userAccounts) ? [...before.userAccounts] : [];
+      const matchIdx = accounts.findIndex(
+        (a) => a && a.username && a.username.toLowerCase() === profile.username.toLowerCase()
+      );
+      const accountInSync =
+        matchIdx >= 0 &&
+        accounts[matchIdx].role === profile.role &&
+        accounts[matchIdx].password === "__supabase__";
+
+      const prefsInSync =
+        before.role === profile.role &&
+        before.prefs &&
+        before.prefs.loginUser === profile.username;
+
+      // Nothing to do — avoid a needless write that could race with the panel.
+      if (accountInSync && prefsInSync) return;
+      if (cancelled) return;
+
+      // Build a patched state without losing anything that was already there.
+      const patched = { ...before };
+      patched.role = profile.role;
+      patched.prefs = { ...(before.prefs || {}), loginUser: profile.username };
+      if (matchIdx >= 0) {
+        accounts[matchIdx] = { ...accounts[matchIdx], role: profile.role, password: "__supabase__" };
+      } else {
+        accounts.push({ username: profile.username, password: "__supabase__", role: profile.role });
+      }
+      patched.userAccounts = accounts;
+
+      // Shrink guard — refuse to write if any major collection got smaller.
+      const shrank = (a, b) =>
+        Array.isArray(a) && Array.isArray(b) && b.length < a.length;
+      if (
+        shrank(before.agents, patched.agents) ||
+        shrank(before.brands, patched.brands) ||
+        shrank(before.userAccounts, patched.userAccounts)
+      ) {
+        console.warn("[App] Refused to patch nirm-all: shrink detected", { before, patched });
+        return;
+      }
+
+      await window.storage.set("nirm-all", JSON.stringify(patched));
+    })();
+    return () => { cancelled = true; };
+  }, [profile]);
+
+  const handleSignIn = async (e) => {
+    e?.preventDefault();
+    setErr("");
+    setBusy(true);
+    const { error } = await signIn(email, password);
+    setBusy(false);
+    if (error) setErr(error.message);
+  };
+
+  // Self-signup is disabled — manager invites users via Supabase Dashboard.
+  // We keep handleSignUp as a no-op so the component still compiles.
+  const handleSignUp = async (e) => { e?.preventDefault(); };
+
+  const handleForgotPassword = async (e) => {
+    e?.preventDefault();
+    setErr(""); setInfo("");
+    if (!email.trim()) { setErr("Enter your email first"); return; }
+    setBusy(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: window.location.origin,
+    });
+    setBusy(false);
+    if (error) setErr(error.message);
+    else setInfo("Password reset email sent. Check your inbox (and spam folder).");
+  };
+
+  const handleSetNewPassword = async (e) => {
+    e?.preventDefault();
+    setErr(""); setInfo("");
+    if (!password || password.length < 6) { setErr("Password must be at least 6 characters"); return; }
+    setBusy(true);
+    try {
+      // FIX (password reset reliability): updateUser fails with "Auth session
+      // missing!" if the recovery token from the email URL hash never
+      // established a session — most often because the user navigated/
+      // refreshed after landing on the page, or the page was opened in a
+      // browser where Supabase couldn't pick up the hash. Before giving up,
+      // try to recover the session from the URL hash one more time.
+      let { data: sessData } = await supabase.auth.getSession();
+      if (!sessData?.session) {
+        const rawHash = window.location.hash?.startsWith("#")
+          ? window.location.hash.slice(1)
+          : (window.location.hash || "");
+        const params = new URLSearchParams(rawHash);
+        const access_token = params.get("access_token");
+        const refresh_token = params.get("refresh_token");
+        const tokenType = params.get("type");
+        if (access_token && refresh_token && tokenType === "recovery") {
+          const { error: setErr2 } = await supabase.auth.setSession({ access_token, refresh_token });
+          if (setErr2) {
+            setErr("Reset link has expired or already been used. Request a new password reset email.");
+            setBusy(false);
+            return;
+          }
+          ({ data: sessData } = await supabase.auth.getSession());
+        }
+      }
+      if (!sessData?.session) {
+        setErr("Reset link has expired or already been used. Request a new password reset email.");
+        setBusy(false);
+        return;
+      }
+      const { error } = await supabase.auth.updateUser({ password });
+      setBusy(false);
+      if (error) { setErr(error.message); return; }
+      setInfo("Password updated. Signing you in…");
+      // Clear the recovery hash so a refresh doesn't bounce back into recovery mode.
+      try {
+        if (window.location.hash) {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+      } catch (_) { /* non-fatal */ }
+      // Recovery flow is complete — release the gate so SIGNED_IN events can
+      // proceed to load the user's profile and route them into the app.
+      inRecoveryRef.current = false;
+      if (typeof clearRecoveryFlag === "function") clearRecoveryFlag();
+      setAuthMode("signin");
+      const p = await getCurrentRole();
+      setProfile(p);
+    } catch (e2) {
+      setBusy(false);
+      setErr(e2?.message || "Could not update password. Try requesting a new reset email.");
+    }
+  };
+
+  if (booting) {
+    return (
+      <div style={loadingStyle}>
+        <div style={{ textAlign: "center" }}>
+          <div style={spinnerStyle} />
+          <div style={{ color: "#64748B", fontSize: 13, marginTop: 12 }}>
+            Connecting…
+          </div>
+        </div>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return <AuthScreen
+      mode={authMode} setMode={setAuthMode}
+      email={email} setEmail={setEmail}
+      password={password} setPassword={setPassword}
+      err={err} info={info} busy={busy}
+      onSignIn={handleSignIn}
+      onForgotPassword={handleForgotPassword}
+      onSetNewPassword={handleSetNewPassword}
+    />;
+  }
+
+  // Signed in — hand off to the original component.
+  // The Sign-Out button in the sidebar still works because we listen to
+  // SIGNED_OUT events above. We also expose a global helper the component
+  // can use if needed.
+  window.__nirmSignOut = signOut;
+
+  return <AllocationPanel />;
+}
+
+// ─── Auth screen ───────────────────────────────────────────────────────────
+
+function AuthScreen({
+  mode, setMode, email, setEmail, password, setPassword,
+  err, info, busy, onSignIn, onForgotPassword, onSetNewPassword,
+}) {
+  // Three modes:
+  //   "signin"   — normal email + password sign in
+  //   "forgot"   — enter email to receive reset link
+  //   "recovery" — landed here from email link, set new password
+  const isForgot   = mode === "forgot";
+  const isRecovery = mode === "recovery";
+
+  const submit = isRecovery ? onSetNewPassword
+               : isForgot   ? onForgotPassword
+               : onSignIn;
+
+  const title = isRecovery ? "Set a new password"
+              : isForgot   ? "Reset your password"
+              :              "Sign in to your workspace";
+
+  return (
+    <div style={authPageStyle}>
+      <form onSubmit={submit} style={authCardStyle}>
+        <div style={{ textAlign: "center", marginBottom: 32 }}>
+          <Logo />
+          <div style={{ fontSize: 22, fontWeight: 700, color: "#0F172A", marginTop: 16 }}>
+            NiRM
+          </div>
+          <div style={{ fontSize: 13, color: "#94A3B8", marginTop: 4 }}>
+            {title}
+          </div>
+        </div>
+
+        {!isRecovery && (
+          <Field
+            label="Email" type="email" value={email}
+            onChange={setEmail} placeholder="you@company.com"
+            autoComplete="email" autoFocus
+          />
+        )}
+
+        {!isForgot && (
+          <Field
+            label={isRecovery ? "New password" : "Password"}
+            type="password" value={password}
+            onChange={setPassword} placeholder="••••••••"
+            autoComplete={isRecovery ? "new-password" : "current-password"}
+            autoFocus={isRecovery}
+          />
+        )}
+
+        {(err || info) && (
+          <div style={{
+            fontSize: 12, color: info ? "#059669" : "#EF4444",
+            fontWeight: 600, marginBottom: 16, padding: "8px 12px",
+            background: info ? "#ECFDF5" : "#FEF2F2",
+            borderRadius: 8,
+          }}>
+            {info || err}
+          </div>
+        )}
+
+        <button type="submit" disabled={busy} style={primaryBtnStyle}>
+          {busy ? "…"
+            : isRecovery ? "Update password"
+            : isForgot   ? "Send reset link"
+            :              "Sign in"}
+        </button>
+
+        {!isRecovery && (
+          <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: "#64748B" }}>
+            {isForgot ? (
+              <button type="button" onClick={() => setMode("signin")} style={linkBtnStyle}>
+                Back to sign in
+              </button>
+            ) : (
+              <button type="button" onClick={() => setMode("forgot")} style={linkBtnStyle}>
+                Forgot password?
+              </button>
+            )}
+          </div>
+        )}
+
+        {mode === "signin" && (
+          <div style={{ textAlign: "center", marginTop: 12, fontSize: 11, color: "#94A3B8" }}>
+            Access is by invitation only. Contact your manager to add your account.
+          </div>
+        )}
+      </form>
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+        @keyframes spin { to { transform: rotate(360deg) } }
+        @keyframes fadeUp { from { opacity: 0; transform: translateY(16px) } to { opacity: 1; transform: translateY(0) } }
+        button:hover:not(:disabled) { opacity: 0.9; }
+        input:focus { border-color: #0D9488 !important; outline: none; }
+      `}</style>
+    </div>
   );
 }
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
-  auth: { persistSession: true, autoRefreshToken: true },
-});
-
-// ─── Storage shim — replaces window.storage ────────────────────────────────
-// The original component calls window.storage.get/set/delete/list with string
-// keys. We map all keys onto a single JSON column in app_state.data so the
-// existing code keeps working with zero changes.
-//
-// Behavior matches the artifact API:
-//   get(key)        → {key, value, shared} | null
-//   set(key, value) → {key, value, shared}
-//   delete(key)     → {key, deleted, shared}
-//   list(prefix)    → {keys, prefix, shared}
-//
-// Reads come from an in-memory cache that's kept fresh via Realtime.
-// Writes hit the database, then the Realtime broadcast updates other clients.
-
-let stateCache = {};
-let cacheLoaded = false;
-let subscribers = new Set();
-let realtimeChannel = null;
-
-// FIX (data-loss bug #4 from senior-dev review — full version):
-// Two-layer concurrency control:
-//
-//  1. Per-tab CLIENT_ID stamp on every write so a tab can ignore the
-//     realtime echo of its own write (preserves any local edits made
-//     during the save window).
-//
-//  2. Optimistic locking via the `updated_at` column. Every save sends a
-//     conditional UPDATE that only succeeds if `updated_at` hasn't moved
-//     since we last loaded. On conflict, we reload the latest server
-//     state, merge our pending local writes on top, and retry (up to
-//     3 times). This is what prevents a stale tab from blindly clobbering
-//     newer writes from another tab.
-//
-//  3. `pendingWrites` tracks every set/delete made by THIS tab since our
-//     last successful save. After a conflict reload, we replay these
-//     on top of the new server state so our edits aren't lost.
-const CLIENT_ID =
-  (globalThis.crypto && globalThis.crypto.randomUUID
-    ? globalThis.crypto.randomUUID()
-    : Math.random().toString(36).slice(2) + Date.now().toString(36));
-
-// Sentinel marking that a key was deleted locally (so the conflict-merge
-// path can re-apply the delete onto the freshly-reloaded server state).
-const TOMBSTONE = Symbol.for("nirm.tombstone.v1");
-
-// Server's `updated_at` as we last observed it (load OR successful save OR
-// realtime echo from another client). Used as the WHERE-clause version
-// anchor on the next save.
-let lastKnownUpdatedAt = null;
-
-// Map of key → value (or TOMBSTONE) modified locally since the last
-// successful save. Snapshot-and-clear at save start, restore on failure.
-let pendingWrites = {};
-
-let lastSentBy = null;
-let saveInFlight = false;
-
-// FIX (review round 2): the previous load swallowed errors silently and left
-// lastKnownUpdatedAt = null, which made the next save unconditionally clobber
-// whatever was on the server. Now we surface the failure and refuse to save
-// until a successful load lands.
-let loadFailed = false;
-
-// FIX (review round 2): if a foreign realtime update arrives WHILE we're
-// mid-save, the previous code silently dropped it and left stateCache stale.
-// Now we buffer the latest such payload and re-merge after our save completes.
-let pendingForeignUpdate = null;
-
-async function loadCache() {
-  const { data, error } = await supabase
-    .from("app_state")
-    .select("data, updated_at")
-    .eq("id", "main")
-    .single();
-  if (error) {
-    console.error("Failed to load app_state:", error);
-    loadFailed = true;
-    return;
-  }
-  stateCache = data?.data || {};
-  lastKnownUpdatedAt = data?.updated_at || null;
-  cacheLoaded = true;
-  loadFailed = false;
-  subscribers.forEach((fn) => fn(stateCache));
+function Field({ label, type, value, onChange, placeholder, autoComplete, autoFocus }) {
+  const id = `f_${label.toLowerCase()}`;
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label htmlFor={id} style={labelStyle}>{label}</label>
+      <input
+        id={id} type={type} value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        autoFocus={autoFocus}
+        style={inputStyle}
+      />
+    </div>
+  );
 }
 
-// FIX (review round 3, suggestion #7): single code path that knows how
-// to mutate stateCache for one (key, value-or-TOMBSTONE) pair. set/delete
-// AND the conflict-resolution merge AND the realtime echo merge all go
-// through this so the semantics live in exactly one place.
-function _applyToCache(key, valueOrTombstone) {
-  if (valueOrTombstone === TOMBSTONE) {
-    if (key in stateCache) {
-      const next = { ...stateCache };
-      delete next[key];
-      stateCache = next;
-    }
-  } else {
-    stateCache = { ...stateCache, [key]: valueOrTombstone };
-  }
+function Logo() {
+  return (
+    <svg width={48} height={48} viewBox="0 0 36 36" fill="none">
+      <rect width="36" height="36" rx="10" fill="#0D9488"/>
+      <rect x="7"  y="20" width="5" height="9"  rx="2" fill="#fff" opacity="0.45"/>
+      <rect x="15.5" y="14" width="5" height="15" rx="2" fill="#fff" opacity="0.7"/>
+      <rect x="24" y="7"  width="5" height="22" rx="2" fill="#fff"/>
+      <circle cx="27" cy="7" r="2.5" fill="#fff"/>
+    </svg>
+  );
 }
 
-// Apply every (key, value) entry from `writes` on top of stateCache.
-// Used by the conflict-merge path and the realtime handler.
-function _applyPendingWritesOnTop(writes) {
-  for (const k of Object.keys(writes)) {
-    _applyToCache(k, writes[k]);
-  }
-}
+// ─── Styles ────────────────────────────────────────────────────────────────
 
-async function saveCache(updatedBy) {
-  // FIX (review round 2): refuse to save if our last load failed.
-  if (loadFailed) {
-    const e = new Error("[supabase] Refusing to save: initial load failed, in-memory state is untrusted");
-    console.error(e);
-    throw e;
-  }
+const loadingStyle = {
+  minHeight: "100vh", display: "flex", alignItems: "center",
+  justifyContent: "center", background: "#FAFBFC",
+  fontFamily: "'DM Sans', sans-serif",
+};
 
-  // Snapshot the writes we're about to flush. On error we restore them so
-  // the next scheduleSave picks them up.
-  const writesAtSave = { ...pendingWrites };
-  pendingWrites = {};
+const spinnerStyle = {
+  width: 40, height: 40, border: "3px solid #E2E8F0",
+  borderTop: "3px solid #14B8A6", borderRadius: "50%",
+  animation: "spin 0.8s linear infinite", margin: "0 auto",
+};
 
-  saveInFlight = true;
-  lastSentBy = CLIENT_ID;
-  const stampedUpdatedBy = updatedBy ? `${updatedBy}#${CLIENT_ID}` : `__client__#${CLIENT_ID}`;
+const authPageStyle = {
+  minHeight: "100vh", display: "flex", alignItems: "center",
+  justifyContent: "center", background: "#FAFBFC", padding: 32,
+  fontFamily: "'DM Sans', sans-serif",
+};
 
-  // FIX (per-domain split): split pending writes into per-key patches and
-  // per-key deletes. We then call the `app_state_patch` RPC which uses
-  // Postgres jsonb merge (`||`) to apply ONLY the affected keys. Other keys
-  // in the data column are left untouched — so a concurrent client editing
-  // a different key never collides with our save. Postgres row-level locks
-  // serialize concurrent writes, so two clients writing different keys
-  // succeed in order with no clobbering.
-  //
-  // This replaces the previous optimistic-lock + conflict-resolution +
-  // retry path, which was needed when a save sent the WHOLE data column
-  // (every key, every time). With per-key patches there's no whole-blob
-  // clobber to detect — same-key concurrent writes still last-writer-wins
-  // (acceptable for our use case), and the architectural fix in
-  // AllocationRoster's storage subscriber keeps React state fresh.
-  const updates = {};
-  const deletes = [];
-  for (const [k, v] of Object.entries(writesAtSave)) {
-    if (v === TOMBSTONE) deletes.push(k);
-    else updates[k] = v;
-  }
+const authCardStyle = {
+  width: "100%", maxWidth: 380, padding: 32,
+  animation: "fadeUp 0.4s ease",
+};
 
-  try {
-    const { data, error } = await supabase.rpc('app_state_patch', {
-      p_updates: updates,
-      p_deletes: deletes.length > 0 ? deletes : null,
-      p_updated_by: stampedUpdatedBy,
-    });
+const labelStyle = {
+  fontSize: 11, fontWeight: 600, color: "#94A3B8",
+  textTransform: "uppercase", letterSpacing: 0.5,
+  display: "block", marginBottom: 6,
+};
 
-    if (error) {
-      // Hard failure (RLS, network, auth). Merge pending writes back so
-      // any sets that arrived during the save aren't lost.
-      pendingWrites = { ...writesAtSave, ...pendingWrites };
-      console.error("Failed to save app_state:", error);
-      throw error;
-    }
+const inputStyle = {
+  width: "100%", padding: "12px 14px", borderRadius: 10,
+  border: "1.5px solid #E2E8F0", background: "#fff",
+  color: "#1A1D2E", fontSize: 14, fontFamily: "inherit",
+  outline: "none", boxSizing: "border-box",
+  transition: "border 0.15s",
+};
 
-    // RPC returns rows of {updated_at}. Pick the first row's value.
-    const newUpdatedAt = Array.isArray(data) ? data[0]?.updated_at : data?.updated_at;
-    if (newUpdatedAt) lastKnownUpdatedAt = newUpdatedAt;
-  } finally {
-    saveInFlight = false;
-    // FIX (review round 2): if a foreign update arrived while we were
-    // saving (we deferred it to avoid clobbering our in-flight write),
-    // apply it now — but only AFTER our pending writes so local edits
-    // survive.
-    if (pendingForeignUpdate) {
-      const p = pendingForeignUpdate;
-      pendingForeignUpdate = null;
-      if (p.updated_at) lastKnownUpdatedAt = p.updated_at;
-      stateCache = p.data || {};
-      _applyPendingWritesOnTop(pendingWrites);
-      subscribers.forEach((fn) => fn(stateCache));
-    }
-  }
-}
+const primaryBtnStyle = {
+  width: "100%", padding: 13, borderRadius: 10, border: "none",
+  background: "#0D9488", color: "#fff", fontSize: 14,
+  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+};
 
-// Subscribe to remote changes — when Prim writes, Vee's cache updates.
-function subscribeRealtime() {
-  if (realtimeChannel) return;
-  realtimeChannel = supabase
-    .channel("app_state_changes")
-    .on(
-      "postgres_changes",
-      { event: "UPDATE", schema: "public", table: "app_state", filter: "id=eq.main" },
-      (payload) => {
-        const updatedBy = payload?.new?.updated_by;
-        const newUpdatedAt = payload?.new?.updated_at;
+const linkBtnStyle = {
+  background: "none", border: "none", color: "#0D9488",
+  fontWeight: 600, cursor: "pointer", fontSize: 12,
+  fontFamily: "inherit", padding: 0,
+};
+= {
+  width: "100%", padding: "12px 14px", borderRadius: 10,
+  border: "1.5px solid #E2E8F0", background: "#fff",
+  color: "#1A1D2E", fontSize: 14, fontFamily: "inherit",
+  outline: "none", boxSizing: "border-box",
+  transition: "border 0.15s",
+};
 
-        // Own echo — we already updated lastKnownUpdatedAt from the save
-        // response. Ignore the payload so it can't clobber any newer
-        // in-memory mutations that haven't flushed yet.
-        if (typeof updatedBy === "string" && updatedBy.endsWith(`#${CLIENT_ID}`)) {
-          return;
-        }
-        // FIX (review round 3, suggestion #6): a payload arriving without
-        // a string updated_by means either a legacy row, a server-side
-        // admin update (SQL console), or a buggy client that didn't stamp.
-        // We DO still apply it — preserving the operator's ability to fix
-        // things via SQL — but log so an unexpected source is visible in
-        // the console.
-        if (typeof updatedBy !== "string" || updatedBy === "") {
-          console.warn("[supabase] Realtime payload has no client stamp on updated_by — applying anyway. Source:", updatedBy);
-        }
-        // FIX (review round 2): mid-save, BUFFER the foreign payload
-        // instead of dropping it. The save's finally{} block will
-        // replay it after our write completes, preserving any local
-        // pending writes on top.
-        if (saveInFlight) {
-          pendingForeignUpdate = payload?.new || null;
-          return;
-        }
+const primaryBtnStyle = {
+  width: "100%", padding: 13, borderRadius: 10, border: "none",
+  background: "#0D9488", color: "#fff", fontSize: 14,
+  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+};
 
-        // Another client wrote. Track their new version so OUR next save's
-        // WHERE clause is up to date (else we'd needlessly conflict).
-        if (newUpdatedAt) lastKnownUpdatedAt = newUpdatedAt;
-        stateCache = payload.new.data || {};
-
-        // FIX (review round 2): if THIS tab has unsaved local writes in
-        // pendingWrites, re-apply them on top of the foreign update.
-        // Without this, a foreign update silently wipes our unflushed
-        // local edits.
-        _applyPendingWritesOnTop(pendingWrites);
-
-        subscribers.forEach((fn) => fn(stateCache));
-      }
-    )
-    .subscribe((status) => {
-      // FIX (round 6): handle realtime reconnect. supabase-js does NOT replay
-      // missed events after a channel drop, so a tab that went offline (sleep,
-      // network blip, suspended background tab) wakes up with a STALE
-      // stateCache. The very next save would clobber any changes made by
-      // other clients while we were offline. By reloading on every successful
-      // SUBSCRIBED transition, we resync before any save fires.
-      if (status === "SUBSCRIBED" && cacheLoaded) {
-        // Skip the very first subscribe (loadCache already ran in initStorage).
-        // We track this by checking if the channel has connected before.
-        if (realtimeHasConnectedOnce) {
-          console.warn("[supabase] Realtime resubscribed after disconnect — reloading state to avoid clobbering newer writes.");
-          loadCache();
-        }
-        realtimeHasConnectedOnce = true;
-      }
-    });
-}
-
-// Tracks whether the realtime channel has connected at least once. A second
-// SUBSCRIBED event means we reconnected after a drop, and any missed events
-// during the gap mean our stateCache may be stale.
-let realtimeHasConnectedOnce = false;
-
-// Public API — call once on app startup, before mounting the component.
-export async function initStorage() {
-  await loadCache();
-  subscribeRealtime();
-
-  // Track recent writes to debounce — multiple set() calls in the same tick
-  // batch into one network round-trip.
-  let pendingSave = null;
-  // FIX (data-loss bug #5): expose save errors to callers so the AllocationPanel
-  // retry loop and banner can react. The most recent set() returns a promise
-  // resolved only AFTER the debounced save round-trips successfully.
-  let pendingResolves = [];
-  let pendingRejects = [];
-  // FIX (round 5): serialize saves. The previous code cleared `pendingSave`
-  // BEFORE awaiting `saveCache`, so a second debounce timer could fire and
-  // call saveCache CONCURRENTLY while the first save was still in flight.
-  // Two concurrent UPDATEs racing on `updated_at` produced spurious conflicts
-  // that exhausted the 3-retry budget and showed the "Couldn't save" banner.
-  // We now chain saves through a single promise so at most one saveCache
-  // runs at any time.
-  let inFlightChain = Promise.resolve();
-  const scheduleSave = (updatedBy) =>
-    new Promise((resolve, reject) => {
-      pendingResolves.push(resolve);
-      pendingRejects.push(reject);
-      if (pendingSave) clearTimeout(pendingSave);
-      pendingSave = setTimeout(() => {
-        pendingSave = null;
-        const resolves = pendingResolves; pendingResolves = [];
-        const rejects = pendingRejects;   pendingRejects = [];
-        // Chain this save to run AFTER any in-flight one. The `.catch`
-        // swallows the prior save's error so a single failure doesn't
-        // permanently break the chain (each save's own error still
-        // rejects its own caller via `rejects` above).
-        inFlightChain = inFlightChain.catch(() => {}).then(async () => {
-          try {
-            await saveCache(updatedBy);
-            resolves.forEach((r) => r());
-          } catch (e) {
-            rejects.forEach((r) => r(e));
-          }
-        });
-      }, 250);
-    });
-
-  window.storage = {
-    async get(key) {
-      if (!cacheLoaded) await loadCache();
-      return key in stateCache
-        ? { key, value: stateCache[key], shared: true }
-        : null;
-    },
-
-    async set(key, value) {
-      // FIX (review round 3, suggestion #7): mutate via _applyToCache so
-      // the stateCache update logic lives in ONE place shared with
-      // conflict-resolution and realtime merge.
-      _applyToCache(key, value);
-      pendingWrites[key] = value;
-      const user = (await supabase.auth.getUser()).data.user;
-      await scheduleSave(user?.email || null);
-      return { key, value, shared: true };
-    },
-
-    async delete(key) {
-      _applyToCache(key, TOMBSTONE);
-      pendingWrites[key] = TOMBSTONE;
-      const user = (await supabase.auth.getUser()).data.user;
-      await scheduleSave(user?.email || null);
-      return { key, deleted: true, shared: true };
-    },
-
-    async list(prefix = "") {
-      if (!cacheLoaded) await loadCache();
-      const keys = Object.keys(stateCache).filter((k) => k.startsWith(prefix));
-      return { keys, prefix, shared: true };
-    },
-  };
-}
-
-// React hook for components that want to react to remote state changes.
-// Useful if you want to add a "user X is editing" indicator later.
-export function onStateChange(fn) {
-  subscribers.add(fn);
-  return () => subscribers.delete(fn);
-}
-
-// ─── Auth helpers ──────────────────────────────────────────────────────────
-
-export async function signUp(email, password, username, role = "viewer") {
-  const { data, error } = await supabase.auth.signUp({ email, password });
-  if (error) return { error };
-
-  // Create profile row
-  const { error: profErr } = await supabase.from("profiles").insert({
-    id: data.user.id,
-    username,
-    role,
-    display_name: username,
-  });
-  if (profErr) return { error: profErr };
-
-  return { user: data.user };
-}
-
-export async function signIn(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-  if (error) return { error };
-  return { user: data.user };
-}
-
-export async function signOut() {
-  // FIX (review round 4): clear all module-level concurrency state so the
-  // next signed-in user can't accidentally flush a prior user's pending
-  // writes or load with a stale lastKnownUpdatedAt.
-  pendingWrites = {};
-  lastKnownUpdatedAt = null;
-  stateCache = {};
-  cacheLoaded = false;
-  loadFailed = false;
-  pendingForeignUpdate = null;
-  saveInFlight = false;
-  await supabase.auth.signOut();
-}
-
-// Resolve the current user's role from the profiles table.
-// Returns null if not signed in or no profile.
-export async function getCurrentRole() {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile, error } = await supabase
-    .from("profiles")
-    .select("username, role, display_name")
-    .eq("id", user.id)
-    .single();
-  if (error || !profile) return null;
-
-  return {
-    userId: user.id,
-    email: user.email,
-    username: profile.username,
-    role: profile.role,
-    displayName: profile.display_name || profile.username,
-  };
-}
-
-export function onAuthChange(callback) {
-  return supabase.auth.onAuthStateChange((event, session) => {
-    callback(event, session);
-  });
-}
-
-// List all profiles (for the user management UI in the manager view).
-export async function listProfiles() {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, username, role, display_name");
-  if (error) return [];
-  return data;
-}
-
-export async function updateProfile(id, updates) {
-  const { error } = await supabase.from("profiles").update(updates).eq("id", id);
-  return { error };
-}
-
-export async function deleteProfile(id) {
-  const { error } = await supabase.from("profiles").delete().eq("id", id);
-  return { error };
-}
+const linkBtnStyle = {
+  background: "none", border: "none", color: "#0D9488",
+  fontWeight: 600, cursor: "pointer", fontSize: 12,
+  fontFamily: "inherit", padding: 0,
+};
