@@ -21,6 +21,8 @@ import {
   getCurrentRole,
   onAuthChange,
   supabase,
+  consumeRecoveryFlag,
+  clearRecoveryFlag,
 } from "./supabase.js";
 
 export default function App() {
@@ -53,7 +55,16 @@ export default function App() {
     // matter whether the event fired in time.
     const hash = typeof window !== "undefined" ? (window.location.hash || "") : "";
     const search = typeof window !== "undefined" ? (window.location.search || "") : "";
+    // FIX (round-3): also check the module-level flag captured by supabase.js
+    // BEFORE we mounted — supabase clears the URL hash and fires
+    // PASSWORD_RECOVERY synchronously, so by the time we're here both
+    // signals are gone unless we caught the event in supabase.js's
+    // module-load-time listener.
+    const moduleSawRecovery = typeof consumeRecoveryFlag === "function"
+      ? consumeRecoveryFlag()
+      : false;
     const isRecoveryLink =
+      moduleSawRecovery ||
       hash.includes("type=recovery") ||
       hash.includes("type%3Drecovery") ||
       search.includes("type=recovery");
@@ -86,7 +97,15 @@ export default function App() {
         // the user into the app before they've set a new password.
         if (inRecoveryRef.current) return;
         const p = await getCurrentRole();
-        setProfile(p);
+        // FIX (Add User unmount race): when an admin invites a new user, the
+        // SDK's signUp() transiently signs the new user in BEFORE the admin's
+        // session is restored. During that window SIGNED_IN fires for a user
+        // whose profile row doesn't exist yet, so getCurrentRole returns null
+        // and we used to setProfile(null) — which unmounts AllocationPanel
+        // mid-click and drops the setUserAccounts call that adds the new user
+        // to the list. Only update profile when we have a valid one; if the
+        // lookup fails, keep the current profile until SIGNED_OUT fires.
+        if (p) setProfile(p);
       }
     });
     return () => sub.subscription.unsubscribe();
@@ -240,6 +259,7 @@ export default function App() {
       // Recovery flow is complete — release the gate so SIGNED_IN events can
       // proceed to load the user's profile and route them into the app.
       inRecoveryRef.current = false;
+      if (typeof clearRecoveryFlag === "function") clearRecoveryFlag();
       setAuthMode("signin");
       const p = await getCurrentRole();
       setProfile(p);
@@ -465,12 +485,7 @@ const linkBtnStyle = {
   fontWeight: 600, cursor: "pointer", fontSize: 12,
   fontFamily: "inherit", padding: 0,
 };
-ontSize: 11, fontWeight: 600, color: "#94A3B8",
-  textTransform: "uppercase", letterSpacing: 0.5,
-  display: "block", marginBottom: 6,
-};
-
-const inputStyle = {
+= {
   width: "100%", padding: "12px 14px", borderRadius: 10,
   border: "1.5px solid #E2E8F0", background: "#fff",
   color: "#1A1D2E", fontSize: 14, fontFamily: "inherit",
