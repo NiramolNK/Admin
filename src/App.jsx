@@ -465,26 +465,3 @@ const authCardStyle = {
 
 const labelStyle = {
   fontSize: 11, fontWeight: 600, color: "#94A3B8",
-  textTransform: "uppercase", letterSpacing: 0.5,
-  display: "block", marginBottom: 6,
-};
-
-const inputStyle = {
-  width: "100%", padding: "12px 14px", borderRadius: 10,
-  border: "1.5px solid #E2E8F0", background: "#fff",
-  color: "#1A1D2E", fontSize: 14, fontFamily: "inherit",
-  outline: "none", boxSizing: "border-box",
-  transition: "border 0.15s",
-};
-
-const primaryBtnStyle = {
-  width: "100%", padding: 13, borderRadius: 10, border: "none",
-  background: "#0D9488", color: "#fff", fontSize: 14,
-  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-};
-
-const linkBtnStyle = {
-  background: "none", border: "none", color: "#0D9488",
-  fontWeight: 600, cursor: "pointer", fontSize: 12,
-  fontFamily: "inherit", padding: 0,
-};
