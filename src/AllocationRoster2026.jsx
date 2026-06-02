@@ -574,25 +574,32 @@ function MonthPicker({ rosterYear, setRosterYear, rosterMonth, setRosterMonth, M
 // this list — drift between them is the bug that broke the architectural
 // fix the first time around.
 //   storageKey = top-level JSONB key in app_state.data
-//   stateKey   = field name on the in-memory state blob
-//   setter     = local setter name (looked up against an object built inside
-//                the component since useState setters are component-scoped)
+//   stateKey   = field name on the in-memory state blob (and on stateRef bag)
+//
+// The matching React setters live inside the component (closures over
+// useState) — the subscriber builds a setterMap from local closures. Keys
+// without a setterMap entry (prefs, role, fulltimeSalary) are intentionally
+// session-scoped and not synced from foreign tabs.
+// FIX (round-8 senior review MEDIUM/A): dropped the `setter: "setX"` string
+// field — it was referenced nowhere and created false confidence that adding
+// an entry here wired up the setter, when in fact you still have to update
+// the in-component setterMap by hand.
 const DOMAIN_KEYS = [
-  { storageKey: "nirm-agents",         stateKey: "agents",         setter: "setAgents" },
-  { storageKey: "nirm-brands",         stateKey: "brands",         setter: "setBrands" },
-  { storageKey: "nirm-budget",         stateKey: "budget",         setter: "setBudget" },
-  { storageKey: "nirm-monthlyVol",     stateKey: "monthlyVol",     setter: "setMonthlyVol" },
-  { storageKey: "nirm-agentPerf",      stateKey: "agentPerf",      setter: "setAgentPerf" },
-  { storageKey: "nirm-lockedMonths",   stateKey: "lockedMonths",   setter: "setLockedMonths" },
-  { storageKey: "nirm-allAsgn",        stateKey: "allAsgn",        setter: "setAllAsgn" },
-  { storageKey: "nirm-allBrandAsgn",   stateKey: "allBrandAsgn",   setter: "setAllBrandAsgn" },
-  { storageKey: "nirm-globalFlags",    stateKey: "globalFlags",    setter: "setGlobalFlags" },
-  { storageKey: "nirm-changeRequests", stateKey: "changeRequests", setter: "setChangeRequests" },
-  { storageKey: "nirm-userProfiles",   stateKey: "userProfiles",   setter: "setUserProfiles" },
-  { storageKey: "nirm-fulltimeSalary", stateKey: "fulltimeSalary", setter: "setFulltimeSalary" },
-  { storageKey: "nirm-role",           stateKey: "role",           setter: "setRole" },
-  { storageKey: "nirm-userAccounts",   stateKey: "userAccounts",   setter: "setUserAccounts" },
-  { storageKey: "nirm-prefs",          stateKey: "prefs",          setter: "setPrefs" }, // prefs has bespoke handling
+  { storageKey: "nirm-agents",         stateKey: "agents"         },
+  { storageKey: "nirm-brands",         stateKey: "brands"         },
+  { storageKey: "nirm-budget",         stateKey: "budget"         },
+  { storageKey: "nirm-monthlyVol",     stateKey: "monthlyVol"     },
+  { storageKey: "nirm-agentPerf",      stateKey: "agentPerf"      },
+  { storageKey: "nirm-lockedMonths",   stateKey: "lockedMonths"   },
+  { storageKey: "nirm-allAsgn",        stateKey: "allAsgn"        },
+  { storageKey: "nirm-allBrandAsgn",   stateKey: "allBrandAsgn"   },
+  { storageKey: "nirm-globalFlags",    stateKey: "globalFlags"    },
+  { storageKey: "nirm-changeRequests", stateKey: "changeRequests" },
+  { storageKey: "nirm-userProfiles",   stateKey: "userProfiles"   },
+  { storageKey: "nirm-fulltimeSalary", stateKey: "fulltimeSalary" },
+  { storageKey: "nirm-role",           stateKey: "role"           },
+  { storageKey: "nirm-userAccounts",   stateKey: "userAccounts"   },
+  { storageKey: "nirm-prefs",          stateKey: "prefs"          },
 ];
 
 // ── Main Component ─────────────────────────────────────────────────────────
@@ -1044,16 +1051,52 @@ export default function AllocationPanel({ isAdmin = true }) {
             if (supabaseUser?.email) {
               const supaEmail = supabaseUser.email;
               setLoginUser(supaEmail);
-              // Auto-bypass the legacy login screen: if the Supabase user is in
-              // userAccounts, they're already authenticated. Skip the second-stage
-              // legacy login screen entirely (it can't work for self-signup users
-              // since their legacy password is a "__supabase__" placeholder).
-              const ua = d.userAccounts || [];
+              // Auto-bypass the legacy login screen. Supabase is the source of
+              // truth: if it says we're signed in, we're signed in. The legacy
+              // login can't authenticate Supabase users (their legacy password
+              // is the "__supabase__" sentinel, not their real password), so if
+              // we don't auto-bypass here, the user is permanently locked out.
+              //
+              // FIX (comprehensive auth pass): previously this only bypassed if
+              // userAccounts already had a matching entry with a valid role —
+              // if the entry was missing (lost during per-domain migration,
+              // never written, fresh install, etc.) the user got stuck on the
+              // legacy login. Now: AUTO-CREATE the entry if missing, so the
+              // bypass always succeeds when Supabase has authenticated us.
+              const ua = Array.isArray(d.userAccounts) ? d.userAccounts : [];
               const myEntry = ua.find(u => u.username?.toLowerCase() === supaEmail.toLowerCase());
-              if (myEntry && ROLES[myEntry.role]) {
-                setRole(myEntry.role);
-                setLoggedIn(true);
+              let effectiveRole = myEntry && ROLES[myEntry.role] ? myEntry.role : null;
+              if (!effectiveRole) {
+                // No valid entry — try to learn the role from the Supabase
+                // profiles table (App.jsx already loaded it via getCurrentRole).
+                try {
+                  const { data: prof } = await supabase
+                    .from("profiles").select("role").eq("id", supabaseUser.id).maybeSingle();
+                  if (prof?.role && ROLES[prof.role]) effectiveRole = prof.role;
+                } catch (_) { /* non-fatal */ }
               }
+              if (!effectiveRole) {
+                // Last-resort fallback: first user in an empty list becomes a
+                // manager (typical fresh-install path); otherwise default to
+                // viewer to be safe.
+                effectiveRole = ua.length === 0 ? "manager" : "viewer";
+              }
+              // Heal the userAccounts list so future loads don't need this fallback.
+              setUserAccounts(prev => {
+                const list = Array.isArray(prev) ? prev.slice() : [];
+                const i = list.findIndex(u => u.username?.toLowerCase() === supaEmail.toLowerCase());
+                const entry = { username: supaEmail, password: "__supabase__", role: effectiveRole };
+                if (i >= 0) {
+                  // Don't downgrade an existing higher role with a fallback default.
+                  if (myEntry && ROLES[myEntry.role]) list[i] = { ...list[i], password: "__supabase__" };
+                  else list[i] = entry;
+                } else {
+                  list.push(entry);
+                }
+                return list;
+              });
+              setRole(effectiveRole);
+              setLoggedIn(true);
             }
           } catch(authErr) { /* non-fatal */ }
         }
@@ -1149,8 +1192,15 @@ export default function AllocationPanel({ isAdmin = true }) {
         // Release one level of suspension after React has had a chance to flush
         // the cascaded setState calls and re-run the auto-save useEffect (which
         // is gated on suspendDepth === 0 — see below).
+        // FIX (round-8 senior review HIGH/E): if a local edit batched its
+        // setState into the same render as this foreign cascade, the auto-save
+        // useEffect already ran once with suspendDepth > 0 and skipped
+        // scheduleSave. Without a follow-up, that local edit is lost on tab
+        // close in the next 100ms. After decrementing back to 0, fire one
+        // catch-up save if anything is marked dirty.
         setTimeout(() => {
           if (suspendDepth.current > 0) suspendDepth.current--;
+          if (suspendDepth.current === 0 && needsSave.current) scheduleSave();
         }, 100);
       } catch (e) {
         console.error("Re-sync from realtime failed:", e);
@@ -1164,8 +1214,19 @@ export default function AllocationPanel({ isAdmin = true }) {
   // This useEffect runs AFTER render, so stateRef.current is guaranteed up-to-date.
   // FIX (round-7): gate on suspendDepth counter (not a boolean) so overlapping
   // foreign updates don't race-condition the suspension flag.
+  // FIX (round-8 senior review HIGH/E): when suspended, do NOT start the timer
+  // (that would race the foreign-update setters that are still cascading), but
+  // DO mark needsSave so the subscriber's post-decrement catch-up will pick up
+  // any local edit that batched into this render. Without this, a local edit
+  // that lands in the same React batch as a foreign realtime update is silently
+  // dropped if the tab closes within 100ms.
   useEffect(() => {
-    if (storageLoaded && suspendDepth.current === 0) scheduleSave();
+    if (!storageLoaded) return;
+    if (suspendDepth.current === 0) {
+      scheduleSave();
+    } else {
+      needsSave.current = true;
+    }
   }, [agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, userProfiles, userAccounts, rosterYear, rosterMonth, allocTab, volYear, volMonth, allAsgn, allBrandAsgn, globalFlags, storageLoaded]);
 
   // Flush save on unmount
@@ -3268,9 +3329,55 @@ export default function AllocationPanel({ isAdmin = true }) {
                       </div>
                     </div>
 
-                    <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                      <button onClick={()=>setAgentModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Cancel</button>
-                      <button onClick={saveAgent} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+                    <div style={{display:"flex",gap:8,justifyContent:"space-between",alignItems:"center"}}>
+                      {/* Remove button: only for existing agents (not while adding a brand-new one), and only managers. */}
+                      {(role === "manager") && agents.some(a => a.id === editAgent.id) ? (
+                        <button onClick={()=>{
+                          if (!window.confirm(`Remove agent "${editAgent.name || editAgent.id}"?\n\nThis will:\n  • Delete this agent from the team list\n  • Remove their assignments from all months and brands\n\nIt cannot be undone.`)) return;
+                          const id = editAgent.id;
+                          // 1. Remove from agents.
+                          setAgents(prev => prev.filter(a => a.id !== id));
+                          // 2. Strip them out of every monthly allocation map.
+                          setAllAsgn(prev => {
+                            const next = {};
+                            for (const [mk, m] of Object.entries(prev || {})) {
+                              const cleaned = {};
+                              for (const [k, v] of Object.entries(m || {})) {
+                                if (Array.isArray(v)) {
+                                  const filtered = v.filter(x => x !== id);
+                                  if (filtered.length) cleaned[k] = filtered;
+                                } else if (v !== id) {
+                                  cleaned[k] = v;
+                                }
+                              }
+                              next[mk] = cleaned;
+                            }
+                            return next;
+                          });
+                          // 3. Strip them out of brand assignments too.
+                          setAllBrandAsgn(prev => {
+                            const next = {};
+                            for (const [mk, m] of Object.entries(prev || {})) {
+                              const cleaned = {};
+                              for (const [k, v] of Object.entries(m || {})) {
+                                if (Array.isArray(v)) {
+                                  const filtered = v.filter(x => x !== id && x !== (editAgent.name||""));
+                                  if (filtered.length) cleaned[k] = filtered;
+                                } else if (v !== id && v !== editAgent.name) {
+                                  cleaned[k] = v;
+                                }
+                              }
+                              next[mk] = cleaned;
+                            }
+                            return next;
+                          });
+                          setAgentModal(false);
+                        }} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #FCA5A5",background:"#FEF2F2",color:"#DC2626",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Remove</button>
+                      ) : <span/>}
+                      <div style={{display:"flex",gap:8}}>
+                        <button onClick={()=>setAgentModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Cancel</button>
+                        <button onClick={saveAgent} style={{padding:"8px 18px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+                      </div>
                     </div>
                   </div>
 
