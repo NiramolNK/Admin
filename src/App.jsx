@@ -37,10 +37,28 @@ export default function App() {
 
   // Bootstrap: init storage shim, check current session
   useEffect(() => {
+    // FIX (password reset reliability): the Supabase client parses the URL
+    // hash SYNCHRONOUSLY at module-import time, so the PASSWORD_RECOVERY event
+    // can fire before our onAuthChange listener below is registered. Detect
+    // the recovery flag directly from the URL on mount as a safety net — if
+    // the user landed here from an email link, force "recovery" mode no
+    // matter whether the event fired in time.
+    const hash = typeof window !== "undefined" ? (window.location.hash || "") : "";
+    const search = typeof window !== "undefined" ? (window.location.search || "") : "";
+    const isRecoveryLink =
+      hash.includes("type=recovery") ||
+      hash.includes("type%3Drecovery") ||
+      search.includes("type=recovery");
+    if (isRecoveryLink) {
+      setAuthMode("recovery");
+    }
+
     (async () => {
       await initStorage();
       const p = await getCurrentRole();
-      setProfile(p);
+      // Don't bounce a recovery-link user into the signed-in app. They need to
+      // see the "Set a new password" form first.
+      if (!isRecoveryLink) setProfile(p);
       setBooting(false);
     })();
 
@@ -52,11 +70,16 @@ export default function App() {
         setAuthMode("recovery");
         setProfile(null);
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        // If we're in the middle of a recovery flow, the SIGNED_IN event fires
+        // as a side-effect of the recovery token being exchanged. Don't bounce
+        // the user into the app before they've set a new password.
+        if (authMode === "recovery") return;
         const p = await getCurrentRole();
         setProfile(p);
       }
     });
     return () => sub.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Once we have a profile, inject it into the AllocationPanel's expected
@@ -162,14 +185,53 @@ export default function App() {
     setErr(""); setInfo("");
     if (!password || password.length < 6) { setErr("Password must be at least 6 characters"); return; }
     setBusy(true);
-    const { error } = await supabase.auth.updateUser({ password });
-    setBusy(false);
-    if (error) setErr(error.message);
-    else {
+    try {
+      // FIX (password reset reliability): updateUser fails with "Auth session
+      // missing!" if the recovery token from the email URL hash never
+      // established a session — most often because the user navigated/
+      // refreshed after landing on the page, or the page was opened in a
+      // browser where Supabase couldn't pick up the hash. Before giving up,
+      // try to recover the session from the URL hash one more time.
+      let { data: sessData } = await supabase.auth.getSession();
+      if (!sessData?.session) {
+        const rawHash = window.location.hash?.startsWith("#")
+          ? window.location.hash.slice(1)
+          : (window.location.hash || "");
+        const params = new URLSearchParams(rawHash);
+        const access_token = params.get("access_token");
+        const refresh_token = params.get("refresh_token");
+        const tokenType = params.get("type");
+        if (access_token && refresh_token && tokenType === "recovery") {
+          const { error: setErr2 } = await supabase.auth.setSession({ access_token, refresh_token });
+          if (setErr2) {
+            setErr("Reset link has expired or already been used. Request a new password reset email.");
+            setBusy(false);
+            return;
+          }
+          ({ data: sessData } = await supabase.auth.getSession());
+        }
+      }
+      if (!sessData?.session) {
+        setErr("Reset link has expired or already been used. Request a new password reset email.");
+        setBusy(false);
+        return;
+      }
+      const { error } = await supabase.auth.updateUser({ password });
+      setBusy(false);
+      if (error) { setErr(error.message); return; }
       setInfo("Password updated. Signing you in…");
+      // Clear the recovery hash so a refresh doesn't bounce back into recovery mode.
+      try {
+        if (window.location.hash) {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+      } catch (_) { /* non-fatal */ }
       setAuthMode("signin");
       const p = await getCurrentRole();
       setProfile(p);
+    } catch (e2) {
+      setBusy(false);
+      setErr(e2?.message || "Could not update password. Try requesting a new reset email.");
     }
   };
 
