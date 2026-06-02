@@ -568,6 +568,33 @@ function MonthPicker({ rosterYear, setRosterYear, rosterMonth, setRosterMonth, M
   );
 }
 
+// ── Per-domain storage schema ─────────────────────────────────────────────
+// Single source of truth for the per-domain key split. flushSave, the mount
+// load, the migration seed, and the realtime resync subscriber all iterate
+// this list — drift between them is the bug that broke the architectural
+// fix the first time around.
+//   storageKey = top-level JSONB key in app_state.data
+//   stateKey   = field name on the in-memory state blob
+//   setter     = local setter name (looked up against an object built inside
+//                the component since useState setters are component-scoped)
+const DOMAIN_KEYS = [
+  { storageKey: "nirm-agents",         stateKey: "agents",         setter: "setAgents" },
+  { storageKey: "nirm-brands",         stateKey: "brands",         setter: "setBrands" },
+  { storageKey: "nirm-budget",         stateKey: "budget",         setter: "setBudget" },
+  { storageKey: "nirm-monthlyVol",     stateKey: "monthlyVol",     setter: "setMonthlyVol" },
+  { storageKey: "nirm-agentPerf",      stateKey: "agentPerf",      setter: "setAgentPerf" },
+  { storageKey: "nirm-lockedMonths",   stateKey: "lockedMonths",   setter: "setLockedMonths" },
+  { storageKey: "nirm-allAsgn",        stateKey: "allAsgn",        setter: "setAllAsgn" },
+  { storageKey: "nirm-allBrandAsgn",   stateKey: "allBrandAsgn",   setter: "setAllBrandAsgn" },
+  { storageKey: "nirm-globalFlags",    stateKey: "globalFlags",    setter: "setGlobalFlags" },
+  { storageKey: "nirm-changeRequests", stateKey: "changeRequests", setter: "setChangeRequests" },
+  { storageKey: "nirm-userProfiles",   stateKey: "userProfiles",   setter: "setUserProfiles" },
+  { storageKey: "nirm-fulltimeSalary", stateKey: "fulltimeSalary", setter: "setFulltimeSalary" },
+  { storageKey: "nirm-role",           stateKey: "role",           setter: "setRole" },
+  { storageKey: "nirm-userAccounts",   stateKey: "userAccounts",   setter: "setUserAccounts" },
+  { storageKey: "nirm-prefs",          stateKey: "prefs",          setter: "setPrefs" }, // prefs has bespoke handling
+];
+
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function AllocationPanel({ isAdmin = true }) {
   const [allocTab, setAllocTab]     = useState("roster");
@@ -868,23 +895,14 @@ export default function AllocationPanel({ isAdmin = true }) {
     // one RPC patch (multiple keys in p_updates), so it's still one network
     // round-trip but each key lives at its own JSONB path on the server.
     // A concurrent editor's per-key save no longer collides with this one.
-    Promise.all([
-      window.storage.set("nirm-agents",       state.agents),
-      window.storage.set("nirm-brands",       state.brands),
-      window.storage.set("nirm-budget",       state.budget),
-      window.storage.set("nirm-fulltimeSalary", state.fulltimeSalary),
-      window.storage.set("nirm-monthlyVol",   state.monthlyVol),
-      window.storage.set("nirm-agentPerf",    state.agentPerf),
-      window.storage.set("nirm-lockedMonths", state.lockedMonths),
-      window.storage.set("nirm-role",         state.role),
-      window.storage.set("nirm-changeRequests", state.changeRequests),
-      window.storage.set("nirm-userProfiles", state.userProfiles),
-      window.storage.set("nirm-userAccounts", state.userAccounts),
-      window.storage.set("nirm-prefs",        state.prefs),
-      window.storage.set("nirm-allAsgn",      state.allAsgn),
-      window.storage.set("nirm-allBrandAsgn", state.allBrandAsgn),
-      window.storage.set("nirm-globalFlags",  state.globalFlags),
-    ]).then(() => {
+    // FIX (post-ship review HIGH/H): iterate DOMAIN_KEYS instead of a
+    // hardcoded list — drift between this list and the subscriber's list
+    // is exactly how bug D slipped in.
+    Promise.all(
+      DOMAIN_KEYS.map(({ storageKey, stateKey }) =>
+        window.storage.set(storageKey, state[stateKey])
+      )
+    ).then(() => {
       if (id === saveAttemptRef.current && needsSave.current === false) {
         setSaveStatus(s => (s === "error" ? "error" : null));
       }
@@ -935,36 +953,22 @@ export default function AllocationPanel({ isAdmin = true }) {
     (async () => {
       if (!window.storage) { setStorageLoaded(true); return; }
       try {
-        // Try per-domain reads first.
-        const PER_DOMAIN = [
-          ["nirm-agents",         "agents",         setAgents],
-          ["nirm-brands",         "brands",         setBrands],
-          ["nirm-budget",         "budget",         setBudget],
-          ["nirm-monthlyVol",     "monthlyVol",     setMonthlyVol],
-          ["nirm-agentPerf",      "agentPerf",      setAgentPerf],
-          ["nirm-lockedMonths",   "lockedMonths",   setLockedMonths],
-          ["nirm-allAsgn",        "allAsgn",        setAllAsgn],
-          ["nirm-allBrandAsgn",   "allBrandAsgn",   setAllBrandAsgn],
-          ["nirm-globalFlags",    "globalFlags",    setGlobalFlags],
-          ["nirm-changeRequests", "changeRequests", setChangeRequests],
-          ["nirm-userProfiles",   "userProfiles",   setUserProfiles],
-        ];
+        // Try per-domain reads first — drive entirely off DOMAIN_KEYS so this
+        // list can never drift from flushSave's and the subscriber's lists.
         const fetched = {};
-        for (const [storageKey, fieldName] of PER_DOMAIN) {
+        for (const { storageKey, stateKey } of DOMAIN_KEYS) {
           const r = await window.storage.get(storageKey);
-          if (r?.value !== undefined && r?.value !== null) fetched[fieldName] = r.value;
+          if (r?.value !== undefined && r?.value !== null) fetched[stateKey] = r.value;
         }
-        const fsR = await window.storage.get("nirm-fulltimeSalary");
-        if (fsR?.value !== undefined && fsR?.value !== null) fetched.fulltimeSalary = fsR.value;
-        const roleR = await window.storage.get("nirm-role");
-        if (roleR?.value !== undefined && roleR?.value !== null) fetched.role = roleR.value;
-        const uaR = await window.storage.get("nirm-userAccounts");
-        if (uaR?.value !== undefined && uaR?.value !== null) fetched.userAccounts = uaR.value;
-        const prefsR = await window.storage.get("nirm-prefs");
-        if (prefsR?.value !== undefined && prefsR?.value !== null) fetched.prefs = prefsR.value;
 
         // Migration fallback: if NO per-domain keys had data, try the legacy
         // nirm-all blob and split it across the new keys.
+        // FIX (post-ship review HIGH/C): await the seed writes before
+        // marking the load complete. Previously these were fire-and-forget;
+        // if the user reloaded inside the 250ms autosave debounce or the
+        // tab crashed, only some per-domain keys would exist on next load,
+        // hasAnyPerDomain would be true, and the migration path would be
+        // skipped — silently losing legacy fields that never made it.
         const hasAnyPerDomain = Object.keys(fetched).length > 0;
         let d = fetched;
         if (!hasAnyPerDomain) {
@@ -973,26 +977,13 @@ export default function AllocationPanel({ isAdmin = true }) {
             const legacy = typeof r.value === "string" ? JSON.parse(r.value) : r.value;
             d = legacy;
             // Write back to per-domain keys so subsequent loads use them.
-            const seed = (key, val) => {
-              if (val !== undefined && val !== null) {
-                window.storage.set(key, val).catch(e => console.warn("seed", key, e));
-              }
-            };
-            seed("nirm-agents",         legacy.agents);
-            seed("nirm-brands",         legacy.brands);
-            seed("nirm-budget",         legacy.budget);
-            seed("nirm-monthlyVol",     legacy.monthlyVol);
-            seed("nirm-agentPerf",      legacy.agentPerf);
-            seed("nirm-lockedMonths",   legacy.lockedMonths);
-            seed("nirm-allAsgn",        legacy.allAsgn);
-            seed("nirm-allBrandAsgn",   legacy.allBrandAsgn);
-            seed("nirm-globalFlags",    legacy.globalFlags);
-            seed("nirm-changeRequests", legacy.changeRequests);
-            seed("nirm-userProfiles",   legacy.userProfiles);
-            seed("nirm-fulltimeSalary", legacy.fulltimeSalary);
-            seed("nirm-role",           legacy.role);
-            seed("nirm-userAccounts",   legacy.userAccounts);
-            seed("nirm-prefs",          legacy.prefs);
+            const seedPromises = DOMAIN_KEYS
+              .filter(({ stateKey }) => legacy[stateKey] !== undefined && legacy[stateKey] !== null)
+              .map(({ storageKey, stateKey }) =>
+                window.storage.set(storageKey, legacy[stateKey])
+                  .catch(e => console.warn("seed", storageKey, e))
+              );
+            await Promise.all(seedPromises);
           }
         }
 
@@ -1089,28 +1080,54 @@ export default function AllocationPanel({ isAdmin = true }) {
   useEffect(() => {
     if (!storageLoaded) return;
     const handler = (newCache) => {
-      const raw = newCache?.["nirm-all"];
-      if (!raw) return;
-      try {
-        const d = typeof raw === "string" ? JSON.parse(raw) : raw;
-        suspendDepth.current++;
-        const KEYS = [
-          ["agents", setAgents],
-          ["brands", setBrands],
-          ["budget", setBudget],
-          ["monthlyVol", setMonthlyVol],
-          ["agentPerf", setAgentPerf],
-          ["lockedMonths", setLockedMonths],
-          ["allAsgn", setAllAsgn],
-          ["allBrandAsgn", setAllBrandAsgn],
-          ["globalFlags", setGlobalFlags],
-          ["changeRequests", setChangeRequests],
-          ["userProfiles", setUserProfiles],
-        ];
-        for (const [k, setter] of KEYS) {
-          if (d[k] != null) setter(d[k]);
+      // FIX (post-ship review CRITICAL/D): after the per-domain split there
+      // is no "nirm-all" key anymore — newCache now holds per-domain top-
+      // level keys ("nirm-agents", "nirm-brands", …). The previous handler
+      // read newCache["nirm-all"] and silently no-op'd on every foreign
+      // update, leaving this tab's React state stale. Any subsequent
+      // local edit then patched nirm-agents (etc.) with the stale array
+      // and clobbered the foreign client's writes on the same key — the
+      // exact data-loss bug the architectural fix was supposed to prevent.
+      //
+      // Now: iterate DOMAIN_KEYS, pull the per-key value from newCache,
+      // and apply the matching React setter. Build the setter map from
+      // local closures since useState setters are component-scoped.
+      const setterMap = {
+        agents:         setAgents,
+        brands:         setBrands,
+        budget:         setBudget,
+        monthlyVol:     setMonthlyVol,
+        agentPerf:      setAgentPerf,
+        lockedMonths:   setLockedMonths,
+        allAsgn:        setAllAsgn,
+        allBrandAsgn:   setAllBrandAsgn,
+        globalFlags:    setGlobalFlags,
+        changeRequests: setChangeRequests,
+        userProfiles:   setUserProfiles,
+        userAccounts:   setUserAccounts,
+        // Intentionally NOT synced from foreign tabs (parity with old
+        // behaviour): role and prefs are session-scoped — another tab's
+        // logged-in user/UI state shouldn't override ours. fulltimeSalary
+        // is also excluded to match the pre-split subscriber.
+      };
+      // Build the merged "d" from per-domain keys in newCache so the rest
+      // of this handler (snapshot refresh, shrink guard) keeps working.
+      const d = {};
+      let anyDomainPresent = false;
+      for (const { storageKey, stateKey } of DOMAIN_KEYS) {
+        if (newCache && Object.prototype.hasOwnProperty.call(newCache, storageKey)) {
+          d[stateKey] = newCache[storageKey];
+          anyDomainPresent = true;
         }
-        if (d.userAccounts?.length) setUserAccounts(d.userAccounts);
+      }
+      if (!anyDomainPresent) return; // nothing to sync
+      try {
+        suspendDepth.current++;
+        for (const { stateKey } of DOMAIN_KEYS) {
+          const setter = setterMap[stateKey];
+          if (!setter) continue; // session-scoped key, skip
+          if (d[stateKey] != null) setter(d[stateKey]);
+        }
         // FIX (round-7 senior review): only refresh the load snapshot when the
         // incoming payload is at least as large as the prior snapshot. Otherwise
         // a stale/malicious payload with shrunken arrays would silently widen
