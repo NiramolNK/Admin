@@ -135,10 +135,16 @@ export default function App() {
     if (!profile) return;
     let cancelled = false;
     (async () => {
-      const existing = await window.storage.get("nirm-all");
-      const before = existing?.value ? JSON.parse(existing.value) : {};
-
-      const accounts = Array.isArray(before.userAccounts) ? [...before.userAccounts] : [];
+      // FIX (comprehensive auth pass): patch the PER-DOMAIN keys
+      // (nirm-userAccounts, nirm-role, nirm-prefs) directly. Writing to the
+      // legacy "nirm-all" blob did nothing useful after the per-domain split
+      // since AllocationRoster reads only from the per-domain keys — which
+      // is how the admin's userAccounts entry kept going missing and the
+      // user got stuck on the legacy login screen.
+      const uaRow    = await window.storage.get("nirm-userAccounts");
+      const roleRow  = await window.storage.get("nirm-role");
+      const prefsRow = await window.storage.get("nirm-prefs");
+      const accounts = Array.isArray(uaRow?.value) ? uaRow.value.slice() : [];
       const matchIdx = accounts.findIndex(
         (a) => a && a.username && a.username.toLowerCase() === profile.username.toLowerCase()
       );
@@ -146,40 +152,37 @@ export default function App() {
         matchIdx >= 0 &&
         accounts[matchIdx].role === profile.role &&
         accounts[matchIdx].password === "__supabase__";
-
+      const prevPrefs = (prefsRow && typeof prefsRow.value === "object" && prefsRow.value) || {};
       const prefsInSync =
-        before.role === profile.role &&
-        before.prefs &&
-        before.prefs.loginUser === profile.username;
-
-      // Nothing to do — avoid a needless write that could race with the panel.
+        roleRow?.value === profile.role &&
+        prevPrefs.loginUser === profile.username;
       if (accountInSync && prefsInSync) return;
       if (cancelled) return;
 
-      // Build a patched state without losing anything that was already there.
-      const patched = { ...before };
-      patched.role = profile.role;
-      patched.prefs = { ...(before.prefs || {}), loginUser: profile.username };
+      // Build the new userAccounts list — never downgrade an existing higher
+      // role (e.g. manager) just because getCurrentRole returned a different
+      // value on a refresh.
       if (matchIdx >= 0) {
-        accounts[matchIdx] = { ...accounts[matchIdx], role: profile.role, password: "__supabase__" };
+        accounts[matchIdx] = {
+          ...accounts[matchIdx],
+          password: "__supabase__",
+          // Only update role if not already the same; leave as-is otherwise.
+          role: accounts[matchIdx].role || profile.role,
+        };
       } else {
         accounts.push({ username: profile.username, password: "__supabase__", role: profile.role });
       }
-      patched.userAccounts = accounts;
 
-      // Shrink guard — refuse to write if any major collection got smaller.
-      const shrank = (a, b) =>
-        Array.isArray(a) && Array.isArray(b) && b.length < a.length;
-      if (
-        shrank(before.agents, patched.agents) ||
-        shrank(before.brands, patched.brands) ||
-        shrank(before.userAccounts, patched.userAccounts)
-      ) {
-        console.warn("[App] Refused to patch nirm-all: shrink detected", { before, patched });
-        return;
-      }
+      // (No shrink guard needed: this patcher only push()es or updates a
+      // slot in place — accounts.length is monotonically non-decreasing.)
+      if (cancelled) return;
 
-      await window.storage.set("nirm-all", JSON.stringify(patched));
+      const newPrefs = { ...prevPrefs, loginUser: profile.username };
+      await Promise.all([
+        window.storage.set("nirm-userAccounts", accounts),
+        window.storage.set("nirm-role",         profile.role),
+        window.storage.set("nirm-prefs",        newPrefs),
+      ]);
     })();
     return () => { cancelled = true; };
   }, [profile]);
@@ -467,25 +470,6 @@ const labelStyle = {
 };
 
 const inputStyle = {
-  width: "100%", padding: "12px 14px", borderRadius: 10,
-  border: "1.5px solid #E2E8F0", background: "#fff",
-  color: "#1A1D2E", fontSize: 14, fontFamily: "inherit",
-  outline: "none", boxSizing: "border-box",
-  transition: "border 0.15s",
-};
-
-const primaryBtnStyle = {
-  width: "100%", padding: 13, borderRadius: 10, border: "none",
-  background: "#0D9488", color: "#fff", fontSize: 14,
-  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
-};
-
-const linkBtnStyle = {
-  background: "none", border: "none", color: "#0D9488",
-  fontWeight: 600, cursor: "pointer", fontSize: 12,
-  fontFamily: "inherit", padding: 0,
-};
-= {
   width: "100%", padding: "12px 14px", borderRadius: 10,
   border: "1.5px solid #E2E8F0", background: "#fff",
   color: "#1A1D2E", fontSize: 14, fontFamily: "inherit",
