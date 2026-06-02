@@ -11,7 +11,7 @@
 // once you're signed in via Supabase, we skip straight to the app.
 // ════════════════════════════════════════════════════════════════════════════
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import AllocationPanel from "./AllocationRoster2026.jsx";
 import {
   initStorage,
@@ -35,6 +35,14 @@ export default function App() {
   const [info, setInfo]         = useState("");
   const [busy, setBusy]         = useState(false);
 
+  // FIX (password reset reliability v2): the onAuthChange listener captures
+  // `authMode` in a stale closure (set at the time useEffect ran, never re-
+  // closed because the effect has [] deps). When Supabase fires SIGNED_IN
+  // after exchanging the recovery token, the listener can't see that we just
+  // entered recovery mode and bounces the user into the app. Use a ref so
+  // the listener always reads the LIVE value.
+  const inRecoveryRef = useRef(false);
+
   // Bootstrap: init storage shim, check current session
   useEffect(() => {
     // FIX (password reset reliability): the Supabase client parses the URL
@@ -50,6 +58,7 @@ export default function App() {
       hash.includes("type%3Drecovery") ||
       search.includes("type=recovery");
     if (isRecoveryLink) {
+      inRecoveryRef.current = true;
       setAuthMode("recovery");
     }
 
@@ -58,22 +67,24 @@ export default function App() {
       const p = await getCurrentRole();
       // Don't bounce a recovery-link user into the signed-in app. They need to
       // see the "Set a new password" form first.
-      if (!isRecoveryLink) setProfile(p);
+      if (!inRecoveryRef.current) setProfile(p);
       setBooting(false);
     })();
 
     const { data: sub } = onAuthChange(async (event) => {
       if (event === "SIGNED_OUT") {
+        inRecoveryRef.current = false;
         setProfile(null);
       } else if (event === "PASSWORD_RECOVERY") {
         // User clicked the recovery email link. Force them to set a new password.
+        inRecoveryRef.current = true;
         setAuthMode("recovery");
         setProfile(null);
       } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         // If we're in the middle of a recovery flow, the SIGNED_IN event fires
         // as a side-effect of the recovery token being exchanged. Don't bounce
         // the user into the app before they've set a new password.
-        if (authMode === "recovery") return;
+        if (inRecoveryRef.current) return;
         const p = await getCurrentRole();
         setProfile(p);
       }
@@ -226,6 +237,9 @@ export default function App() {
           window.history.replaceState(null, "", window.location.pathname + window.location.search);
         }
       } catch (_) { /* non-fatal */ }
+      // Recovery flow is complete — release the gate so SIGNED_IN events can
+      // proceed to load the user's profile and route them into the app.
+      inRecoveryRef.current = false;
       setAuthMode("signin");
       const p = await getCurrentRole();
       setProfile(p);
@@ -428,6 +442,30 @@ const authCardStyle = {
 
 const labelStyle = {
   fontSize: 11, fontWeight: 600, color: "#94A3B8",
+  textTransform: "uppercase", letterSpacing: 0.5,
+  display: "block", marginBottom: 6,
+};
+
+const inputStyle = {
+  width: "100%", padding: "12px 14px", borderRadius: 10,
+  border: "1.5px solid #E2E8F0", background: "#fff",
+  color: "#1A1D2E", fontSize: 14, fontFamily: "inherit",
+  outline: "none", boxSizing: "border-box",
+  transition: "border 0.15s",
+};
+
+const primaryBtnStyle = {
+  width: "100%", padding: 13, borderRadius: 10, border: "none",
+  background: "#0D9488", color: "#fff", fontSize: 14,
+  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+};
+
+const linkBtnStyle = {
+  background: "none", border: "none", color: "#0D9488",
+  fontWeight: 600, cursor: "pointer", fontSize: 12,
+  fontFamily: "inherit", padding: 0,
+};
+ontSize: 11, fontWeight: 600, color: "#94A3B8",
   textTransform: "uppercase", letterSpacing: 0.5,
   display: "block", marginBottom: 6,
 };
