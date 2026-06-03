@@ -83,8 +83,16 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
 
   // Effective month filter:
   //   - If date range set: `month` becomes "all" so the explicit `monthsInRange` filter takes over.
+  //   - If user has explicitly chosen a month via the Quick Month buttons or
+  //     cleared the filter, use that override.
   //   - Otherwise follow the global header month picker (currentMonthCode).
-  const month = monthsInRange ? "all" : (currentMonthCode || "all");
+  // FIX: previously `month` was hard-locked to currentMonthCode (the roster
+  // tab's month). Clicking "Clear range" left the month stuck at the roster
+  // month, so KPIs kept showing that month's data instead of "all".
+  const [monthOverride, setMonthOverride] = useState(null);
+  const month = monthsInRange
+    ? "all"
+    : (monthOverride !== null ? monthOverride : (currentMonthCode || "all"));
   // Monday.com sync state
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
@@ -318,6 +326,14 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
   // whenever a date range was active, so the KPI showed Q2 totals regardless
   // of the user's date filter.
   const totalChats = useMemo(() => {
+    // FIX (group filter): chatsByMonth is a flat per-month total that has
+    // no brand granularity, so it can't be filtered by group. When a group
+    // is selected, we MUST use filteredChat (which is already scoped to
+    // brands in that group) instead — even if chatsByMonth has bigger
+    // numbers. Only fall back to chatsByMonth when group === "all".
+    if (group !== "all") {
+      return filteredChat.reduce((s, d) => s + d.chats, 0);
+    }
     let fromPerf;
     if (monthsInRange) {
       fromPerf = Array.from(monthsInRange).reduce(
@@ -330,7 +346,7 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
     }
     if (fromPerf > 0) return fromPerf;
     return filteredChat.reduce((s, d) => s + d.chats, 0);
-  }, [chatsByMonth, month, monthsInRange, filteredChat]);
+  }, [chatsByMonth, month, monthsInRange, filteredChat, group]);
 
   // ── Import handler ───────────────────────────────────────────────────────
   const handleImport = async () => {
@@ -457,7 +473,14 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
         <span style={{ color: "#94A3B8", fontSize: 12 }}>to</span>
         <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={dateInputStyle} placeholder="To" />
         {(dateFrom || dateTo) && (
-          <button onClick={() => { setDateFrom(""); setDateTo(""); }} style={{
+          <button onClick={() => {
+            setDateFrom("");
+            setDateTo("");
+            // FIX: also clear the month override to "all" so the KPIs actually
+            // reset instead of falling back to the parent's currentMonthCode
+            // (which leaves the data still filtered to the roster month).
+            setMonthOverride("all");
+          }} style={{
             ...smallBtn,
             border: "1.5px solid #94A3B8", background: "#fff", color: "#64748B", marginLeft: 4,
           }}>Clear range</button>
@@ -571,8 +594,15 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
                 totalOrders += (b[key] || 0);
               });
             });
-            // Fallback: if no monthly keys exist but b.q2 is set and one month is in scope, use q2
-            if (totalOrders === 0 && brandsInScope.length > 0) {
+            // Fallback: ONLY fall back to b.q2 when the user has selected
+            // "all months" (full quarter view). Previously the fallback fired
+            // for ANY single-month filter that lacked per-month data — which
+            // meant filtering to June (with no junO field populated yet) would
+            // show the entire quarter's Q2 total, not zero. That made the
+            // Total Orders card massively overcount in the current month.
+            const isFullQuarter =
+              !monthsInRange && month === "all";
+            if (totalOrders === 0 && isFullQuarter && brandsInScope.length > 0) {
               brandsInScope.forEach(b => { totalOrders += (b.q2 || 0); });
             }
 
@@ -603,7 +633,11 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
                 }
                 return `${label} · ${fromPerf > 0 ? "from Performance" : "from Volume / import"}`;
               })()} color="#1A6FC4" />
-              <KPI label="Total Orders" value={totalOrders.toLocaleString()} sub={brandsInScope.length + " brands"} color="#7B3FA0" />
+              <KPI label="Total Orders" value={totalOrders.toLocaleString()} sub={
+                totalOrders === 0 && !isFullQuarter
+                  ? "no orders imported for this month"
+                  : `${brandsInScope.length} brands`
+              } color="#7B3FA0" />
               <KPI label="Total Cases" value={totalCases.toLocaleString()} sub={`Case/Order: ${caseOrderRatio}`} color="#D02B27" />
               <KPI label="AI %" value="—" sub="not tracked yet" color="#0891B2" />
               <KPI label="Cost / Chat" value={costPerChat} sub={monthlyCost > 0 ? `฿${monthlyCost.toLocaleString()} cost` : "set in Report tab"} color="#D46B08" />
