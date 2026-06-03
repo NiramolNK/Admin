@@ -86,7 +86,7 @@ const WITHHOLDING_RATE = 0.03;
 const ALLOC_BRANDS  = ["Alpha","Beta","Gamma"];
 
 // ── Platforms ────────────────────────────────────────────────────────────────
-const PLATFORMS = ["Shopee","Lazada","Tiktok","Line MyShop","Amaze","Brand.com"];
+const PLATFORMS = ["Shopee","Lazada","Tiktok","Line MyShop","Amaze","Brand.com","Call CC"];
 const PLATFORM_C = {
   Shopee:       {color:"#EE4D2D", bg:"#FFF7ED", icon:""},
   Lazada:       {color:"#0F5BF1", bg:"#EFF6FF", icon:""},
@@ -94,6 +94,7 @@ const PLATFORM_C = {
   "Line MyShop":{color:"#06C755", bg:"#E8FFF0", icon:""},
   Amaze:        {color:"#1D4ED8", bg:"#DBEAFE", icon:""},
   "Brand.com":  {color:"#B45309", bg:"#FEF3C7", icon:""},
+  "Call CC":    {color:"#7C3AED", bg:"#F3E8FF", icon:""},
 };
 
 // ── Store Performance Data — from duoke_shop_performance (Jan 1–Feb 24 2026) ─
