@@ -235,13 +235,21 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
       const topBrandAgents = totalWorking >= 6 ? 3 : totalWorking >= 4 ? 2 : Math.min(2, totalWorking);
 
       // Build tasks sorted by volume desc — per-month aware
+      // FIX (zero-chat coverage): if a brand has 0 chats this month but is
+      // NOT offboarded, it still needs an agent assigned so that when chats
+      // DO come in there's someone covering. We use a sentinel volume of
+      // 0.01 — this sorts the task to the very bottom (real-volume brands
+      // get priority for the strongest agents) but the brand still gets
+      // exactly one agent slot per platform. Offboarded brands were already
+      // filtered out at the top of allocAutoFillConstrained.
       const tasks = [];
       brands.forEach(b => {
         (b.platforms||[]).forEach(plat => {
-          const vol = getBrandChats(b, plat, monthlyVol, mk);
-          if (vol <= 0) return;
-          // How many agents for this brand+platform
-          const agentCount = top3.has(b.id) ? topBrandAgents : 1;
+          const realVol = getBrandChats(b, plat, monthlyVol, mk);
+          const vol = realVol > 0 ? realVol : 0.01;
+          // How many agents for this brand+platform — zero-chat brands only
+          // get 1 agent regardless of whether they were in top3 historically.
+          const agentCount = (realVol > 0 && top3.has(b.id)) ? topBrandAgents : 1;
           tasks.push({ k: `${b.id}_${d.date}_${shift}_${plat}`, vol, brandId: b.id, agentCount });
         });
       });
@@ -285,6 +293,10 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
 // minimum-headcount calculations route through the active roster month's
 // imported chat data instead of brand defaults.
 function allocAutoFillConstrained(agents, dates, flags, constraints, brands, existing = {}, monthlyVol = {}, mk = null) {
+  // FIX (Offboarded brands): exclude any brand flagged offboarded from the
+  // allocation pool. They keep their data (chats, history) but the auto-fill
+  // skips them entirely so freed agent capacity flows to live brands.
+  brands = (brands || []).filter(b => !b?.offboarded);
   const nxt = {};
   // Honor pre-existing manual assignments — they are kept as-is.
   // For "Off" days set by manager (day-off requests), we treat them as fixed days off.
@@ -3628,6 +3640,10 @@ export default function AllocationPanel({ isAdmin = true }) {
 
           // Filter brands by search + agent filter + ME high-vol filter
           const filteredBrands = brands.filter(b => {
+            // FIX (Offboarded brands): hide offboarded brands from the
+            // allocation grid so agents can't be assigned to them and the
+            // workload counts don't include them.
+            if (b.offboarded) return false;
             // ME shift: only show high-volume brands
             if (allocShiftF==="ME" && !highVolIds.has(b.id)) return false;
             const matchesSearch = brandSearch==="" || b.name.toLowerCase().includes(brandSearch.toLowerCase());
@@ -4048,6 +4064,40 @@ export default function AllocationPanel({ isAdmin = true }) {
                           </div>
                         </div>
                       )}
+                      {/* Offboarded toggle + date */}
+                      <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14,marginTop:6}}>
+                        <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:12,fontWeight:600,color:"#475569"}}>
+                          <input
+                            type="checkbox"
+                            checked={!!editBrand.offboarded}
+                            onChange={e=>{
+                              const checked = e.target.checked;
+                              setEditBrand({
+                                ...editBrand,
+                                offboarded: checked,
+                                offboardedDate: checked
+                                  ? (editBrand.offboardedDate || new Date().toISOString().slice(0,10))
+                                  : "",
+                              });
+                            }}
+                            style={{width:16,height:16,cursor:"pointer"}}
+                          />
+                          Offboarded — exclude from allocation
+                        </label>
+                        {editBrand.offboarded && (
+                          <div style={{marginTop:8,display:"flex",alignItems:"center",gap:10}}>
+                            <label style={{fontSize:11,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:0.3}}>
+                              Offboarded Date
+                            </label>
+                            <input
+                              type="date"
+                              value={editBrand.offboardedDate || ""}
+                              onChange={e=>setEditBrand({...editBrand, offboardedDate: e.target.value})}
+                              style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit",color:"#1A1D2E",background:"#fff",outline:"none"}}
+                            />
+                          </div>
+                        )}
+                      </div>
                       {/* Actions */}
                       <div style={{display:"flex",gap:8,justifyContent:"space-between",marginTop:4}}>
                         <div>
@@ -5018,10 +5068,6 @@ export default function AllocationPanel({ isAdmin = true }) {
               <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden"}}>
                 {/* View toggle */}
                 <div style={{padding:"10px 16px",background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"}}>
-                  <div style={{fontSize:11,color:"#94A3B8"}}>
-                    Source: <strong style={{color:"#1A1D2E"}}>duoke_shop_performance Feb 2026</strong>
-                    <span style={{marginLeft:8,fontSize:10,color:"#94A3B8"}}>· {brands.length} stores · edit chats to update allocation</span>
-                  </div>
                   <div style={{display:"flex",gap:3,background:"#FAFBFC",borderRadius:8,padding:3}}>
                     {[["chats","Chat Volume"],["perf","Performance"]].map(([m,l])=>(
                       <button key={m} onClick={()=>setVolViewMode(m)} style={{
