@@ -4701,30 +4701,36 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead>
                       <tr style={{background:"#E4EAF5"}}>
-                        {["Agent","Bank Details","Work Days","Cost/Day (฿)","Total Pay (฿)"].map(h=>(
+                        {["PCode","Agent","Bank Details","Work Days","Cost/Day (฿)","Total Pay (฿)"].map(h=>(
                           <th key={h} style={{padding:"8px 12px",textAlign:["Work Days","Cost/Day (฿)","Total Pay (฿)"].includes(h)?"right":"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {["T1","Return"].map(team => {
-                        const teamRows = payRows.filter(r=>r.ag.team===team);
+                        // FIX: sort team rows by PCode (id) ascending so the
+                        // report layout matches the spreadsheet order.
+                        const teamRows = payRows
+                          .filter(r=>r.ag.team===team)
+                          .sort((a,b) => (a.ag.id||"").localeCompare(b.ag.id||"", undefined, {numeric:true}));
                         if(!teamRows.length) return null;
                         const teamTotal = teamRows.reduce((s,r)=>s+r.totalPay,0);
                         const tc = ALLOC_TEAM_C[team];
                         return [
                           <tr key={`${team}-hdr`} style={{background:tc.bg+"44"}}>
-                            <td colSpan={5} style={{padding:"5px 12px",fontSize:10,fontWeight:700,color:tc.color,letterSpacing:1}}>{team} — Daily Rate × Worked Days</td>
+                            <td colSpan={6} style={{padding:"5px 12px",fontSize:10,fontWeight:700,color:tc.color,letterSpacing:1}}>{team} — Daily Rate × Worked Days</td>
                           </tr>,
                           ...teamRows.map(({ag,workDays,normalDays,totalPay},ri) => {
-                            // Pull personal info from agent record (set via the agent self-fill form / Teams modal)
                             const fullName = ag.fullName || ag.name;
-                            const bankLabel = ag.bankName || "";
+                            const bankLabel = ag.bankName || ag.bank || "";
                             const bankAcct = ag.bankAccount || "";
                             const bankHolder = ag.bankAccountName || "";
                             const hasBank = bankLabel || bankAcct || bankHolder;
                             return (
                             <tr key={ag.id} style={{borderBottom:"1px solid #F1F5F9",background:ri%2===0?"#FAFBFC":"transparent"}}>
+                              <td style={{padding:"8px 12px"}}>
+                                <span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:ALLOC_TEAM_C[team]?.bg,color:ALLOC_TEAM_C[team]?.color,fontWeight:700,fontFamily:"monospace"}}>{ag.id}</span>
+                              </td>
                               <td style={{padding:"8px 12px"}}>
                                 <div style={{fontWeight:700,color:"#1A1D2E"}}>{fullName}</div>
                                 {fullName !== ag.name && <div style={{fontSize:10,color:"#94A3B8",marginTop:1}}>({ag.name})</div>}
@@ -4743,15 +4749,14 @@ export default function AllocationPanel({ isAdmin = true }) {
                             );
                           }),
                           <tr key={`${team}-sub`} style={{background:tc.bg+"22",borderTop:`1px solid ${tc.color}44`}}>
-                            <td colSpan={4} style={{padding:"6px 12px",fontWeight:700,color:tc.color,fontSize:11}}>{team} SUBTOTAL</td>
+                            <td colSpan={5} style={{padding:"6px 12px",fontWeight:700,color:tc.color,fontSize:11}}>{team} SUBTOTAL</td>
                             <td style={{padding:"6px 12px",fontFamily:"monospace",fontWeight:700,color:tc.color,textAlign:"right"}}>฿{Math.round(teamTotal).toLocaleString()}</td>
                           </tr>
                         ];
                       })}
                       <tr style={{background:"#F0FDFA",borderTop:"2px solid #0D9488"}}>
-                        <td colSpan={4} style={{padding:"12px 12px",fontWeight:700,color:"#0D9488",fontSize:13}}>GRAND TOTAL</td>
+                        <td colSpan={5} style={{padding:"12px 12px",fontWeight:700,color:"#0D9488",fontSize:13}}>GRAND TOTAL</td>
                         <td style={{padding:"12px 12px",fontFamily:"monospace",fontWeight:700,fontSize:16,color:"#065F46",textAlign:"right"}}>฿{Math.round(grandTotal).toLocaleString()}</td>
-                        <td/>
                       </tr>
                     </tbody>
                   </table>
