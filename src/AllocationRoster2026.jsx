@@ -1120,6 +1120,13 @@ export default function AllocationPanel({ isAdmin = true }) {
   // the auto-save useEffect to fire with stale data. Counter-style depth track
   // means the flag only releases when the last in-flight sync's timer fires.
   const suspendDepth = useRef(0);
+  // FIX (round-9 senior review MEDIUM/C): track the last-seen per-domain cache
+  // so the subscriber can DIFF and only apply setters for keys that actually
+  // changed. Without this, every foreign update (which arrives as a FULL row
+  // payload from Realtime) calls every setter — and if a local tab has an
+  // unsaved edit batched into React state (within the 300ms debounce window),
+  // the subscriber will revert it by re-applying the stale server value.
+  const prevDomainCacheRef = useRef({});
   useEffect(() => {
     if (!storageLoaded) return;
     const handler = (newCache) => {
@@ -1164,9 +1171,39 @@ export default function AllocationPanel({ isAdmin = true }) {
         }
       }
       if (!anyDomainPresent) return; // nothing to sync
+      // FIX (round-9 senior review MEDIUM/C): only apply setters for keys
+      // whose CACHED value actually changed. The realtime payload always
+      // contains the full row, so the naive "loop every domain and call its
+      // setter" approach would clobber unsaved local edits batched in React
+      // state for keys the foreign tab didn't touch. Use referential equality
+      // first (cheap), then JSON-stringify fallback for value equality on
+      // arrays/objects whose top-level reference may have changed without
+      // any actual content change. If reference and stringify both differ,
+      // the key was genuinely modified by someone else — apply the setter.
+      const changedStateKeys = new Set();
+      for (const { storageKey, stateKey } of DOMAIN_KEYS) {
+        if (!(storageKey in (newCache || {}))) continue;
+        const next = newCache[storageKey];
+        const prev = prevDomainCacheRef.current[storageKey];
+        if (next === prev) continue; // referentially identical
+        let changed = true;
+        try {
+          if (JSON.stringify(next) === JSON.stringify(prev)) changed = false;
+        } catch (_) { /* very large or circular — assume changed */ }
+        if (changed) changedStateKeys.add(stateKey);
+      }
+      // Snapshot the new cache for next time even if nothing changed (handles
+      // the first call after mount where prevDomainCacheRef is empty).
+      const nextSnapshot = { ...prevDomainCacheRef.current };
+      for (const { storageKey } of DOMAIN_KEYS) {
+        if (storageKey in (newCache || {})) nextSnapshot[storageKey] = newCache[storageKey];
+      }
+      prevDomainCacheRef.current = nextSnapshot;
+      if (changedStateKeys.size === 0) return; // server matches our last-seen state — no setters needed
       try {
         suspendDepth.current++;
         for (const { stateKey } of DOMAIN_KEYS) {
+          if (!changedStateKeys.has(stateKey)) continue;
           const setter = setterMap[stateKey];
           if (!setter) continue; // session-scoped key, skip
           if (d[stateKey] != null) setter(d[stateKey]);
@@ -3371,6 +3408,43 @@ export default function AllocationPanel({ isAdmin = true }) {
                             }
                             return next;
                           });
+                          // FIX (round-9 senior review MEDIUM/G): also strip
+                          // the agent from userAccounts (so they can't sign in
+                          // anymore) and from userProfiles (so the payroll
+                          // blob doesn't linger as orphaned data). Match by
+                          // email (preferred — that's the login key) and by
+                          // name as a fallback for legacy entries.
+                          const agentEmail = (editAgent.email || "").toLowerCase();
+                          const agentName = (editAgent.name || "").toLowerCase();
+                          setUserAccounts(prev => (Array.isArray(prev) ? prev : []).filter(u => {
+                            const uname = (u?.username || "").toLowerCase();
+                            if (agentEmail && uname === agentEmail) return false;
+                            if (agentName && uname === agentName) return false;
+                            return true;
+                          }));
+                          setUserProfiles(prev => {
+                            const next = { ...(prev || {}) };
+                            // userProfiles is keyed by id; also try by name
+                            // and email since older entries may use either.
+                            delete next[id];
+                            if (agentEmail) delete next[agentEmail];
+                            if (agentName) delete next[agentName];
+                            // Hunt for entries whose payload matches this agent.
+                            for (const [k, v] of Object.entries(next)) {
+                              const candidate = v || {};
+                              if (
+                                (candidate.username && candidate.username.toLowerCase() === agentEmail) ||
+                                (candidate.fullName && candidate.fullName.toLowerCase() === agentName)
+                              ) delete next[k];
+                            }
+                            return next;
+                          });
+                          // NOTE: the agent's Supabase Auth account is NOT
+                          // deleted here — that requires admin-API access
+                          // (service-role key, not client-side). The user is
+                          // locked out of the app because their userAccounts
+                          // entry is gone, but the Auth row remains until
+                          // someone deletes it from the Supabase dashboard.
                           setAgentModal(false);
                         }} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #FCA5A5",background:"#FEF2F2",color:"#DC2626",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>Remove</button>
                       ) : <span/>}
@@ -5405,14 +5479,41 @@ export default function AllocationPanel({ isAdmin = true }) {
                       if(userAccounts.some(u=>u.username.toLowerCase()===email.toLowerCase())){alert("This email is already in the user list.");return;}
                       // Save current Supabase session so signUp() doesn't replace it
                       const { data: { session: currentSession } } = await supabase.auth.getSession();
+                      // FIX (round-9 senior review HIGH/B): the Add User identity swap.
+                      // supabase.auth.signUp() auto-signs-in the new user, which
+                      // fires SIGNED_IN in App.jsx. If the new user's email already
+                      // has a profile row (re-invite, pre-existing account), the
+                      // listener's getCurrentRole() can resolve a non-null profile
+                      // for them and call setProfile(newUser) — silently swapping
+                      // the admin's identity in React state.
+                      // Mitigation: while this block runs, expose a global guard
+                      // that App.jsx checks. If a SIGNED_IN event arrives for any
+                      // user ID other than the admin, the listener returns without
+                      // touching profile state. The guard is set BEFORE signUp and
+                      // cleared in a finally block to guarantee cleanup even on
+                      // throw.
+                      window.__nirmInviteInProgress = true;
+                      window.__nirmAdminUserId = currentSession?.user?.id || null;
                       // For invite mode, generate a random temp password — the user will reset it via email
                       const finalPw = isInvite
                         ? `Inv${Math.random().toString(36).slice(2,10)}${Math.random().toString(36).slice(2,10).toUpperCase()}!`
                         : pw;
-                      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password: finalPw });
-                      // Restore the current admin's session (signUp swaps to the new user)
-                      if(currentSession) {
-                        await supabase.auth.setSession({ access_token: currentSession.access_token, refresh_token: currentSession.refresh_token });
+                      let signUpData, signUpError;
+                      try {
+                        ({ data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password: finalPw }));
+                        // Restore the current admin's session (signUp swaps to the new user)
+                        if(currentSession) {
+                          await supabase.auth.setSession({ access_token: currentSession.access_token, refresh_token: currentSession.refresh_token });
+                        }
+                      } finally {
+                        // Give any in-flight SIGNED_IN listeners a moment to run
+                        // through their async getCurrentRole() with the guard
+                        // still set, THEN clear it. 300ms is comfortably longer
+                        // than a profile fetch.
+                        setTimeout(() => {
+                          window.__nirmInviteInProgress = false;
+                          window.__nirmAdminUserId = null;
+                        }, 300);
                       }
                       const isAlreadyRegistered = signUpError && /already.*registered|already.*exists|user.*exists/i.test(signUpError.message);
                       if(signUpError && !isAlreadyRegistered){

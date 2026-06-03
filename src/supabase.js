@@ -6,6 +6,26 @@
 
 import { createClient } from "@supabase/supabase-js";
 
+// ─── Early URL hash capture ────────────────────────────────────────────────
+// FIX (round-10 password reset reliability): Supabase's createClient parses
+// and CLEARS the URL hash (#access_token=...&type=recovery&...) synchronously
+// during init. By the time any other module runs, the hash is gone. AND in
+// some session states Supabase fires SIGNED_IN (not PASSWORD_RECOVERY), so
+// our onAuthStateChange listener below can miss the recovery signal entirely.
+//
+// Capture the raw URL hash AT MODULE LOAD, before createClient executes, so
+// App.jsx can reliably check `type=recovery` no matter what events fire.
+const __earlyUrlHash =
+  typeof window !== "undefined" ? (window.location.hash || "") : "";
+const __earlyUrlSearch =
+  typeof window !== "undefined" ? (window.location.search || "") : "";
+const __earlyIsRecoveryLink =
+  __earlyUrlHash.includes("type=recovery") ||
+  __earlyUrlHash.includes("type%3Drecovery") ||
+  __earlyUrlSearch.includes("type=recovery");
+export function isEarlyRecoveryLink() { return __earlyIsRecoveryLink; }
+export function getEarlyUrlHash() { return __earlyUrlHash; }
+
 // ─── Configuration ─────────────────────────────────────────────────────────
 // Set these via Vite env vars in .env.local:
 //   VITE_SUPABASE_URL=https://xxxxx.supabase.co

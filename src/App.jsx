@@ -23,6 +23,7 @@ import {
   supabase,
   consumeRecoveryFlag,
   clearRecoveryFlag,
+  isEarlyRecoveryLink,
 } from "./supabase.js";
 
 export default function App() {
@@ -63,8 +64,16 @@ export default function App() {
     const moduleSawRecovery = typeof consumeRecoveryFlag === "function"
       ? consumeRecoveryFlag()
       : false;
+    // FIX (round-10): also consult the early-URL-hash capture in supabase.js
+    // that runs BEFORE createClient parses & clears the hash. This catches
+    // recovery links even when Supabase fires SIGNED_IN instead of
+    // PASSWORD_RECOVERY (which happens when the session is already cached).
+    const earlyHashSawRecovery = typeof isEarlyRecoveryLink === "function"
+      ? isEarlyRecoveryLink()
+      : false;
     const isRecoveryLink =
       moduleSawRecovery ||
+      earlyHashSawRecovery ||
       hash.includes("type=recovery") ||
       hash.includes("type%3Drecovery") ||
       search.includes("type=recovery");
@@ -96,6 +105,22 @@ export default function App() {
         // as a side-effect of the recovery token being exchanged. Don't bounce
         // the user into the app before they've set a new password.
         if (inRecoveryRef.current) return;
+        // FIX (round-9 senior review HIGH/B): the Add User identity swap.
+        // If an admin is currently inviting another user, supabase.auth.signUp()
+        // transiently makes the new user the active session — and SIGNED_IN
+        // fires for that new user before setSession() restores the admin.
+        // The round-4 fix only protected the null-profile case; if the new
+        // user already has a profiles row (re-invite scenario), getCurrentRole
+        // returns a non-null profile and the old code overwrote the admin.
+        // Now: while __nirmInviteInProgress is set, IGNORE any SIGNED_IN for
+        // a user id other than the admin who started the invite.
+        if (typeof window !== "undefined" && window.__nirmInviteInProgress) {
+          const { data: { user: currentUser } } = await supabase.auth.getUser();
+          if (currentUser?.id && window.__nirmAdminUserId &&
+              currentUser.id !== window.__nirmAdminUserId) {
+            return; // foreign session window during invite — don't touch profile
+          }
+        }
         const p = await getCurrentRole();
         // FIX (Add User unmount race): when an admin invites a new user, the
         // SDK's signUp() transiently signs the new user in BEFORE the admin's
@@ -377,19 +402,12 @@ function AuthScreen({
             :              "Sign in"}
         </button>
 
-        {!isRecovery && (
-          <div style={{ textAlign: "center", marginTop: 16, fontSize: 12, color: "#64748B" }}>
-            {isForgot ? (
-              <button type="button" onClick={() => setMode("signin")} style={linkBtnStyle}>
-                Back to sign in
-              </button>
-            ) : (
-              <button type="button" onClick={() => setMode("forgot")} style={linkBtnStyle}>
-                Forgot password?
-              </button>
-            )}
-          </div>
-        )}
+        {/* Forgot-password entry removed per user request.
+            The email-link recovery flow had too many timing edge cases
+            (Supabase hash race, session-missing errors, identity swaps).
+            Users now change their password from inside the app via "Tap to
+            edit profile" in the sidebar. Managers can also reset another
+            user's password from the Supabase dashboard if needed. */}
 
         {mode === "signin" && (
           <div style={{ textAlign: "center", marginTop: 12, fontSize: 11, color: "#94A3B8" }}>
@@ -465,3 +483,26 @@ const authCardStyle = {
 
 const labelStyle = {
   fontSize: 11, fontWeight: 600, color: "#94A3B8",
+  textTransform: "uppercase", letterSpacing: 0.5,
+  display: "block", marginBottom: 6,
+};
+
+const inputStyle = {
+  width: "100%", padding: "12px 14px", borderRadius: 10,
+  border: "1.5px solid #E2E8F0", background: "#fff",
+  color: "#1A1D2E", fontSize: 14, fontFamily: "inherit",
+  outline: "none", boxSizing: "border-box",
+  transition: "border 0.15s",
+};
+
+const primaryBtnStyle = {
+  width: "100%", padding: 13, borderRadius: 10, border: "none",
+  background: "#0D9488", color: "#fff", fontSize: 14,
+  fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+};
+
+const linkBtnStyle = {
+  background: "none", border: "none", color: "#0D9488",
+  fontWeight: 600, cursor: "pointer", fontSize: 12,
+  fontFamily: "inherit", padding: 0,
+};
