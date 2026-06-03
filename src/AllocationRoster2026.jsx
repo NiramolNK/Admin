@@ -1382,29 +1382,85 @@ export default function AllocationPanel({ isAdmin = true }) {
   }, 0);
   const totalBudget = Object.values(budget).reduce((s,v)=>s+v,0);
 
-  const openAgent = ag => { setEditAgent({...ag,days:[...ag.days]}); setInviteEmail(""); setInviteSent(false); setInviteSending(false); setAgentModal(true); };
+  // FIX: stash _originalId so saveAgent can detect an id rename and rewrite
+  // references (allAsgn, allBrandAsgn) that key off the agent id.
+  const openAgent = ag => { setEditAgent({...ag, days:[...ag.days], _originalId: ag.id}); setInviteEmail(""); setInviteSent(false); setInviteSending(false); setAgentModal(true); };
   const saveAgent = () => {
+    const candidateId = (editAgent.id || "").trim();
+    if (!candidateId) {
+      alert("PCode is required.");
+      return;
+    }
+    const originalId = editAgent._originalId || candidateId;
+    const isRename = !editAgent._isNew && originalId !== candidateId;
+
+    // Collision check before mutating
+    if (isRename || editAgent._isNew) {
+      const collides = agents.some(a => a.id === candidateId && a.id !== originalId);
+      if (collides && !editAgent._isNew) {
+        alert(`PCode ${candidateId} is already used by another agent. Pick a different code.`);
+        return;
+      }
+    }
+
     setAgents(p => {
-      // FIX (data-loss bug): if this is a brand-new agent and the id already exists
-      // in the list, bump the suffix until unique so we never silently overwrite an
-      // existing staff record. For an edit (no _isNew flag) keep the original behaviour
-      // of replacing the matching record.
-      let candidate = editAgent;
+      let candidate = { ...editAgent };
+      delete candidate._originalId;
       if (candidate._isNew) {
-        let id = candidate.id;
+        let id = candidateId;
         while (p.some(a => a.id === id)) {
           const num = parseInt(String(id).replace(/^A/,""),10);
           id = `A${String((isNaN(num)?p.length:num)+1).padStart(2,"0")}`;
         }
         candidate = { ...candidate, id };
-        // strip the internal flag before persisting
         delete candidate._isNew;
         return [...p, candidate];
       }
-      const i = p.findIndex(a => a.id === candidate.id);
-      if (i >= 0) { const n = [...p]; n[i] = candidate; return n; }
-      return [...p, candidate];
+      const i = p.findIndex(a => a.id === originalId);
+      if (i >= 0) { const n = [...p]; n[i] = { ...candidate, id: candidateId }; return n; }
+      return [...p, { ...candidate, id: candidateId }];
     });
+
+    // FIX: if the user renamed the PCode, migrate all references in the
+    // shift-allocation maps (allAsgn) and brand-allocation maps
+    // (allBrandAsgn). Keys in allAsgn look like `${agentId}_${date}` and
+    // brand-allocation values include the agent id alongside the name.
+    if (isRename) {
+      setAllAsgn(prev => {
+        const next = {};
+        for (const [mk, m] of Object.entries(prev || {})) {
+          const updated = {};
+          for (const [k, v] of Object.entries(m || {})) {
+            // Keys are `${agentId}_${date}`
+            if (k.startsWith(originalId + "_")) {
+              updated[candidateId + k.slice(originalId.length)] = v;
+            } else {
+              updated[k] = v;
+            }
+          }
+          next[mk] = updated;
+        }
+        return next;
+      });
+      setAllBrandAsgn(prev => {
+        const next = {};
+        for (const [mk, m] of Object.entries(prev || {})) {
+          const updated = {};
+          for (const [k, v] of Object.entries(m || {})) {
+            // Values can be a string (agent id) or array of agent ids/names.
+            if (Array.isArray(v)) {
+              updated[k] = v.map(x => x === originalId ? candidateId : x);
+            } else if (v === originalId) {
+              updated[k] = candidateId;
+            } else {
+              updated[k] = v;
+            }
+          }
+          next[mk] = updated;
+        }
+        return next;
+      });
+    }
     setAgentModal(false);
   };
 
@@ -3261,12 +3317,14 @@ export default function AllocationPanel({ isAdmin = true }) {
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:14}}>
                     <div style={{display:"grid",gridTemplateColumns:"110px 1fr 1fr",gap:12}}>
-                      <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>PCode <span style={{marginLeft:4,color:"#94A3B8",fontWeight:500,textTransform:"none"}}>(auto)</span></label>
-                        {/* FIX (HIGH): PCode is auto-generated and now ALWAYS read-only.
-                            Manually changing an id risked silently overwriting another agent
-                            (same root cause as the A16 collision bug). */}
-                        <input value={editAgent.id} readOnly
-                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#F1F5F9",color:"#64748B",fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box",cursor:"not-allowed"}}/></div>
+                      <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>PCode</label>
+                        {/* PCode is editable per user request. saveAgent below
+                            still checks for collisions against OTHER agents and
+                            rejects the save if you try to use an id that's
+                            already taken — so renaming yourself to a unique
+                            new code is fine but you can't overwrite someone. */}
+                        <input value={editAgent.id} onChange={e=>setEditAgent({...editAgent, id: e.target.value.toUpperCase().trim()})}
+                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/></div>
                       <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Name</label>
                         <input value={editAgent.name} onChange={e=>setEditAgent({...editAgent,name:e.target.value})}
                           style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
