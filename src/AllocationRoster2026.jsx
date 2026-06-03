@@ -225,6 +225,12 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
       if(v==="E") working.E.push(ag);
     });
 
+    // FIX (brand Start Date): only consider brands whose startDate is on or
+    // before this date. A brand with a future startDate is not yet active,
+    // so it gets no agents until that date arrives. Brands without a
+    // startDate are always active (no restriction).
+    const dateBrands = brands.filter(b => !b.startDate || b.startDate <= d.date);
+
     ["M","E"].forEach(shift => {
       const shiftPool = shift==="M" ? working.M : working.E;
       const mePool = working.ME;
@@ -244,7 +250,7 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
       // exactly one agent slot per platform. Offboarded brands were already
       // filtered out at the top of allocAutoFillConstrained.
       const tasks = [];
-      brands.forEach(b => {
+      dateBrands.forEach(b => {
         (b.platforms||[]).forEach(plat => {
           const realVol = getBrandChats(b, plat, monthlyVol, mk);
           const vol = realVol > 0 ? realVol : 0.01;
@@ -406,9 +412,23 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
     const fl = flags[d.date];
     const dc = constraints.dateOverrides?.[d.date];
 
-    const needM    = dc != null ? (dc.needM  ?? 0) : (constraints.needM  ?? 0);
-    const needME   = dc != null ? (dc.needME ?? 0) : (constraints.needME ?? 0);
-    const needE    = dc != null ? (dc.needE  ?? 0) : (constraints.needE  ?? 0);
+    const needMRaw  = dc != null ? (dc.needM  ?? 0) : (constraints.needM  ?? 0);
+    const needMERaw = dc != null ? (dc.needME ?? 0) : (constraints.needME ?? 0);
+    const needERaw  = dc != null ? (dc.needE  ?? 0) : (constraints.needE  ?? 0);
+    // FIX (coverage floor): when the manager hasn't set explicit per-shift
+    // minimums in the Auto-Fill modal, the old code defaulted to 0 — which
+    // meant Sunday could end up with 0 evening coverage and nobody on chats.
+    // Now: if needM or needE come in as 0, fall back to a sensible portion
+    // of the available pool (30% M, 25% E, both floored at minimums) so
+    // there's always SOMEONE on every shift the day allows.
+    const t1Available = t1.filter(a =>
+      a.days.includes(d.wd) && !forcedOff[`${a.id}_${d.date}`]
+    ).length;
+    const defaultMinM = Math.max(2, Math.ceil(t1Available * 0.30));
+    const defaultMinE = Math.max(1, Math.ceil(t1Available * 0.25));
+    const needM  = needMRaw  > 0 ? needMRaw  : defaultMinM;
+    const needME = needMERaw; // ME stays explicit — only set when high-vol crossover is wanted
+    const needE  = needERaw  > 0 ? needERaw  : defaultMinE;
     const budgetCap = dc?.budget != null ? dc.budget
                     : constraints.dailyBudget != null ? constraints.dailyBudget : null;
     const chatCap = constraints.chatPerAgent ?? null;
@@ -3703,6 +3723,10 @@ export default function AllocationPanel({ isAdmin = true }) {
             // allocation grid so agents can't be assigned to them and the
             // workload counts don't include them.
             if (b.offboarded) return false;
+            // FIX (Start Date): hide brands whose startDate is after the
+            // date currently selected in the allocation header. They're not
+            // yet active so they shouldn't appear on this day's grid.
+            if (b.startDate && selDate?.date && b.startDate > selDate.date) return false;
             // ME shift: only show high-volume brands
             if (allocShiftF==="ME" && !highVolIds.has(b.id)) return false;
             const matchesSearch = brandSearch==="" || b.name.toLowerCase().includes(brandSearch.toLowerCase());
@@ -4123,6 +4147,23 @@ export default function AllocationPanel({ isAdmin = true }) {
                           </div>
                         </div>
                       )}
+                      {/* Start Date — allocation only kicks in from this date onward */}
+                      <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14,marginTop:6}}>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          <label style={{fontSize:11,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:0.3,minWidth:90}}>
+                            Start Date
+                          </label>
+                          <input
+                            type="date"
+                            value={editBrand.startDate || ""}
+                            onChange={e=>setEditBrand({...editBrand, startDate: e.target.value})}
+                            style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit",color:"#1A1D2E",background:"#fff",outline:"none"}}
+                          />
+                          <span style={{fontSize:10,color:"#94A3B8"}}>
+                            Agents will only be allocated from this date onward. Leave blank for no start-date restriction.
+                          </span>
+                        </div>
+                      </div>
                       {/* Offboarded toggle + date */}
                       <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14,marginTop:6}}>
                         <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:12,fontWeight:600,color:"#475569"}}>
