@@ -1,34 +1,30 @@
 // ════════════════════════════════════════════════════════════════════════
-// NiRM Roster — safeStorage.js
-// Fixes the last-write-wins data-loss bug.
+// NiRM Roster — safeStorage.js  (v2 — ancestor-tracked CAS)
 //
-// What it does:
-//   • Stores each storage key as its own row in kv_state (not one big blob),
-//     so people editing different things can never overwrite each other.
-//   • Every write is a compare-and-swap on a version number. If someone
-//     else saved first, the write is NOT applied blindly — we refetch,
-//     3-way-merge (their changes + your changes), and retry.
-//   • On realtime reconnect (sleeping tab, dropped wifi, resumed project)
-//     the whole cache is refetched, so a stale tab can never clobber data.
-//   • One-time automatic migration: if kv_state is empty, the old
-//     app_state.data blob is split into per-key rows.
+// v2 FIX: v1 had a design flaw — the realtime handler advanced the CAS
+// version, so a tab whose REACT STATE was stale could still pass the CAS
+// gate and overwrite fresh data without ever triggering the merge.
 //
-// Public API is identical to the old shim / artifact storage:
-//   get(key)        → {key, value, shared} | null
-//   set(key, value) → {key, value, shared}
-//   delete(key)     → {key, deleted: true, shared}
-//   list(prefix)    → {keys, prefix, shared}
+// v2 keeps TWO maps:
+//   latest — what the server has right now (updated by realtime/refetch)
+//   shadow — the ancestor: what THIS tab last read or wrote. Only get()
+//            and a successful set() may advance it. Realtime NEVER touches
+//            it. CAS gates on shadow.version, so a save based on stale app
+//            state always fails the gate → 3-way merge → nothing lost.
+//
+// Public API unchanged:
+//   get(key) | set(key, value) | delete(key) | list(prefix)
 // ════════════════════════════════════════════════════════════════════════
 
 import { supabase } from "./supabase.js";
 
 const TABLE = "kv_state";
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 6;
 
-// cache[key] = { value, version }
-// base[key]  = last value we KNOW the server had (merge ancestor)
-const cache = new Map();
-const base = new Map();
+// latest[key] = { value, version }   ← server truth (realtime-fresh)
+// shadow[key] = { value, version }   ← merge ancestor (this tab's last read/write)
+const latest = new Map();
+const shadow = new Map();
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -50,13 +46,12 @@ function deepEqual(a, b) {
   return false;
 }
 
-// 3-way merge: base = common ancestor, local = what THIS user wants to save,
-// remote = what the server has now (someone else's save).
-// Rule: keep both sides' changes; if both changed the same leaf, the person
-// actively saving (local) wins — but only for that leaf, nothing else is lost.
+// 3-way merge: ancestor vs local (this tab's save) vs remote (server now).
+// Keep both sides' changes; same-leaf conflict → the active saver wins
+// for that leaf only.
 function threeWayMerge(baseV, local, remote) {
-  if (deepEqual(local, baseV)) return remote;  // we didn't change it → theirs
-  if (deepEqual(remote, baseV)) return local;  // they didn't change it → ours
+  if (deepEqual(local, baseV)) return remote;
+  if (deepEqual(remote, baseV)) return local;
   if (isObj(baseV) && isObj(local) && isObj(remote)) {
     const keys = new Set([
       ...Object.keys(baseV), ...Object.keys(local), ...Object.keys(remote),
@@ -73,11 +68,11 @@ function threeWayMerge(baseV, local, remote) {
     }
     return out;
   }
-  return local; // conflicting scalar/array edit → saver wins for this leaf only
+  return local;
 }
 
-// The component sometimes calls set(key, JSON.stringify(obj)). Store the
-// parsed object so merging works; get() re-stringifies for compatibility.
+// Strings that are JSON get stored parsed so merging works;
+// get() re-stringifies so the component sees exactly what it saved.
 const toStored = (v) => (typeof v === "string" ? tryParse(v) : v);
 function tryParse(s) {
   try { return { __wasString: true, v: JSON.parse(s) }; }
@@ -95,15 +90,14 @@ const remergeable = (orig, merged) =>
     ? { __wasString: true, v: merged }
     : merged;
 
-// ─── core ops ─────────────────────────────────────────────────────────────
+// ─── server ops — these touch `latest` ONLY, never `shadow` ──────────────
 
 async function fetchAll() {
   const { data, error } = await supabase.from(TABLE).select("key,value,version");
   if (error) throw error;
-  cache.clear(); base.clear();
+  latest.clear();
   for (const row of data || []) {
-    cache.set(row.key, { value: row.value, version: row.version });
-    base.set(row.key, row.value);
+    latest.set(row.key, { value: row.value, version: row.version });
   }
 }
 
@@ -111,59 +105,69 @@ async function fetchOne(key) {
   const { data, error } = await supabase
     .from(TABLE).select("key,value,version").eq("key", key).maybeSingle();
   if (error) throw error;
-  if (data) {
-    cache.set(key, { value: data.value, version: data.version });
-    base.set(key, data.value);
-  } else {
-    cache.delete(key); base.delete(key);
-  }
+  if (data) latest.set(key, { value: data.value, version: data.version });
+  else latest.delete(key);
   return data;
 }
 
-async function casWrite(key, storedValue) {
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    const cached = cache.get(key);
+// ─── the write path — CAS gated on the ANCESTOR version ──────────────────
 
-    if (!cached) {
-      // New key → insert; if someone raced us, fall through to CAS update.
+async function casWrite(key, storedValue) {
+  // Ancestor = what this tab last read/wrote. If this tab never read the
+  // key, use an empty object so the merge UNIONS both sides (never drops).
+  let anc = shadow.get(key);
+  if (!anc && !latest.has(key)) await fetchOne(key);
+  if (!anc && latest.has(key)) {
+    anc = { value: {}, version: latest.get(key).version };
+  }
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (!anc) {
+      // Key doesn't exist anywhere yet → insert; on race, refetch & retry.
       const { data, error } = await supabase
         .from(TABLE)
         .insert({ key, value: storedValue, version: 1 })
         .select("version")
         .maybeSingle();
       if (!error && data) {
-        cache.set(key, { value: storedValue, version: data.version });
-        base.set(key, storedValue);
+        latest.set(key, { value: storedValue, version: data.version });
+        shadow.set(key, { value: storedValue, version: data.version });
         return storedValue;
       }
-      await fetchOne(key); // key exists now — retry as update
+      const row = await fetchOne(key);
+      if (row) anc = { value: {}, version: row.version };
       continue;
     }
 
-    const nextVersion = cached.version + 1;
+    const nextVersion = anc.version + 1;
     const { data, error } = await supabase
       .from(TABLE)
       .update({ value: storedValue, version: nextVersion })
       .eq("key", key)
-      .eq("version", cached.version)   // ← compare-and-swap gate
+      .eq("version", anc.version)   // ← gate on ANCESTOR, not realtime-fresh
       .select("version");
     if (error) throw error;
 
     if (data && data.length > 0) {
-      cache.set(key, { value: storedValue, version: nextVersion });
-      base.set(key, storedValue);
+      latest.set(key, { value: storedValue, version: nextVersion });
+      shadow.set(key, { value: storedValue, version: nextVersion });
       return storedValue;
     }
 
-    // CAS failed: someone else saved since we last read. Merge, retry.
-    const baseV = base.get(key);
+    // CAS failed: server moved past our ancestor. Merge and retry against
+    // the server's CURRENT version — ancestor VALUE stays the true ancestor.
     const remote = await fetchOne(key);
-    if (!remote) continue; // row deleted concurrently → retry as insert
+    if (!remote) { anc = null; continue; } // row vanished → retry as insert
     const merged = remergeable(
       storedValue,
-      threeWayMerge(mergeable(baseV), mergeable(storedValue), mergeable(remote.value))
+      threeWayMerge(
+        mergeable(anc.value),
+        mergeable(storedValue),
+        mergeable(remote.value)
+      )
     );
     storedValue = merged;
+    anc = { value: anc.value, version: remote.version };
   }
   throw new Error(
     `Storage conflict on "${key}" persisted after ${MAX_RETRIES} retries — ` +
@@ -177,7 +181,7 @@ async function migrateFromBlobIfNeeded() {
   const { count, error } = await supabase
     .from(TABLE).select("key", { count: "exact", head: true });
   if (error) throw error;
-  if ((count ?? 0) > 0) return; // already migrated
+  if ((count ?? 0) > 0) return;
 
   const { data: old } = await supabase
     .from("app_state").select("data").maybeSingle();
@@ -188,7 +192,6 @@ async function migrateFromBlobIfNeeded() {
     key, value: toStored(value), version: 1,
   }));
   if (rows.length === 0) return;
-  // upsert-ignore so two tabs migrating at once can't duplicate
   await supabase.from(TABLE).upsert(rows, { onConflict: "key", ignoreDuplicates: true });
   console.info(`[safeStorage] migrated ${rows.length} keys from app_state blob`);
 }
@@ -199,26 +202,25 @@ export async function installSafeStorage() {
   await migrateFromBlobIfNeeded();
   await fetchAll();
 
-  // Realtime: keep every open tab's cache fresh…
   supabase
     .channel("kv_state_sync")
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: TABLE },
       (payload) => {
+        // Realtime updates `latest` ONLY. It must NEVER advance `shadow`
+        // (the ancestor) — that was the v1 bug that let stale tabs
+        // slip past the CAS gate and wipe fresh data.
         if (payload.eventType === "DELETE") {
           const k = payload.old?.key;
-          if (k) { cache.delete(k); base.delete(k); }
+          if (k) latest.delete(k);
         } else {
           const row = payload.new;
-          cache.set(row.key, { value: row.value, version: row.version });
-          base.set(row.key, row.value);
+          latest.set(row.key, { value: row.value, version: row.version });
         }
         window.dispatchEvent(new CustomEvent("nirm-storage-sync"));
       }
     )
-    // …and on ANY reconnect, refetch everything so a stale tab can never
-    // save from an outdated cache (the original data-loss hole).
     .subscribe((status) => {
       if (status === "SUBSCRIBED") {
         fetchAll().catch((e) =>
@@ -227,13 +229,17 @@ export async function installSafeStorage() {
       }
     });
 
-  // Replace window.storage — identical API to the old shim.
   window.storage = {
     async get(key) {
-      const c = cache.get(key);
-      if (c) return { key, value: fromStored(c.value), shared: true };
-      const row = await fetchOne(key);
-      return row ? { key, value: fromStored(row.value), shared: true } : null;
+      let row = latest.get(key);
+      if (!row) {
+        const fetched = await fetchOne(key);
+        if (!fetched) return null;
+        row = latest.get(key);
+      }
+      // Reading advances the ancestor: the app now KNOWS this value.
+      shadow.set(key, { value: row.value, version: row.version });
+      return { key, value: fromStored(row.value), shared: true };
     },
 
     async set(key, value /*, shared */) {
@@ -244,15 +250,15 @@ export async function installSafeStorage() {
     async delete(key) {
       const { error } = await supabase.from(TABLE).delete().eq("key", key);
       if (error) throw error;
-      cache.delete(key); base.delete(key);
+      latest.delete(key); shadow.delete(key);
       return { key, deleted: true, shared: true };
     },
 
     async list(prefix = "") {
-      const keys = [...cache.keys()].filter((k) => k.startsWith(prefix));
+      const keys = [...latest.keys()].filter((k) => k.startsWith(prefix));
       return { keys, prefix, shared: true };
     },
   };
 
-  console.info("[safeStorage] installed — per-key CAS storage active");
+  console.info("[safeStorage] v2 installed — ancestor-tracked CAS active");
 }
