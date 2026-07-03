@@ -25,6 +25,7 @@ import {
   clearRecoveryFlag,
   isEarlyRecoveryLink,
 } from "./supabase.js";
+import { installSafeStorage } from "./safeStorage.js";
 
 export default function App() {
   const [booting, setBooting]   = useState(true);
@@ -84,6 +85,7 @@ export default function App() {
 
     (async () => {
       await initStorage();
+      await installSafeStorage();
       const p = await getCurrentRole();
       // Don't bounce a recovery-link user into the signed-in app. They need to
       // see the "Set a new password" form first.
