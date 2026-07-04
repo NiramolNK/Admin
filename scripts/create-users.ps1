@@ -31,8 +31,8 @@ Write-Host "Found $($rows.Count) users in users.csv`n"
 $created = 0; $failed = 0; $roleEntries = @()
 
 foreach ($r in $rows) {
-  $email = $r.Email.Trim(); $name = $r.Name.Trim()
-  $roleRaw = $r.role.Trim().ToUpper(); $pass = $r.Password
+  $email = $r.Email.Trim().ToLower(); $name = $r.Name.Trim()
+  $roleRaw = $r.role.Trim().ToUpper(); $pass = ($r.Password + "").Trim()
   if (-not $email -or -not $pass) { Write-Host "SKIP $email (missing email/password)" -ForegroundColor Yellow; $failed++; continue }
   $role = $roleMap[$roleRaw]; if (-not $role) { $role = "viewer"; Write-Host "  note: unknown role '$roleRaw' for $email -> viewer" -ForegroundColor Yellow }
 
