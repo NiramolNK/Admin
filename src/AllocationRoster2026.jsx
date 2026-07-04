@@ -4985,7 +4985,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                             updatedBrands[idx] = {...updatedBrands[idx], platforms:plats, perf:newPerf};
                             matched++;
                           } else {
-                            const plats = Object.keys(platChats).filter(p=>platChats[p]>0);
+                            const plats = Object.keys(platChats); // include zero-chat platforms: a store in the Duoke file is a live store
                             if(plats.length>0){
                               // For brand-new brands (not yet in roster), seed chats from
                               // the import so allocation has SOMETHING to work with. This
@@ -4993,7 +4993,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                               // touch chats again (see existing-brand branch above).
                               newBrands.push({
                                 id:`imp${Date.now()}${Math.random().toString(36).slice(2,6)}`,
-                                name:storeName, group:"", wh: storeName.includes("-") ? storeName.split("-").pop().trim() : "",
+                                name:storeName, group: storeName.includes("-") ? storeName.split("-").pop().trim() : "", wh: storeName.includes("-") ? storeName.split("-").pop().trim() : "",
                                 platforms:plats, perf:perfAgg[storeName]||{},
                                 chats:{...Object.fromEntries(PLATFORMS.map(p=>[p,0])),...platChats}
                               });
@@ -5028,7 +5028,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                           return {...prev,[mk]:newVol};
                         });
                         const skipped = Object.keys(agg).filter(s=>s.toLowerCase().startsWith("closed")||s.toLowerCase().startsWith("offboarded")).length;
-                        alert(`Import successful!\n• Chat count from "Replied Chats" column\n• ${matched} brands updated\n• ${newBrands.length} new brands added\n• ${skipped} closed/offboarded stores skipped\n• ${Object.keys(agg).length} total stores in file`);
+                        alert(`Import successful!\n• Chat count from "Replied Chats" column\n• ${matched} brands updated\n• ${newBrands.length} new brands added\n• ${skipped} closed/offboarded stores skipped\n• ${Object.keys(agg).length} total stores in file`+(newBrands.length?`\n\nNew brands created:\n${newBrands.slice(0,15).map(b=>"  - "+b.name).join("\n")}${newBrands.length>15?`\n  ...and ${newBrands.length-15} more`:""}`:""));
                       };
 
                       const isJSON  = file.name.match(/\.json$/i);
