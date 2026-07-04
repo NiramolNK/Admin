@@ -736,6 +736,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget"],                                                          canEdit:false },
     fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","agents","dates","analytics"],                canEdit:false },
     manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true  },
+    cc:       { label:"CC",              color:"#7C3AED", bg:"#F3E8FF", tabs:["roster","allocation"],                                          canEdit:false, groupScope:"shiseido" },
   };
 
   // User accounts — stored in state, persisted to storage.
@@ -3728,6 +3729,10 @@ export default function AllocationPanel({ isAdmin = true }) {
             // allocation grid so agents can't be assigned to them and the
             // workload counts don't include them.
             if (b.offboarded) return false;
+            // CC (call centre) scope: only brands in the role groupScope,
+            // matched against group, warehouse, or brand-name suffix.
+            const gs = ROLES[role]?.groupScope;
+            if (gs && !(((b.group||"")+" "+(b.wh||"")+" "+(b.name||"")).toLowerCase().includes(gs))) return false;
             // FIX (Start Date): hide brands whose startDate is after the
             // date currently selected in the allocation header. They're not
             // yet active so they shouldn't appear on this day's grid.

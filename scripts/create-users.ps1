@@ -24,7 +24,7 @@ $H = @{ "apikey" = $KEY; "Authorization" = "Bearer $KEY"; "Content-Type" = "appl
 
 # Map spreadsheet roles -> app role keys
 $roleMap = @{ "T1"="t1"; "RT&RF"="return"; "RTRF"="return"; "VIEWER"="viewer";
-              "FULLTIME"="fulltime"; "MANAGER"="manager"; "CC"="viewer" }
+              "FULLTIME"="fulltime"; "MANAGER"="manager"; "CC"="cc" }
 
 $rows = Import-Csv $csvPath
 Write-Host "Found $($rows.Count) users in users.csv`n"
