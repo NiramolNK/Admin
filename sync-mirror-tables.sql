@@ -234,3 +234,53 @@ select e->>'name' as agent, e->>'team' as team, e->>'email' as email
 from public.kv_state, jsonb_array_elements(coalesce(value->'v', value)) e
 where key = 'nirm-agents'
 order by e->>'name';
+
+
+-- ════════════════════════════════════════════════════════════════════
+-- PART 3 — Create agent records for team members that have none
+-- (Cream Chanid, Poi, Gyb, Otar, Nan, Earn, Mint — all T1)
+-- Idempotent: skips anyone whose name already exists, so re-running
+-- this file never creates duplicates. Emails pre-linked, all shifts,
+-- all days. costDay starts at 0 — FILL REAL DAILY COST in Teams tab
+-- or payroll for these agents will calculate as zero.
+-- ════════════════════════════════════════════════════════════════════
+
+with cur as (
+  select coalesce(value->'v', value) as v
+  from public.kv_state where key = 'nirm-agents'
+),
+newbies as (
+  select jsonb_array_elements('[
+    {"id":"a_creamchanid","name":"Cream Chanid","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"chanidsara.j@crea.asia"},
+    {"id":"a_poi","name":"Poi","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"siwaporn.a@crea.asia"},
+    {"id":"a_gyb","name":"Gyb","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"kawisara.b@crea.asia"},
+    {"id":"a_otar","name":"Otar","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"supanida.c@crea.asia"},
+    {"id":"a_nan","name":"Nan","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"napattanan.p@crea.asia"},
+    {"id":"a_earn","name":"Earn","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"bunyarat.j@crea.asia"},
+    {"id":"a_mint","name":"Mint","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"sasitorn.o@crea.asia"}
+  ]'::jsonb) as e
+),
+missing as (
+  select e from newbies
+  where not exists (
+    select 1 from cur, jsonb_array_elements(cur.v) x
+    where lower(x->>'name') = lower(e->>'name')
+  )
+)
+update public.kv_state
+set version = version + 1,
+    value = case when value ? '__wasString'
+      then jsonb_set(value, '{v}',
+        (select v from cur) || coalesce((select jsonb_agg(e) from missing), '[]'::jsonb))
+      else
+        (select v from cur) || coalesce((select jsonb_agg(e) from missing), '[]'::jsonb)
+    end
+where key = 'nirm-agents'
+  and exists (select 1 from missing);
+
+-- final verify: full team with emails and teams
+select e->>'name' as agent, e->>'team' as team, e->>'email' as email,
+       e->>'costDay' as cost_day
+from public.kv_state, jsonb_array_elements(coalesce(value->'v', value)) e
+where key = 'nirm-agents'
+order by e->>'team', e->>'name';
