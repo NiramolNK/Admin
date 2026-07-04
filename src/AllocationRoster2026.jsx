@@ -1194,6 +1194,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         changeRequests: setChangeRequests,
         userProfiles:   setUserProfiles,
         userAccounts:   setUserAccounts,
+        fulltimeSalary: setFulltimeSalary,
         // Intentionally NOT synced from foreign tabs (parity with old
         // behaviour): role and prefs are session-scoped — another tab's
         // logged-in user/UI state shouldn't override ours. fulltimeSalary
@@ -3258,10 +3259,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#94A3B8",fontWeight:700}}>฿</span>
                       <input type="number" min="0"
                         value={(fulltimeSalary && fulltimeSalary[currentMK]) || ""}
-                        placeholder="e.g. 171730"
+                        placeholder="e.g. 171730" disabled={!canEdit} title={canEdit?"":"Sign in as manager to edit"}
                         onChange={e=>{
                           const n = Number(e.target.value) || 0;
-                          setFulltimeSalary(prev => ({ ...(prev||{}), [currentMK]: n }));
+                          if (canEdit) setFulltimeSalary(prev => ({ ...(prev||{}), [currentMK]: n }));
                         }}
                         style={{width:"100%",padding:"10px 10px 10px 28px",borderRadius:8,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#1D4ED8",fontSize:15,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
                     </div>
