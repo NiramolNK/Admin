@@ -284,3 +284,34 @@ select e->>'name' as agent, e->>'team' as team, e->>'email' as email,
 from public.kv_state, jsonb_array_elements(coalesce(value->'v', value)) e
 where key = 'nirm-agents'
 order by e->>'team', e->>'name';
+
+
+-- ════════════════════════════════════════════════════════════════════
+-- PART 4 — All agents: every shift (M/ME/E) + every day allowed
+-- Excludes CC-team agents (Mark stays M-shift, Mon-Sat from Part 2).
+-- Runs last so it normalizes existing + newly created agents alike.
+-- ════════════════════════════════════════════════════════════════════
+
+create or replace function pg_temp.nirm_allshift(e jsonb) returns jsonb
+language sql as $$
+  select case when e->>'team' = 'CC' then e
+         else e || '{"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0]}'::jsonb
+  end
+$$;
+
+update public.kv_state
+set version = version + 1,
+    value = case when value ? '__wasString'
+      then jsonb_set(value, '{v}',
+        (select jsonb_agg(pg_temp.nirm_allshift(e)) from jsonb_array_elements(value->'v') e))
+      else
+        (select jsonb_agg(pg_temp.nirm_allshift(e)) from jsonb_array_elements(value) e)
+    end
+where key = 'nirm-agents';
+
+-- verify: shifts and days per agent (CC should differ from the rest)
+select e->>'name' as agent, e->>'team' as team,
+       e->'shifts' as shifts, e->'days' as days
+from public.kv_state, jsonb_array_elements(coalesce(value->'v', value)) e
+where key = 'nirm-agents'
+order by e->>'team', e->>'name';
