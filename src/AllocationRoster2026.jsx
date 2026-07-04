@@ -801,6 +801,11 @@ export default function AllocationPanel({ isAdmin = true }) {
   const [volYear,   setVolYear]     = useState(2026);
   const [volViewMode, setVolViewMode] = useState("chats");
 
+  // Sync: Chat Volume section follows the page-level month picker.
+  // Changing the top month (rosterMonth/rosterYear) moves the Volume
+  // section to the same month; its own arrows still work independently.
+  useEffect(() => { setVolMonth(rosterMonth); setVolYear(rosterYear); }, [rosterMonth, rosterYear]);
+
   // Lock: prevents edits to roster & allocation for a given month
   const [lockedMonths, setLockedMonths] = useState({});
 
