@@ -1,18 +1,16 @@
 -- ════════════════════════════════════════════════════════════════════
--- NiRM two-way mirror: agents / brands / brand_assignments  <->  kv_state
--- Run ONCE in Supabase SQL Editor.
+-- NiRM ONE-SHOT SETUP  (v2 — spec-driven, per April's team sheet)
+-- Run ONCE in Supabase SQL Editor. Safe to re-run (idempotent).
 --
--- BEFORE: the agents/brands/brand_assignments tables were connected to
--- nothing (leftover copies). The app's real data lives in kv_state.
--- AFTER: the tables become LIVE mirrors. Edit in the app -> tables
--- update instantly. Edit a table row in Supabase -> app data updates
--- (refresh the app tab to see it).
---
--- NOTE: current contents of those three tables are stale leftovers and
--- will be REPLACED by the app's real data at the end of this script.
+-- PART 1: two-way mirror  agents/brands/brand_assignments <-> app data
+-- PART 2: team spec — per-person email, shifts, days, rate; creates
+--         missing agents (Daran, Poi, Gyb, Otar, Nan, Earn, Mint,
+--         Cream Chanid, Marker); repairs Mark(T2) if a previous
+--         version of this script converted him by mistake.
+-- PART 3: verify output
 -- ════════════════════════════════════════════════════════════════════
 
--- 1 ── rebuild mirror tables in a canonical shape ──────────────────────
+-- ── PART 1 ── mirror tables ──────────────────────────────────────────
 drop table if exists public.agents cascade;
 create table public.agents (
   id       text primary key,
@@ -23,7 +21,7 @@ create table public.agents (
   days     jsonb,
   cost_day numeric,
   email    text,
-  raw      jsonb  -- full original object; keeps fields not shown as columns
+  raw      jsonb
 );
 
 drop table if exists public.brands cascade;
@@ -50,7 +48,6 @@ create table public.brand_assignments (
   primary key (month, k)
 );
 
--- RLS: any signed-in team member can read/write (same as kv_state)
 alter table public.agents enable row level security;
 alter table public.brands enable row level security;
 alter table public.brand_assignments enable row level security;
@@ -58,7 +55,6 @@ create policy "auth all agents" on public.agents for all to authenticated using 
 create policy "auth all brands" on public.brands for all to authenticated using (true) with check (true);
 create policy "auth all asgn"   on public.brand_assignments for all to authenticated using (true) with check (true);
 
--- 2 ── kv_state -> tables (app edits flow into the tables) ─────────────
 create or replace function public.nirm_kv_to_tables()
 returns trigger language plpgsql security definer as $$
 declare v jsonb;
@@ -66,7 +62,6 @@ begin
   if current_setting('nirm.sync', true) = '1' then return new; end if;
   perform set_config('nirm.sync', '1', true);
   v := coalesce(new.value->'v', new.value);
-
   if new.key = 'nirm-agents' then
     delete from public.agents;
     insert into public.agents (id,name,team,active,shifts,days,cost_day,email,raw)
@@ -75,14 +70,12 @@ begin
            e->'shifts', e->'days',
            nullif(e->>'costDay','')::numeric, e->>'email', e
     from jsonb_array_elements(v) e;
-
   elsif new.key = 'nirm-brands' then
     delete from public.brands;
     insert into public.brands (id,name,"group",wh,platforms,offboarded,start_date,raw)
     select e->>'id', e->>'name', e->>'group', e->>'wh', e->'platforms',
            coalesce((e->>'offboarded')::boolean, false), e->>'startDate', e
     from jsonb_array_elements(v) e;
-
   elsif new.key = 'nirm-allBrandAsgn' then
     delete from public.brand_assignments;
     insert into public.brand_assignments (month,k,brand_id,date,shift,platform,agents)
@@ -102,14 +95,12 @@ create trigger trg_nirm_kv_to_tables
   when (new.key in ('nirm-agents','nirm-brands','nirm-allBrandAsgn'))
   execute function public.nirm_kv_to_tables();
 
--- 3 ── tables -> kv_state (Supabase edits flow back into the app) ──────
 create or replace function public.nirm_write_kv(kv_key text, new_json jsonb)
 returns void language plpgsql security definer as $$
 declare cur jsonb; cur_inner jsonb;
 begin
   select value into cur from public.kv_state where key = kv_key;
   cur_inner := coalesce(cur->'v', cur);
-  -- Shrink guard: never wipe app data because a table was emptied by accident
   if (new_json = '[]'::jsonb or new_json = '{}'::jsonb)
      and cur_inner is not null
      and cur_inner not in ('[]'::jsonb, '{}'::jsonb) then
@@ -184,37 +175,37 @@ create trigger trg_asgn_to_kv
   after insert or update or delete on public.brand_assignments
   for each statement execute function public.nirm_asgn_to_kv();
 
--- 4 ── initial fill: pull the app's real data into the tables now ──────
-update public.kv_state set updated_at = now()
-where key in ('nirm-agents','nirm-brands','nirm-allBrandAsgn');
+-- ── PART 2 ── team spec (April's sheet is the source of truth) ───────
+-- Days: Mon-Fri=[1,2,3,4,5]  Everyday=[1,2,3,4,5,6,0]
+--       Sat-Sun=[6,0]        Mon-Sat=[1,2,3,4,5,6]
 
--- 5 ── verify ──────────────────────────────────────────────────────────
-select 'agents' t, count(*) from public.agents
-union all select 'brands', count(*) from public.brands
-union all select 'brand_assignments', count(*) from public.brand_assignments;
-
-
--- ════════════════════════════════════════════════════════════════════
--- PART 2 — Link team emails to agent records + set Mark as CC
--- Fixes "No personal schedule linked" for everyone whose agent record
--- matches by name. Runs AFTER Part 1 so the new mirror triggers fire
--- and the agents table updates automatically.
--- ════════════════════════════════════════════════════════════════════
-
-create or replace function pg_temp.nirm_link(e jsonb) returns jsonb
+-- 2a. update existing agents by name (merge spec fields)
+create or replace function pg_temp.nirm_spec(e jsonb) returns jsonb
 language sql as $$
   select case lower(coalesce(e->>'name',''))
-    when 'prim'    then e || '{"email":"prim.v@crea.asia"}'::jsonb
-    when 'ohm'     then e || '{"email":"sarayut.c@crea.asia"}'::jsonb
-    when 'joy'     then e || '{"email":"nattakran.k@crea.asia"}'::jsonb
-    when 'boo'     then e || '{"email":"sirinan.c@crea.asia"}'::jsonb
-    when 'best'    then e || '{"email":"teinvithit.s@crea.asia"}'::jsonb
-    when 'khaopun' then e || '{"email":"lzdextcs.07@crea.asia"}'::jsonb
-    when 'cream'   then e || '{"email":"darawadee.a@crea.asia"}'::jsonb
-    when 'ploy'    then e || '{"email":"pheerapat.k@crea.asia"}'::jsonb
-    when 'ploy d'  then e || '{"email":"daran.p@crea.asia"}'::jsonb
-    when 'aof'     then e || '{"email":"customerservice.extrtrf@crea.asia"}'::jsonb
-    when 'mark'    then e || '{"email":"chakrit.s@crea.asia","team":"CC","shifts":["M"],"days":[1,2,3,4,5,6]}'::jsonb
+    when 'ohm'      then e || '{"email":"sarayut.c@crea.asia","shifts":["M"],"days":[1,2,3,4,5],"costDay":500}'::jsonb
+    when 'joy'      then e || '{"email":"nattakran.k@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":500}'::jsonb
+    when 'boo'      then e || '{"email":"sirinan.c@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'khaopun'  then e || '{"email":"lzdextcs.07@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":500}'::jsonb
+    when 'best'     then e || '{"email":"teinvithit.s@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":500}'::jsonb
+    when 'cream'    then e || '{"email":"darawadee.a@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'ploy'     then e || '{"email":"pheerapat.k@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'aof'      then e || '{"email":"customerservice.extrtrf@crea.asia","shifts":["M"],"days":[1,2,3,4,5,6],"costDay":600}'::jsonb
+    when 'prim'     then e || '{"email":"prim.v@crea.asia"}'::jsonb
+    -- repair: undo the earlier mistaken Mark(T2) -> CC conversion, if it ran
+    when 'mark'     then case when e->>'email' = 'chakrit.s@crea.asia'
+                              then (e - 'email') || '{"team":"T2"}'::jsonb
+                              else e end
+    -- correct any agents created by the earlier script version
+    when 'daran'        then e || '{"email":"daran.p@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'poi'          then e || '{"email":"siwaporn.a@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'gyb'          then e || '{"email":"kawisara.b@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'otar'         then e || '{"email":"supanida.c@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'nan'          then e || '{"email":"napattanan.p@crea.asia","shifts":["M","ME","E"],"days":[6,0],"costDay":400}'::jsonb
+    when 'earn'         then e || '{"email":"bunyarat.j@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'mint'         then e || '{"email":"sasitorn.o@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'cream chanid' then e || '{"email":"chanidsara.j@crea.asia","shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400}'::jsonb
+    when 'marker'       then e || '{"email":"chakrit.s@crea.asia","team":"CC","shifts":["M"],"days":[1,2,3,4,5,6],"costDay":600}'::jsonb
     else e
   end
 $$;
@@ -223,41 +214,28 @@ update public.kv_state
 set version = version + 1,
     value = case when value ? '__wasString'
       then jsonb_set(value, '{v}',
-        (select jsonb_agg(pg_temp.nirm_link(e)) from jsonb_array_elements(value->'v') e))
+        (select jsonb_agg(pg_temp.nirm_spec(e)) from jsonb_array_elements(value->'v') e))
       else
-        (select jsonb_agg(pg_temp.nirm_link(e)) from jsonb_array_elements(value) e)
+        (select jsonb_agg(pg_temp.nirm_spec(e)) from jsonb_array_elements(value) e)
     end
 where key = 'nirm-agents';
 
--- verify: every agent with a linked email
-select e->>'name' as agent, e->>'team' as team, e->>'email' as email
-from public.kv_state, jsonb_array_elements(coalesce(value->'v', value)) e
-where key = 'nirm-agents'
-order by e->>'name';
-
-
--- ════════════════════════════════════════════════════════════════════
--- PART 3 — Create agent records for team members that have none
--- (Cream Chanid, Poi, Gyb, Otar, Nan, Earn, Mint — all T1)
--- Idempotent: skips anyone whose name already exists, so re-running
--- this file never creates duplicates. Emails pre-linked, all shifts,
--- all days. costDay starts at 0 — FILL REAL DAILY COST in Teams tab
--- or payroll for these agents will calculate as zero.
--- ════════════════════════════════════════════════════════════════════
-
+-- 2b. create agents that don't exist yet (idempotent by name)
 with cur as (
   select coalesce(value->'v', value) as v
   from public.kv_state where key = 'nirm-agents'
 ),
 newbies as (
   select jsonb_array_elements('[
-    {"id":"a_creamchanid","name":"Cream Chanid","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"chanidsara.j@crea.asia"},
-    {"id":"a_poi","name":"Poi","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"siwaporn.a@crea.asia"},
-    {"id":"a_gyb","name":"Gyb","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"kawisara.b@crea.asia"},
-    {"id":"a_otar","name":"Otar","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"supanida.c@crea.asia"},
-    {"id":"a_nan","name":"Nan","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"napattanan.p@crea.asia"},
-    {"id":"a_earn","name":"Earn","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"bunyarat.j@crea.asia"},
-    {"id":"a_mint","name":"Mint","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":0,"rule":"","email":"sasitorn.o@crea.asia"}
+    {"id":"a_daran","name":"Daran","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400,"rule":"","email":"daran.p@crea.asia"},
+    {"id":"a_poi","name":"Poi","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400,"rule":"","email":"siwaporn.a@crea.asia"},
+    {"id":"a_gyb","name":"Gyb","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400,"rule":"","email":"kawisara.b@crea.asia"},
+    {"id":"a_otar","name":"Otar","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400,"rule":"","email":"supanida.c@crea.asia"},
+    {"id":"a_nan","name":"Nan","team":"T1","active":true,"shifts":["M","ME","E"],"days":[6,0],"costDay":400,"rule":"","email":"napattanan.p@crea.asia"},
+    {"id":"a_earn","name":"Earn","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400,"rule":"","email":"bunyarat.j@crea.asia"},
+    {"id":"a_mint","name":"Mint","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400,"rule":"","email":"sasitorn.o@crea.asia"},
+    {"id":"a_creamchanid","name":"Cream Chanid","team":"T1","active":true,"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0],"costDay":400,"rule":"","email":"chanidsara.j@crea.asia"},
+    {"id":"a_marker","name":"Marker","team":"CC","active":true,"shifts":["M"],"days":[1,2,3,4,5,6],"costDay":600,"rule":"","email":"chakrit.s@crea.asia"}
   ]'::jsonb) as e
 ),
 missing as (
@@ -278,40 +256,12 @@ set version = version + 1,
 where key = 'nirm-agents'
   and exists (select 1 from missing);
 
--- final verify: full team with emails and teams
+-- ── PART 3 ── initial mirror fill + verify ───────────────────────────
+update public.kv_state set updated_at = now()
+where key in ('nirm-brands','nirm-allBrandAsgn');
+
 select e->>'name' as agent, e->>'team' as team, e->>'email' as email,
-       e->>'costDay' as cost_day
-from public.kv_state, jsonb_array_elements(coalesce(value->'v', value)) e
-where key = 'nirm-agents'
-order by e->>'team', e->>'name';
-
-
--- ════════════════════════════════════════════════════════════════════
--- PART 4 — All agents: every shift (M/ME/E) + every day allowed
--- Excludes CC-team agents (Mark stays M-shift, Mon-Sat from Part 2).
--- Runs last so it normalizes existing + newly created agents alike.
--- ════════════════════════════════════════════════════════════════════
-
-create or replace function pg_temp.nirm_allshift(e jsonb) returns jsonb
-language sql as $$
-  select case when e->>'team' = 'CC' then e
-         else e || '{"shifts":["M","ME","E"],"days":[1,2,3,4,5,6,0]}'::jsonb
-  end
-$$;
-
-update public.kv_state
-set version = version + 1,
-    value = case when value ? '__wasString'
-      then jsonb_set(value, '{v}',
-        (select jsonb_agg(pg_temp.nirm_allshift(e)) from jsonb_array_elements(value->'v') e))
-      else
-        (select jsonb_agg(pg_temp.nirm_allshift(e)) from jsonb_array_elements(value) e)
-    end
-where key = 'nirm-agents';
-
--- verify: shifts and days per agent (CC should differ from the rest)
-select e->>'name' as agent, e->>'team' as team,
-       e->'shifts' as shifts, e->'days' as days
+       e->'shifts' as shifts, e->'days' as days, e->>'costDay' as rate
 from public.kv_state, jsonb_array_elements(coalesce(value->'v', value)) e
 where key = 'nirm-agents'
 order by e->>'team', e->>'name';
