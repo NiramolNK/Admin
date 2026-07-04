@@ -192,3 +192,45 @@ where key in ('nirm-agents','nirm-brands','nirm-allBrandAsgn');
 select 'agents' t, count(*) from public.agents
 union all select 'brands', count(*) from public.brands
 union all select 'brand_assignments', count(*) from public.brand_assignments;
+
+
+-- ════════════════════════════════════════════════════════════════════
+-- PART 2 — Link team emails to agent records + set Mark as CC
+-- Fixes "No personal schedule linked" for everyone whose agent record
+-- matches by name. Runs AFTER Part 1 so the new mirror triggers fire
+-- and the agents table updates automatically.
+-- ════════════════════════════════════════════════════════════════════
+
+create or replace function pg_temp.nirm_link(e jsonb) returns jsonb
+language sql as $$
+  select case lower(coalesce(e->>'name',''))
+    when 'prim'    then e || '{"email":"prim.v@crea.asia"}'::jsonb
+    when 'ohm'     then e || '{"email":"sarayut.c@crea.asia"}'::jsonb
+    when 'joy'     then e || '{"email":"nattakran.k@crea.asia"}'::jsonb
+    when 'boo'     then e || '{"email":"sirinan.c@crea.asia"}'::jsonb
+    when 'best'    then e || '{"email":"teinvithit.s@crea.asia"}'::jsonb
+    when 'khaopun' then e || '{"email":"lzdextcs.07@crea.asia"}'::jsonb
+    when 'cream'   then e || '{"email":"darawadee.a@crea.asia"}'::jsonb
+    when 'ploy'    then e || '{"email":"pheerapat.k@crea.asia"}'::jsonb
+    when 'ploy d'  then e || '{"email":"daran.p@crea.asia"}'::jsonb
+    when 'aof'     then e || '{"email":"customerservice.extrtrf@crea.asia"}'::jsonb
+    when 'mark'    then e || '{"email":"chakrit.s@crea.asia","team":"CC","shifts":["M"],"days":[1,2,3,4,5,6]}'::jsonb
+    else e
+  end
+$$;
+
+update public.kv_state
+set version = version + 1,
+    value = case when value ? '__wasString'
+      then jsonb_set(value, '{v}',
+        (select jsonb_agg(pg_temp.nirm_link(e)) from jsonb_array_elements(value->'v') e))
+      else
+        (select jsonb_agg(pg_temp.nirm_link(e)) from jsonb_array_elements(value) e)
+    end
+where key = 'nirm-agents';
+
+-- verify: every agent with a linked email
+select e->>'name' as agent, e->>'team' as team, e->>'email' as email
+from public.kv_state, jsonb_array_elements(coalesce(value->'v', value)) e
+where key = 'nirm-agents'
+order by e->>'name';
