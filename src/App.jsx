@@ -193,8 +193,8 @@ export default function App() {
         accounts[matchIdx] = {
           ...accounts[matchIdx],
           password: "__supabase__",
-          // Only update role if not already the same; leave as-is otherwise.
-          role: accounts[matchIdx].role || profile.role,
+          // profiles.role is the single source of truth - always take it.
+          role: profile.role,
         };
       } else {
         accounts.push({ username: profile.username, password: "__supabase__", role: profile.role });

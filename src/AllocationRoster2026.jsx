@@ -5747,6 +5747,20 @@ export default function AllocationPanel({ isAdmin = true }) {
                       } else if(!isOwn && pw && pw !== oldPw && pw !== "__supabase__"){
                         alert("Password changed in the user list, but the user's actual sign-in password is NOT updated. They will keep using their old password.\n\nTo reset another user's password: have them use Forgot Password on the sign-in page, or have them sign in and change it from their own account.");
                       }
+                      // Sync role to Supabase profiles - the single source of truth the
+                      // login path reads. Without this, the role reverts on next login.
+                      try {
+                        let { data: prow } = await supabase.from("profiles").select("id,role").eq("username", email).maybeSingle();
+                        if (!prow) {
+                          const { data: cand } = await supabase.from("profiles").select("id,role,username").ilike("username", email.split("@")[0] + "%");
+                          if (cand && cand.length === 1) prow = cand[0];
+                        }
+                        if (prow && prow.role !== editingUser.role) {
+                          await supabase.from("profiles").update({ role: editingUser.role }).eq("id", prow.id);
+                        } else if (!prow) {
+                          alert("Note: no matching Supabase profile found for " + email + " - role saved in app only and may revert on next login.");
+                        }
+                      } catch (_) { /* non-fatal */ }
                       setUserAccounts(prev=>prev.map((u,i)=>i===editingUser._idx?{username:email,password:pw,role:editingUser.role}:u));
                       if(isOwn) setRole(editingUser.role);
                     }
