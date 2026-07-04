@@ -48,7 +48,7 @@ const ALLOC_DAYS    = [{code:"Mon",wd:1},{code:"Tue",wd:2},{code:"Wed",wd:3},{co
 const ALLOC_WK      = [1,2,3,4,5];
 const ALLOC_ALL     = [1,2,3,4,5,6,0];
 const ALLOC_SHIFT_C = {M:{bg:"#DBEAFE",color:"#1D4ED8",label:"M"},ME:{bg:"#F0FDFA",color:"#0F766E",label:"ME"},E:{bg:"#D1FAE5",color:"#065F46",label:"E"},Off:{bg:"#FEE2E2",color:"#B91C1C",label:"Off"},TOIL:{bg:"#FEF3C7",color:"#92400E",label:"TOIL"},OT:{bg:"#FCE7F3",color:"#9D174D",label:"OT"}};
-const ALLOC_TEAM_C  = {T2:{color:"#1D4ED8",bg:"#DBEAFE"},T1:{color:"#0F766E",bg:"#F0FDFA"},Return:{color:"#B91C1C",bg:"#FEE2E2"}};
+const ALLOC_TEAM_C  = {T2:{color:"#1D4ED8",bg:"#DBEAFE"},T1:{color:"#0F766E",bg:"#F0FDFA"},Return:{color:"#B91C1C",bg:"#FEE2E2"},CC:{color:"#7C3AED",bg:"#F3E8FF"}};
 const ALLOC_AGENTS_INIT = [
   {id:"A01",name:"Markhom", team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:766, rule:""},
   {id:"A02",name:"Veer",    team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:953, rule:""},
@@ -3357,7 +3357,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Team</label>
                         <select value={editAgent.team} onChange={e=>setEditAgent({...editAgent,team:e.target.value})}
                           style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none"}}>
-                          <option>T1</option><option>T2</option><option>Return</option>
+                          <option>T1</option><option>T2</option><option>Return</option><option>CC</option>
                         </select></div>
                     </div>
                     <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Email (links to login)</label>
