@@ -636,8 +636,29 @@ const DOMAIN_KEYS = [
 ];
 
 // ── Main Component ─────────────────────────────────────────────────────────
+// Browser-tab titles + URL hashes: each view gets its own #hash and tab name
+const TAB_TITLES = { roster:"Roster", payment:"My Invoice", allocation:"Allocation", dates:"Dates", volume:"Performance", agents:"Teams", budget:"Report", analytics:"CS Analytics" };
+
 export default function AllocationPanel({ isAdmin = true }) {
   const [allocTab, setAllocTab]     = useState("roster");
+  // Hash present when the page was opened (a deliberate deep-link beats saved prefs)
+  const initialHash = useRef((window.location.hash || "").replace("#", ""));
+
+  // URL hash -> view (on load + when the user edits the URL / uses back-forward)
+  useEffect(() => {
+    const fromHash = () => {
+      const h = (window.location.hash || "").replace("#", "");
+      if (TAB_TITLES[h]) setAllocTab(h);
+    };
+    fromHash();
+    window.addEventListener("hashchange", fromHash);
+    return () => window.removeEventListener("hashchange", fromHash);
+  }, []);
+  // view -> URL hash + browser-tab title
+  useEffect(() => {
+    if (window.location.hash !== "#" + allocTab) window.history.replaceState(null, "", "#" + allocTab);
+    document.title = (TAB_TITLES[allocTab] || "NiRM") + " - NiRM Roster";
+  }, [allocTab]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [agents, setAgents]         = useState(ALLOC_AGENTS_INIT);
   
@@ -1087,7 +1108,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           if (d.prefs) {
             if (d.prefs.rosterYear) setRosterYear(d.prefs.rosterYear);
             if (d.prefs.rosterMonth) setRosterMonth(d.prefs.rosterMonth);
-            if (d.prefs.allocTab) setAllocTab(d.prefs.allocTab);
+            if (d.prefs.allocTab && !TAB_TITLES[initialHash.current]) setAllocTab(d.prefs.allocTab);
             if (d.prefs.volYear) setVolYear(d.prefs.volYear);
             if (d.prefs.volMonth) setVolMonth(d.prefs.volMonth);
             if (d.prefs.loginUser) setLoginUser(d.prefs.loginUser);

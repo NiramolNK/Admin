@@ -13,13 +13,19 @@
 # ═══════════════════════════════════════════════════════════════════
 
 $URL = "https://bequrilwgooesolepubv.supabase.co"
+# New-format sb_secret_ keys are rejected if the User-Agent looks like a browser
+# (PowerShell's default UA starts with "Mozilla/5.0"). Identify as a script:
+$PSDefaultParameterValues['Invoke-RestMethod:UserAgent'] = 'nirm-bulk-user-script/1.0'
 $csvPath = Join-Path (Split-Path $PSScriptRoot -Parent) "users.csv"
 
 if (-not (Test-Path $csvPath)) { Write-Host "users.csv not found at $csvPath" -ForegroundColor Red; exit 1 }
 
-$key = Read-Host "Paste service_role key" -AsSecureString
-$KEY = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-       [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($key))
+$KEY = $env:NIRM_SERVICE_KEY   # optional: pre-set (e.g. from clipboard) to skip the prompt
+if (-not $KEY) {
+  $key = Read-Host "Paste service_role key" -AsSecureString
+  $KEY = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+         [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($key))
+}
 $H = @{ "apikey" = $KEY; "Authorization" = "Bearer $KEY"; "Content-Type" = "application/json" }
 
 # Map spreadsheet roles -> app role keys
