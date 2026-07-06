@@ -3289,7 +3289,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   style={{...inpS,paddingLeft:28,width:"100%",boxSizing:"border-box"}}/>
               </div>
               <div style={{display:"flex",gap:4}}>
-                {[["all","All"],["T2","T2"],["T1","T1"],["Return","Return"]].map(([v,l])=>(
+                {[["all","All"],["T2","T2"],["T1","T1"],["Return","Return"],["CC","CC"]].map(([v,l])=>(
                   <button key={v} onClick={()=>setAgentTeamF(v)} style={{
                     padding:"6px 12px",borderRadius:8,border:"none",fontSize:11,fontWeight:600,cursor:"pointer",
                     background:agentTeamF===v?(v==="all"?"#14B8A6":ALLOC_TEAM_C[v]?.bg||"#F0FDFA"):"#F1F5F9",
@@ -3354,8 +3354,8 @@ export default function AllocationPanel({ isAdmin = true }) {
             )}
 
             {/* T1 + Return */}
-            {(agentTeamF==="all"||agentTeamF==="T1"||agentTeamF==="Return") && (() => {
-              const teams=agentTeamF==="all"?["T1","Return"]:[agentTeamF];
+            {(agentTeamF==="all"||agentTeamF==="T1"||agentTeamF==="Return"||agentTeamF==="CC") && (() => {
+              const teams=agentTeamF==="all"?["T1","Return","CC"]:[agentTeamF];
               const t1rList=agents.filter(a=>teams.includes(a.team)&&(agentSearch===""||a.name.toLowerCase().includes(agentSearch.toLowerCase()))).sort((a,b)=>(a.id||"").localeCompare(b.id||"",undefined,{numeric:true}));
               if(!t1rList.length) return null;
               const t1rTotal=t1rList.filter(a=>a.active).reduce((s,a)=>{let d=0;dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off")d++;});return s+d*a.costDay;},0);
@@ -3397,7 +3397,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                           );
                         })}
                         <tr style={{background:"#14b8a611",borderTop:"2px solid #5EEAD4"}}>
-                          <td colSpan={7} style={{padding:"8px 12px",fontWeight:700,color:"#0D9488",fontSize:11}}>T1 + RETURN TOTAL ({t1rList.filter(a=>a.active).length} active)</td>
+                          <td colSpan={7} style={{padding:"8px 12px",fontWeight:700,color:"#0D9488",fontSize:11}}>T1 + RETURN + CC TOTAL ({t1rList.filter(a=>a.active).length} active)</td>
                           <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:14,fontWeight:700,color:"#0D9488"}}>฿{t1rTotal.toLocaleString()}</td>
                           <td colSpan={2}/>
                         </tr>
