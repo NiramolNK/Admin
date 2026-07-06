@@ -238,6 +238,8 @@ select coalesce(jsonb_agg(obj order by obj->>'id'), '[]'::jsonb) as j from (
         'costDay', m.cost, 'email', m.email, 'active', true)
     when c.nick_l = 'mark' and c.e->>'email' = 'chakrit.s@crea.asia' then
       (c.e - 'email') || '{"team":"T2"}'::jsonb
+    when c.nick_l = 'prim' then
+      c.e || '{"email":"prim.v@crea.asia"}'::jsonb
     else c.e
   end as obj
   from cur_agents c
