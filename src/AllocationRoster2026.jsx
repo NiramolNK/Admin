@@ -4103,7 +4103,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {/* Working agents indicator */}
                 <div style={{marginLeft:8,display:"flex",gap:6,flexWrap:"wrap"}}>
                   {[["M","Morning",workingM],["E","Evening",workingE]].map(([s,label,p])=>(
-                    <div key={s} style={{display:"flex",alignItems:"center",gap:5,background:ALLOC_SHIFT_C[s].bg,borderRadius:8,padding:"4px 10px",border:`1px solid ${ALLOC_SHIFT_C[s].color}33`}}>
+                    <div key={s} onClick={()=>{setAllocShiftF(s);setAllocAgentFilter("");}} title="Click to show this shift in the table below" style={{display:"flex",alignItems:"center",gap:5,background:ALLOC_SHIFT_C[s].bg,borderRadius:8,padding:"4px 10px",cursor:"pointer",border:`1px solid ${allocShiftF===s?ALLOC_SHIFT_C[s].color:`${ALLOC_SHIFT_C[s].color}33`}`,boxShadow:allocShiftF===s?`0 0 0 1.5px ${ALLOC_SHIFT_C[s].color}`:"none"}}>
                       <span style={{fontSize:10,fontWeight:700,color:ALLOC_SHIFT_C[s].color}}>{label}: {p.length}</span>
                       <span style={{fontSize:10,color:"#94A3B8"}}>{p.map(a=>a.name).join(", ")||"—"}</span>
                     </div>
