@@ -197,9 +197,9 @@ insert into team_spec values
 ('08','Ploy','Ms. Pheerapat Kuayniam','T1','["M","ME","E"]','[1,2,3,4,5,6,0]',400,'pheerapat.k@crea.asia'),
 ('09','Aof','Mr. Supichak Rajchasic','Return','["M"]','[1,2,3,4,5,6]',600,'customerservice.extrtrf@crea.asia'),
 ('10','Poi','Ms. Siwaporn Arnat','T1','["M","ME","E"]','[1,2,3,4,5,6,0]',400,'siwaporn.a@crea.asia'),
-('11','Gyp','Ms. Kawisara Boriboon','T1','["M","ME","E"]','[1,2,3,4,5,6,0]',400,'kawisara.b@crea.asia'),
+('11','Gyb','Ms. Kawisara Boriboon','T1','["M","ME","E"]','[1,2,3,4,5,6,0]',400,'kawisara.b@crea.asia'),
 ('12','Otar','Ms. Supanida Chamchoi','T1','["M","ME","E"]','[1,2,3,4,5,6,0]',400,'supanida.c@crea.asia'),
-('13','Nan','Ms. Napattanan Pomark','T1','["M","ME","E"]','[1,2,3,4,5,6,0]',400,'napattanan.p@crea.asia'),
+('13','Nan','Ms. Napattanan Pomark','T1','["M","ME","E"]','[6,0]',400,'napattanan.p@crea.asia'),
 ('14','Cream Chanid','Mr. Chanidsara Janthima','T1','["M","ME","E"]','[1,2,3,4,5,6,0]',400,'chanidsara.j@crea.asia'),
 ('15','Marker','Mr. Chakrit Suksirikul','CC','["M"]','[1,2,3,4,5,6]',600,'chakrit.s@crea.asia'),
 ('16','Earn','Ms. Bunyarat Julmana','T1','["M","ME","E"]','[1,2,3,4,5,6,0]',400,'bunyarat.j@crea.asia'),
@@ -217,7 +217,7 @@ select c.old_id, s.*
 from cur_agents c
 join team_spec s
   on c.nick_l = lower(s.nick)
-  or (s.nick = 'Gyp' and c.nick_l = 'gyb');
+  or (s.nick = 'Gyb' and c.nick_l = 'gyp');
 
 -- id rename map (only where the id actually changes)
 create temp table id_map as
