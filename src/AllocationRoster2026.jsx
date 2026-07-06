@@ -1911,6 +1911,7 @@ export default function AllocationPanel({ isAdmin = true }) {
       const isWorkingShift = agentShiftOnDt === "M" || agentShiftOnDt === "ME" || agentShiftOnDt === "E";
       if (!isWorkingShift) return;
       brands.forEach(b => {
+        if (b.offboarded) return; // offboarded brands never show in personal assignments
         (b.platforms||[]).forEach(plat => {
           ["M","ME","E"].forEach(shift => {
             const k = `${b.id}_${dt.date}_${shift}_${plat}`;
@@ -2896,6 +2897,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 const myAssigned = [];
                 let totalVol = 0;
                 brands.forEach(b => {
+                  if (b.offboarded) return; // offboarded brands never show in agent assignment/workload
                   (b.platforms||[]).forEach(plat => {
                     const k = `${b.id}_${wkldDate.date}_${wkldShift}_${plat}`;
                     const raw = brandAsgn[k];
