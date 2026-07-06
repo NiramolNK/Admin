@@ -2287,7 +2287,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                             const cellK = `${myAgent.id}_${d.date}`;
                             const val = asgn[cellK];
                             const cs = val ? ALLOC_SHIFT_C[val] : null;
-                            const editing = (role==="viewer" || role==="t1") && cellKey===cellK;
+                            const editing = role==="viewer" && cellKey===cellK;
                             const hasPending = changeRequests.some(r=>r.agentId===myAgent.id && r.date===d.date && r.status==="pending");
                             const fl = flags[d.date]; const isH = fl?.type==="holiday"; const isC = fl?.type==="campaign";
                             const bg = isH ? "#FEF3C7" : isC ? "#F0FDFA" : d.isWE ? "#FFF5F5" : "#fff";
@@ -2295,7 +2295,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                               <div key={d.date} style={{minHeight:72,border:selectedRosterDate===d.date?"2px solid #0D9488":"1px solid #E2E8F0",borderRadius:8,background:bg,padding:"6px 8px",position:"relative",cursor:(role==="viewer"||role==="t1")?"pointer":"default",boxShadow:selectedRosterDate===d.date?"0 0 0 2px #99F6E4":"none"}}
                                 onClick={()=>{
                                   if(role==="viewer") setCellKey(editing?null:cellK);
-                                  if(role==="t1") { setSelectedRosterDate(selectedRosterDate===d.date?null:d.date); setCellKey(editing?null:cellK); }
+                                  if(role==="t1") setSelectedRosterDate(selectedRosterDate===d.date?null:d.date);
                                 }}>
                                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                                   <div style={{fontSize:11,fontWeight:700,color:d.isWE?"#EF4444":"#1A1D2E"}}>{Number(d.dd)}</div>
@@ -2356,6 +2356,39 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </div>
 
                 {/* My Brand Assignments — only for the selected date */}
+                {/* Request Change strip — T1 picks a new shift for the selected date, shown right above brand assignments */}
+                {role==="t1" && selectedRosterDate && (()=>{
+                  const dSel = dates.find(x=>x.date===selectedRosterDate);
+                  const cur = asgn[`${myAgent.id}_${selectedRosterDate}`] || "";
+                  const pendingHere = changeRequests.some(r=>r.agentId===myAgent.id && r.date===selectedRosterDate && r.status==="pending");
+                  return (
+                    <div style={{background:"#fff",borderRadius:14,border:"1px solid #99F6E4",padding:"12px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#0D9488"}}>Request Change {dSel?`${dSel.dd}/${dSel.mm} ${dSel.day}`:""}</div>
+                      <div style={{fontSize:11,color:"#94A3B8"}}>Currently: <b style={{color:"#1A1D2E"}}>{cur||"Unset"}</b></div>
+                      {pendingHere ? (
+                        <span style={{fontSize:11,fontWeight:700,color:"#D97706",background:"#FEF3C7",padding:"4px 10px",borderRadius:6,marginLeft:"auto"}}>Request pending — waiting for approval</span>
+                      ) : (
+                        <div style={{display:"flex",gap:6,marginLeft:"auto",flexWrap:"wrap"}}>
+                          {["M","ME","E","Off"].map(code=>{
+                            const cs2=ALLOC_SHIFT_C[code];
+                            return (
+                              <button key={code} onClick={()=>{
+                                setChangeRequests(prev=>[...prev,{
+                                  id: Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+                                  agentId:myAgent.id, agentName:myAgent.name, date:selectedRosterDate,
+                                  requestedShift:code, currentShift:cur,
+                                  reason:"", status:"pending", requestedBy:loginUser,
+                                  timestamp:new Date().toISOString()
+                                }]);
+                              }} style={{padding:"6px 14px",borderRadius:8,border:"1px solid #E2E8F0",background:cs2?.bg||"#F1F5F9",color:cs2?.color||"#1A1D2E",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":"Day Off"}</button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden"}}>
                   <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",fontSize:12,fontWeight:700,color:"#1A1D2E",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                     <span>My Brand Assignments {selectedRosterDate ? (()=>{const d=dates.find(x=>x.date===selectedRosterDate);return d?`— ${d.dd}/${d.mm} ${d.day}`:"";})() : ""}</span>
