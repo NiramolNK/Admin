@@ -176,9 +176,22 @@ function mkDateRange(from, to) {
 // back to brand.chats global default if no per-month entry exists.
 // Allocation and auto-fill use this so each month routes through its own
 // imported numbers, with a sensible default for unimported months.
+// Which imported month should mk read volume from? Exact month if imported;
+// otherwise the most recent imported month before it (so planning future
+// months runs on the latest real performance data); otherwise the most
+// recent import at all; null if nothing was ever imported.
+function getVolSourceMk(monthlyVol, mk) {
+  if (!monthlyVol || !mk) return null;
+  if (monthlyVol[mk]) return mk;
+  const keys = Object.keys(monthlyVol).sort();
+  const before = keys.filter(k => k < mk);
+  if (before.length) return before[before.length - 1];
+  return keys.length ? keys[keys.length - 1] : null;
+}
 function getBrandChats(brand, platform, monthlyVol, mk) {
   if (!brand) return 0;
-  const fromMonth = monthlyVol?.[mk]?.[brand.id]?.[platform];
+  const src = getVolSourceMk(monthlyVol, mk);
+  const fromMonth = src ? monthlyVol[src]?.[brand.id]?.[platform] : undefined;
   if (fromMonth !== undefined && fromMonth !== null) return fromMonth;
   return brand.chats?.[platform] || 0;
 }
@@ -4044,7 +4057,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                           // (the displayed month context) instead of brands.chats global default.
                           // Pills now move when you switch month, matching the Performance display.
                           const selMk = (selDate?.date || "").slice(0, 7);
-                          const monthChats = selMk ? (monthlyVol[selMk]?.[b.id]?.[plat] ?? b.chats?.[plat] ?? 0) : (b.chats?.[plat] || 0);
+                          const monthChats = getBrandChats(b, plat, monthlyVol, selMk || currentMK);
                           totalChats += Math.round(monthChats / 30 / 2 / Math.max(names.length,1));
                         }
                       });
@@ -4078,7 +4091,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         const raw=brandAsgn[k];
                         const names=[...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
                         if(names.includes(allocAgentFilter)) {
-                          const monthChats = selMk ? (monthlyVol[selMk]?.[b.id]?.[plat] ?? b.chats?.[plat] ?? 0) : (b.chats?.[plat] || 0);
+                          const monthChats = getBrandChats(b, plat, monthlyVol, selMk || currentMK);
                           agentChats += Math.round(monthChats / 30 / 2 / Math.max(names.length,1));
                         }
                       });
@@ -4172,15 +4185,16 @@ export default function AllocationPanel({ isAdmin = true }) {
                               {/* Total chats — only on first row */}
                               {pi===0 && (() => {
                                 const selMk2 = (selDate?.date || "").slice(0, 7);
-                                const chatsOf = (x) => Object.values((selMk2 && monthlyVol[selMk2]?.[x.id]) || x.chats || {}).reduce((s,v)=>s+(v||0),0);
-                                const hasActual = !!(selMk2 && monthlyVol[selMk2]?.[b.id]);
+                                const volMkUsed = getVolSourceMk(monthlyVol, selMk2 || currentMK);
+                                const chatsOf = (x) => (x.platforms||[]).reduce((s,pl)=>s+getBrandChats(x, pl, monthlyVol, selMk2 || currentMK),0);
+                                const hasActual = !!(volMkUsed && monthlyVol[volMkUsed]?.[b.id]);
                                 const total = chatsOf(b);
                                 const avgDay = Math.round(total / 30 / 2);
                                 const maxTotal = Math.max(...filteredBrands.map(chatsOf),1);
                                 const pct = Math.round((total/maxTotal)*100);
                                 return (
                                   <td rowSpan={visPlats.length} style={{padding:"8px 12px",verticalAlign:"top",paddingTop:12,borderRight:"1px solid #F1F5F9",textAlign:"right"}}>
-                                    <div title={hasActual?"Actual imported chat volume for this month":"No import for this month - using brand default numbers"} style={{fontFamily:"monospace",fontWeight:700,fontSize:13,color:hasActual?"#B45309":"#94A3B8"}}>{total.toLocaleString()}{!hasActual && <span style={{fontSize:8,fontWeight:600,marginLeft:3}}>est</span>}</div>
+                                    <div title={hasActual?(volMkUsed===selMk2?"Actual imported chat volume for this month":("Using latest imported performance data: "+volMkUsed)):"No imported volume - using brand default numbers"} style={{fontFamily:"monospace",fontWeight:700,fontSize:13,color:hasActual?"#B45309":"#94A3B8"}}>{total.toLocaleString()}{hasActual && volMkUsed!==selMk2 && <span style={{fontSize:8,fontWeight:600,marginLeft:3,color:"#0D9488"}}>{volMkUsed}</span>}{!hasActual && <span style={{fontSize:8,fontWeight:600,marginLeft:3}}>est</span>}</div>
                                     <div style={{fontFamily:"monospace",fontSize:9,color:"#94A3B8",marginTop:2}}>~{avgDay}/day/shift</div>
                                     <div style={{marginTop:4,height:4,borderRadius:2,background:"#F1F5F9",overflow:"hidden",width:60,marginLeft:"auto"}}>
                                       <div style={{height:"100%",width:`${pct}%`,background:"#F59E0B",borderRadius:2}}/>
