@@ -2287,7 +2287,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                             const cellK = `${myAgent.id}_${d.date}`;
                             const val = asgn[cellK];
                             const cs = val ? ALLOC_SHIFT_C[val] : null;
-                            const editing = role==="viewer" && cellKey===cellK;
+                            const editing = (role==="viewer" || role==="t1") && cellKey===cellK;
                             const hasPending = changeRequests.some(r=>r.agentId===myAgent.id && r.date===d.date && r.status==="pending");
                             const fl = flags[d.date]; const isH = fl?.type==="holiday"; const isC = fl?.type==="campaign";
                             const bg = isH ? "#FEF3C7" : isC ? "#F0FDFA" : d.isWE ? "#FFF5F5" : "#fff";
@@ -2295,7 +2295,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                               <div key={d.date} style={{minHeight:72,border:selectedRosterDate===d.date?"2px solid #0D9488":"1px solid #E2E8F0",borderRadius:8,background:bg,padding:"6px 8px",position:"relative",cursor:(role==="viewer"||role==="t1")?"pointer":"default",boxShadow:selectedRosterDate===d.date?"0 0 0 2px #99F6E4":"none"}}
                                 onClick={()=>{
                                   if(role==="viewer") setCellKey(editing?null:cellK);
-                                  if(role==="t1") setSelectedRosterDate(selectedRosterDate===d.date?null:d.date);
+                                  if(role==="t1") { setSelectedRosterDate(selectedRosterDate===d.date?null:d.date); setCellKey(editing?null:cellK); }
                                 }}>
                                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                                   <div style={{fontSize:11,fontWeight:700,color:d.isWE?"#EF4444":"#1A1D2E"}}>{Number(d.dd)}</div>
