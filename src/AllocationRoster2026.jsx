@@ -686,6 +686,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   // Selected date in personal calendar view — shows brand assignments for that day only
   const [selectedRosterDate, setSelectedRosterDate] = useState(null);
   const [dutyOpen, setDutyOpen] = useState(null); // On Duty panel: which colleague row is expanded
+  const [mgrReq, setMgrReq] = useState({agentId:"", date:"", shift:"M"}); // Manager/T2 shift-change request form
   const [addFlagDate,  setAddFlagDate]  = useState("");
   const [addFlagType,  setAddFlagType]  = useState("holiday");
   const [addFlagLabel, setAddFlagLabel] = useState("");
@@ -1014,6 +1015,11 @@ export default function AllocationPanel({ isAdmin = true }) {
       const next = typeof updater === "function" ? updater(old) : updater;
       return {...prev, [currentMK]: next};
     });
+  };
+  // Apply a shift for a specific date, writing to that date's own month key
+  const applyShiftForDate = (agentId, dateStr, shift) => {
+    const mk = String(dateStr).slice(0,7);
+    setAllAsgn(prev => ({...prev, [mk]: {...(prev[mk]||{}), [`${agentId}_${dateStr}`]: shift}}));
   };
   const safeSetBrandAsgn = (updater) => {
     setAllBrandAsgn(prev => {
@@ -2280,6 +2286,41 @@ export default function AllocationPanel({ isAdmin = true }) {
                   </div>
                 </div>
 
+                {/* Manager-requested shift changes (need my Accept) + tomorrow-morning reminder */}
+                {(()=>{
+                  const tRef = new Date(); tRef.setDate(tRef.getDate()+1);
+                  const tomorrowStr = `${tRef.getFullYear()}-${String(tRef.getMonth()+1).padStart(2,"0")}-${String(tRef.getDate()).padStart(2,"0")}`;
+                  const tomorrowShift = (allAsgn[tomorrowStr.slice(0,7)]||{})[`${myAgent.id}_${tomorrowStr}`];
+                  const mgrPending = changeRequests.filter(r=>r.agentId===myAgent.id && r.status==="pending" && r.origin==="manager");
+                  return (
+                    <>
+                      {mgrPending.map(r=>{
+                        const hot = r.date===tomorrowStr && r.requestedShift==="M";
+                        return (
+                          <div key={r.id} style={{background:hot?"#FEF2F2":"#F0FDFA",border:`1px solid ${hot?"#FCA5A5":"#99F6E4"}`,borderRadius:12,padding:"12px 16px",marginBottom:16}}>
+                            <div style={{fontSize:12,fontWeight:700,color:hot?"#B91C1C":"#0F766E"}}>Shift change requested by {r.requestedBy||"manager"}</div>
+                            <div style={{fontSize:12,color:"#334155",marginTop:4}}>{r.date}: change to <b>{r.requestedShift}</b> (currently {r.currentShift||"unset"})</div>
+                            {hot && <div style={{fontSize:11,fontWeight:700,color:"#B91C1C",marginTop:6}}>This is TOMORROW and it is a MORNING shift (starts 07:00). Accept only if you can make it.</div>}
+                            <div style={{display:"flex",gap:8,marginTop:10}}>
+                              <button onClick={()=>{
+                                applyShiftForDate(r.agentId, r.date, r.requestedShift);
+                                setChangeRequests(prev=>prev.map(x=>x.id===r.id?{...x,status:"approved",acceptedAt:new Date().toISOString()}:x));
+                              }} style={{padding:"6px 16px",borderRadius:8,border:"none",background:"#D1FAE5",color:"#059669",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Accept</button>
+                              <button onClick={()=>{
+                                setChangeRequests(prev=>prev.map(x=>x.id===r.id?{...x,status:"rejected"}:x));
+                              }} style={{padding:"6px 16px",borderRadius:8,border:"none",background:"#FEE2E2",color:"#DC2626",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Decline</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {tomorrowShift==="M" && (
+                        <div style={{background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:12,padding:"10px 16px",marginBottom:16,fontSize:12,color:"#92400E",fontWeight:600}}>
+                          Reminder: tomorrow ({tomorrowStr}) you are on Morning shift - starts 07:00
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
                 {/* My Schedule — Calendar view */}
                 <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden",marginBottom:16}}>
                   <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",fontSize:12,fontWeight:700,color:"#1A1D2E"}}>My Schedule — {dateLabel}</div>
@@ -2526,10 +2567,51 @@ export default function AllocationPanel({ isAdmin = true }) {
         {allocTab==="roster" && !myAgent && role!=="viewer" && role!=="t1" && (
           <div>
             {/* ── Pending Change Requests (manager/fulltime approval) ── */}
-            {changeRequests.filter(r=>r.status==="pending").length > 0 && (
+            {/* Manager/T2: request a shift change (agent must accept before it applies) */}
+            <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"14px 16px",marginBottom:16}}>
+              <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E",marginBottom:10}}>Request Shift Change <span style={{fontWeight:500,color:"#94A3B8"}}>(applies only after the agent accepts)</span></div>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                <select value={mgrReq.agentId} onChange={e=>setMgrReq(p=>({...p,agentId:e.target.value}))} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit"}}>
+                  <option value="">Select agent...</option>
+                  {agents.filter(a=>a.active && a.team!=="T2").sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true})).map(a=>(
+                    <option key={a.id} value={a.id}>{a.id} - {a.name}</option>
+                  ))}
+                </select>
+                <input type="date" value={mgrReq.date} onChange={e=>setMgrReq(p=>({...p,date:e.target.value}))} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit"}}/>
+                <select value={mgrReq.shift} onChange={e=>setMgrReq(p=>({...p,shift:e.target.value}))} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit"}}>
+                  {["M","ME","E","Off"].map(s=><option key={s} value={s}>{s==="M"?"Morning (M)":s==="ME"?"Mid (ME)":s==="E"?"Evening (E)":"Day Off"}</option>)}
+                </select>
+                <button onClick={()=>{
+                  if(!mgrReq.agentId || !mgrReq.date) return;
+                  const ag = agents.find(a=>a.id===mgrReq.agentId); if(!ag) return;
+                  const cur = (allAsgn[mgrReq.date.slice(0,7)]||{})[`${mgrReq.agentId}_${mgrReq.date}`] || "";
+                  setChangeRequests(prev=>[...prev,{
+                    id: Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+                    agentId:ag.id, agentName:ag.name, date:mgrReq.date,
+                    requestedShift:mgrReq.shift, currentShift:cur,
+                    reason:"", status:"pending", origin:"manager", requestedBy:loginUser,
+                    timestamp:new Date().toISOString()
+                  }]);
+                  setMgrReq({agentId:"",date:"",shift:"M"});
+                }} style={{padding:"7px 18px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Send Request</button>
+              </div>
+              {changeRequests.filter(r=>r.status==="pending" && r.origin==="manager").length>0 && (
+                <div style={{marginTop:12,borderTop:"1px solid #F1F5F9",paddingTop:10}}>
+                  <div style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",marginBottom:6}}>Awaiting agent confirmation</div>
+                  {changeRequests.filter(r=>r.status==="pending" && r.origin==="manager").map(r=>(
+                    <div key={r.id} style={{display:"flex",alignItems:"center",gap:10,fontSize:11,padding:"4px 0",color:"#334155"}}>
+                      <b>{r.agentName}</b><span style={{fontFamily:"monospace"}}>{r.date}</span>
+                      <span>change to <b>{r.requestedShift}</b> (currently {r.currentShift||"unset"})</span>
+                      <button onClick={()=>setChangeRequests(prev=>prev.filter(x=>x.id!==r.id))} style={{marginLeft:"auto",padding:"3px 10px",borderRadius:6,border:"none",background:"#F1F5F9",color:"#64748B",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Cancel</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {changeRequests.filter(r=>r.status==="pending" && r.origin!=="manager").length > 0 && (
               <div style={{background:"#fff",borderRadius:14,border:"1px solid #FCD34D",overflow:"hidden",marginBottom:16}}>
                 <div style={{padding:"12px 16px",borderBottom:"1px solid #FDE68A",background:"#FFFBEB",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                  <div style={{fontSize:12,fontWeight:700,color:"#92400E"}}>Pending Change Requests ({changeRequests.filter(r=>r.status==="pending").length})</div>
+                  <div style={{fontSize:12,fontWeight:700,color:"#92400E"}}>Pending Change Requests ({changeRequests.filter(r=>r.status==="pending" && r.origin!=="manager").length})</div>
                 </div>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead><tr style={{background:"#FFFBEB"}}>
@@ -2538,7 +2620,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     ))}
                   </tr></thead>
                   <tbody>
-                    {changeRequests.filter(r=>r.status==="pending").map(r=>(
+                    {changeRequests.filter(r=>r.status==="pending" && r.origin!=="manager").map(r=>(
                       <tr key={r.id} style={{borderBottom:"1px solid #F1F5F9"}}>
                         <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{r.agentName}</td>
                         <td style={{padding:"8px 12px",fontFamily:"monospace"}}>{r.date}</td>
