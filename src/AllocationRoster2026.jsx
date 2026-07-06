@@ -3807,7 +3807,8 @@ export default function AllocationPanel({ isAdmin = true }) {
             // CC (call centre) scope: only brands in the role groupScope,
             // matched against group, warehouse, or brand-name suffix.
             const gs = ROLES[role]?.groupScope;
-            if (gs && !(((b.group||"")+" "+(b.wh||"")+" "+(b.name||"")).toLowerCase().includes(gs))) return false;
+            const hasCallCC = (b.platforms||[]).includes("Call CC"); // brands with a CC channel are visible to CC-role users
+            if (gs && !hasCallCC && !(((b.group||"")+" "+(b.wh||"")+" "+(b.name||"")).toLowerCase().includes(gs))) return false;
             // FIX (Start Date): hide brands whose startDate is after the
             // date currently selected in the allocation header. They're not
             // yet active so they shouldn't appear on this day's grid.
