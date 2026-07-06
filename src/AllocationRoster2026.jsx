@@ -5001,7 +5001,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                               <div style={{fontSize:10,color:"#94A3B8",marginTop:2}}>Total Pay</div>
                             </div>
                           </div>
-                          <div style={{fontSize:10,color:"#94A3B8",textAlign:"center"}}>Ref {payYear}{String(payMonth).padStart(2,"0")}{myRow.ag.id} · Period: {periodLabel} · {myRow.workDays} days × ฿{myRow.ag.costDay} = ฿{Math.round(myRow.totalPay).toLocaleString()}</div>
+                          <div style={{fontSize:10,color:"#94A3B8",textAlign:"center"}}>PO {payYear}{String(payMonth).padStart(2,"0")}{myRow.ag.id} · Period: {periodLabel} · {myRow.workDays} days × ฿{myRow.ag.costDay} = ฿{Math.round(myRow.totalPay).toLocaleString()}</div>
                         </div>
                       );
                     })()
@@ -5010,7 +5010,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                     <thead>
                       <tr style={{background:"#E4EAF5"}}>
-                        {["PCode","Agent","Bank Details","Work Days","Cost/Day (฿)","Total Pay (฿)"].map(h=>(
+                        {["PO Number","Agent","Bank Details","Work Days","Cost/Day (฿)","Total Pay (฿)"].map(h=>(
                           <th key={h} style={{padding:"8px 12px",textAlign:["Work Days","Cost/Day (฿)","Total Pay (฿)"].includes(h)?"right":"left",borderBottom:"1px solid #E2E8F0",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
                         ))}
                       </tr>
@@ -5038,8 +5038,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                             return (
                             <tr key={ag.id} style={{borderBottom:"1px solid #F1F5F9",background:ri%2===0?"#FAFBFC":"transparent"}}>
                               <td style={{padding:"8px 12px"}}>
-                                <span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:ALLOC_TEAM_C[team]?.bg,color:ALLOC_TEAM_C[team]?.color,fontWeight:700,fontFamily:"monospace"}}>{ag.id}</span>
-                                <div title="Payment reference: pay month + PCode" style={{fontFamily:"monospace",fontSize:9,color:"#64748B",marginTop:3}}>{payYear}{String(payMonth).padStart(2,"0")}{ag.id}</div>
+                                <span title="PO number: pay month + PCode" style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:ALLOC_TEAM_C[team]?.bg,color:ALLOC_TEAM_C[team]?.color,fontWeight:700,fontFamily:"monospace"}}>{payYear}{String(payMonth).padStart(2,"0")}{ag.id}</span>
                               </td>
                               <td style={{padding:"8px 12px"}}>
                                 <div style={{fontWeight:700,color:"#1A1D2E"}}>{fullName}</div>
