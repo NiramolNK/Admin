@@ -4171,13 +4171,16 @@ export default function AllocationPanel({ isAdmin = true }) {
                               )}
                               {/* Total chats — only on first row */}
                               {pi===0 && (() => {
-                                const total = Object.values(b.chats||{}).reduce((s,v)=>s+(v||0),0);
+                                const selMk2 = (selDate?.date || "").slice(0, 7);
+                                const chatsOf = (x) => Object.values((selMk2 && monthlyVol[selMk2]?.[x.id]) || x.chats || {}).reduce((s,v)=>s+(v||0),0);
+                                const hasActual = !!(selMk2 && monthlyVol[selMk2]?.[b.id]);
+                                const total = chatsOf(b);
                                 const avgDay = Math.round(total / 30 / 2);
-                                const maxTotal = Math.max(...filteredBrands.map(x=>Object.values(x.chats||{}).reduce((s,v)=>s+(v||0),0)),1);
+                                const maxTotal = Math.max(...filteredBrands.map(chatsOf),1);
                                 const pct = Math.round((total/maxTotal)*100);
                                 return (
                                   <td rowSpan={visPlats.length} style={{padding:"8px 12px",verticalAlign:"top",paddingTop:12,borderRight:"1px solid #F1F5F9",textAlign:"right"}}>
-                                    <div style={{fontFamily:"monospace",fontWeight:700,fontSize:13,color:"#B45309"}}>{total.toLocaleString()}</div>
+                                    <div title={hasActual?"Actual imported chat volume for this month":"No import for this month - using brand default numbers"} style={{fontFamily:"monospace",fontWeight:700,fontSize:13,color:hasActual?"#B45309":"#94A3B8"}}>{total.toLocaleString()}{!hasActual && <span style={{fontSize:8,fontWeight:600,marginLeft:3}}>est</span>}</div>
                                     <div style={{fontFamily:"monospace",fontSize:9,color:"#94A3B8",marginTop:2}}>~{avgDay}/day/shift</div>
                                     <div style={{marginTop:4,height:4,borderRadius:2,background:"#F1F5F9",overflow:"hidden",width:60,marginLeft:"auto"}}>
                                       <div style={{height:"100%",width:`${pct}%`,background:"#F59E0B",borderRadius:2}}/>
