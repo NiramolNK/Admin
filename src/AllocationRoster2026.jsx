@@ -1034,6 +1034,18 @@ export default function AllocationPanel({ isAdmin = true }) {
     const mk = String(dateStr).slice(0,7);
     setAllAsgn(prev => ({...prev, [mk]: {...(prev[mk]||{}), [`${agentId}_${dateStr}`]: shift}}));
   };
+  // Burnout guard for requested shifts (cross-month): no M after E, no E before M
+  const violatesRest = (agentId, dateStr, shift) => {
+    if (shift !== "M" && shift !== "E") return null;
+    const dt = new Date(dateStr + "T00:00:00Z");
+    const ymd2 = (x) => x.toISOString().slice(0,10);
+    const prevD = new Date(dt); prevD.setUTCDate(dt.getUTCDate()-1);
+    const nextD = new Date(dt); nextD.setUTCDate(dt.getUTCDate()+1);
+    const shiftOf = (ds) => (allAsgn[ds.slice(0,7)]||{})[`${agentId}_${ds}`];
+    if (shift === "M" && shiftOf(ymd2(prevD)) === "E") return "M-after-E";
+    if (shift === "E" && shiftOf(ymd2(nextD)) === "M") return "E-before-M";
+    return null;
+  };
   const safeSetBrandAsgn = (updater) => {
     setAllBrandAsgn(prev => {
       const old = prev[currentMK] || {};
@@ -2316,6 +2328,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                             {hot && <div style={{fontSize:11,fontWeight:700,color:"#B91C1C",marginTop:6}}>This is TOMORROW and it is a MORNING shift (starts 07:00). Accept only if you can make it.</div>}
                             <div style={{display:"flex",gap:8,marginTop:10}}>
                               <button onClick={()=>{
+                                const rv = violatesRest(r.agentId, r.date, r.requestedShift);
+                                if (rv) { alert("This change now conflicts with the rest rule (Evening and Morning back-to-back). Please Decline and ask your manager for a new request."); return; }
                                 applyShiftForDate(r.agentId, r.date, r.requestedShift);
                                 setChangeRequests(prev=>prev.map(x=>x.id===r.id?{...x,status:"approved",acceptedAt:new Date().toISOString()}:x));
                               }} style={{padding:"6px 16px",borderRadius:8,border:"none",background:"#D1FAE5",color:"#059669",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Accept</button>
@@ -2598,6 +2612,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                   if(!mgrReq.agentId || !mgrReq.date) return;
                   const ag = agents.find(a=>a.id===mgrReq.agentId); if(!ag) return;
                   const cur = (allAsgn[mgrReq.date.slice(0,7)]||{})[`${mgrReq.agentId}_${mgrReq.date}`] || "";
+                  const rv = violatesRest(mgrReq.agentId, mgrReq.date, mgrReq.shift);
+                  if (rv) { alert(rv==="M-after-E" ? `${ag.name} works Evening the day before ${mgrReq.date} (ends 01:00). Morning would give only 6h rest.` : `${ag.name} works Morning the day after ${mgrReq.date}. Evening ends 01:00 - only 6h rest.`); return; }
                   setChangeRequests(prev=>[...prev,{
                     id: Date.now().toString(36)+Math.random().toString(36).slice(2,6),
                     agentId:ag.id, agentName:ag.name, date:mgrReq.date,
@@ -2642,7 +2658,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         <td style={{padding:"8px 12px",fontSize:10,color:"#94A3B8"}}>{new Date(r.timestamp).toLocaleString()}</td>
                         <td style={{padding:"8px 12px",display:"flex",gap:6}}>
                           <button onClick={()=>{
-                            safeSetAsgn(p=>({...p,[`${r.agentId}_${r.date}`]:r.requestedShift}));
+                            applyShiftForDate(r.agentId, r.date, r.requestedShift);
                             setChangeRequests(prev=>prev.map(x=>x.id===r.id?{...x,status:"approved"}:x));
                           }} style={{padding:"4px 10px",borderRadius:6,border:"none",background:"#D1FAE5",color:"#059669",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Approve</button>
                           <button onClick={()=>{
@@ -3177,10 +3193,11 @@ export default function AllocationPanel({ isAdmin = true }) {
           const periodStart = `${prevY}-${String(prevM+1).padStart(2,"0")}-24`;
           const periodEnd   = `${periodY}-${String(periodM+1).padStart(2,"0")}-23`;
           const periodDates = mkDateRange(periodStart, periodEnd);
-          // Tally worked days from asgn
+          const periodAsgn = {...(allAsgn[periodStart.slice(0,7)]||{}), ...(allAsgn[periodEnd.slice(0,7)]||{})};
+          // Tally worked days across BOTH months of the pay period
           let workDays = 0, otDays = 0;
           periodDates.forEach(d => {
-            const v = asgn[`${myPayrollAgent.id}_${d.date}`];
+            const v = periodAsgn[`${myPayrollAgent.id}_${d.date}`];
             if (!v || v === "Off" || v === "TOIL") return;
             workDays++;
             if (v === "OT") otDays++;
@@ -4840,10 +4857,11 @@ export default function AllocationPanel({ isAdmin = true }) {
               const periodDates = mkDateRange(periodStart, periodEnd);
               const periodLabel = `24 ${MONTHS[prevM-1]} ${prevY} – 23 ${MONTHS[payMonth-1]} ${payYear}`;
 
+              const periodAsgn = {...(allAsgn[periodStart.slice(0,7)]||{}), ...(allAsgn[periodEnd.slice(0,7)]||{})};
               const allPayRows = active.filter(a => a.team !== "T2").map(ag => {
                 let workDays=0, normalDays=0, otDays=0, toilDays=0;
                 periodDates.forEach(d => {
-                  const v = asgn[`${ag.id}_${d.date}`];
+                  const v = periodAsgn[`${ag.id}_${d.date}`];
                   if (!v || v==="Off") return;
                   if (v==="TOIL") { toilDays++; return; }
                   workDays++;
