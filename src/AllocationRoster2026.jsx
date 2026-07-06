@@ -1859,10 +1859,10 @@ export default function AllocationPanel({ isAdmin = true }) {
     setBrands(p => p.map(b => b.id===brandId ? {...b, chats:{...(b.chats||{}), [platform]: Number(value)||0}} : b));
   };
 
-  // Allocation: working T1 agents on a given date+shift
+  // Allocation: working T1 + CC agents on a date+shift (CC manual-assign only; autoAllocateBrands stays T1-only)
   const getWorkingAgents = (date, shift) => {
     return agents.filter(a => {
-      if(!a.active || a.team!=="T1") return false;
+      if(!a.active || (a.team!=="T1" && a.team!=="CC")) return false;
       const v = asgn[`${a.id}_${date}`];
       if(!v || v==="Off" || v==="TOIL") return false;
       if(shift==="ME") return v==="ME"; // ME view: only ME-rostered agents
@@ -2651,7 +2651,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   style={{...inpS,paddingLeft:28,width:"100%",boxSizing:"border-box"}}/>
               </div>
               <div style={{display:"flex",gap:4}}>
-                {[["all","All"],["T1","T1"],["Return","Return"]].map(([v,l])=>(
+                {[["all","All"],["T1","T1"],["Return","Return"],["CC","CC"]].map(([v,l])=>(
                   <button key={v} onClick={()=>setRosterTeam(v)} style={{
                     padding:"6px 12px",borderRadius:8,border:"none",fontSize:11,fontWeight:600,cursor:"pointer",
                     background:rosterTeam===v?(v==="all"?"#14B8A6":ALLOC_TEAM_C[v]?.bg||"#F0FDFA"):"#F1F5F9",
@@ -2937,7 +2937,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {["T1","Return"].map(team => {
+                    {["T1","Return","CC"].map(team => {
                       const ta=rosterAgents.filter(a=>a.team===team);
                       if(!ta.length) return null;
                       const tc=ALLOC_TEAM_C[team];
@@ -2964,7 +2964,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                                 {editing && (
                                   <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#1A1D38",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px #00000088",padding:10,width:150,fontSize:12}}>
                                     <div style={{fontWeight:700,color:"#6B7280",marginBottom:6,fontSize:10}}>{d.dd}/{d.mm} {d.day} · {ag.name}</div>
-                                    {[...(ag.team==="T1"?ag.shifts:["M","ME","E"].filter(s=>ag.shifts.includes(s))),"Off",...((ag.team==="T2"||ag.team==="Return")?["TOIL","OT"]:[])].map(code => {
+                                    {[...(ag.team==="T1"?ag.shifts:["M","ME","E"].filter(s=>ag.shifts.includes(s))),"Off",...((ag.team==="T2"||ag.team==="Return"||ag.team==="CC")?["TOIL","OT"]:[])].map(code => {
                                       const cs2=ALLOC_SHIFT_C[code];const act=val===code;
                                       return (
                                         <button key={code} onClick={()=>{
@@ -4984,7 +4984,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {["T1","Return"].map(team => {
+                      {["T1","Return","CC"].map(team => {
                         // FIX: sort team rows by PCode (id) ascending so the
                         // report layout matches the spreadsheet order.
                         const teamRows = payRows
