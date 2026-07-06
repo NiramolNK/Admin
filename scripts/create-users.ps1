@@ -27,6 +27,21 @@ $roleMap = @{ "T1"="t1"; "RT&RF"="return"; "RTRF"="return"; "VIEWER"="viewer";
               "FULLTIME"="fulltime"; "MANAGER"="manager"; "CC"="cc" }
 
 $rows = Import-Csv $csvPath
+# April's team-sheet format support: detect tab-delimited and/or her headers
+if ($rows.Count -gt 0 -and -not ($rows[0].PSObject.Properties.Name -contains "Email")) {
+  $rows = Import-Csv $csvPath -Delimiter "`t"
+}
+$isSheet = $rows.Count -gt 0 -and ($rows[0].PSObject.Properties.Name -contains "Pdoce")
+if ($isSheet) {
+  Write-Host "Team-sheet format detected (Pdoce/Nick Name/password columns)" -ForegroundColor Cyan
+  $rows = $rows | ForEach-Object {
+    $pc = ("" + $_.Pdoce).Trim()
+    $role = if ($pc -eq "09") { "RT&RF" } elseif ($pc -eq "15") { "CC" } else { "T1" }
+    $nick = ("" + $_."Nick Name").Trim()
+    if ($pc -eq "14") { $nick = "Cream Chanid" }  # two Creams; keep #14 distinct
+    [pscustomobject]@{ Email = $_.Email; Name = $nick; role = $role; Password = $_.password }
+  }
+}
 Write-Host "Found $($rows.Count) users in users.csv`n"
 $created = 0; $failed = 0; $roleEntries = @()
 
