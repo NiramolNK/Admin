@@ -900,6 +900,11 @@ export default function AllocationPanel({ isAdmin = true }) {
       if (attempt < 2) {
         const delay = 500 * Math.pow(3, attempt);
         setTimeout(() => saveKey(key, value, attempt + 1), delay);
+      } else if (key === "nirm-prefs") {
+        // UI preferences only (which tab was open, etc.) — never worth alarming
+        // the user over. Fail quietly; prefs re-save on the next tab switch.
+        // The red banner is reserved for keys holding real data.
+        console.warn("[save] nirm-prefs save failed after retries — ignored (low-stakes)");
       } else {
         needsSave.current = true;
         setSaveStatus("error");
