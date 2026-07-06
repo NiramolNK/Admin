@@ -1466,19 +1466,19 @@ export default function AllocationPanel({ isAdmin = true }) {
     let c = 0;
     active.filter(a => a.team !== "T2").forEach(ag => {
       const v=asgn[`${ag.id}_${d.date}`];
-      if(v&&v!=="Off") c+=ag.costDay*(v==="OT"?1.5:1);
+      if(v&&v!=="Off"&&v!=="TOIL") c+=ag.costDay*(v==="OT"?1.5:1);
     });
     // T2: spread monthly salary evenly across all days in period
     c += t2DailyShare;
     return Math.round(c);
   });
   const totalCost = active.filter(a=>a.team!=="T2").reduce((s,a)=>{
-    let d=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off")d++;});
-    return s+d*a.costDay;
+    let c=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off"&&v!=="TOIL")c+=a.costDay*(v==="OT"?1.5:1);});
+    return s+c;
   },0) + t2MonthlyCost;
   const t1ReturnAgents = agents.filter(a => a.active && (a.team==="T1"||a.team==="Return"));
   const t1ReturnCost   = t1ReturnAgents.reduce((s,a) => {
-    let days=0; dates.forEach(d=>{const v=asgn[`${a.id}_${d.date}`];if(v&&v!=="Off")days++;}); return s+days*a.costDay;
+    let c=0; dates.forEach(d=>{const v=asgn[`${a.id}_${d.date}`];if(v&&v!=="Off"&&v!=="TOIL")c+=a.costDay*(v==="OT"?1.5:1);}); return s+c;
   }, 0);
   const totalBudget = Object.values(budget).reduce((s,v)=>s+v,0);
 
@@ -2257,7 +2257,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               if (dt < sD || dt > eD) continue;
               t1r.forEach(ag => {
                 const v = monthAsgn[`${ag.id}_${ds}`];
-                if (v && v !== "Off") t1rCost += ag.costDay * (v === "OT" ? 1.5 : 1);
+                if (v && v !== "Off" && v !== "TOIL") t1rCost += ag.costDay * (v === "OT" ? 1.5 : 1);
               });
             }
           });
@@ -2277,9 +2277,9 @@ export default function AllocationPanel({ isAdmin = true }) {
                 <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t2Agents.filter(a=>a.active).length} fulltime · {rangeLabel}</div>
               </div>
               <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
-                <div style={{fontSize:10,color:"#0D9488",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T1 + Return</div>
+                <div style={{fontSize:10,color:"#0D9488",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T1 + Return + CC</div>
                 <div style={{fontSize:22,fontWeight:700,color:"#0D9488"}}>฿{t1rRounded.toLocaleString()}</div>
-                <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t1ReturnAgents.length} agents · {rangeLabel}</div>
+                <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{agents.filter(a=>a.active&&a.team!=="T2").length} agents · {rangeLabel}</div>
               </div>
               <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:`1px solid ${grand>totalBudget?"#FCA5A5":"#BBF7D0"}`,boxShadow:"0 1px 3px #0001"}}>
                 <div style={{fontSize:10,color:"#64748B",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Grand Total</div>
