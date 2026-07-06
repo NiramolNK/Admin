@@ -2292,10 +2292,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                             const fl = flags[d.date]; const isH = fl?.type==="holiday"; const isC = fl?.type==="campaign";
                             const bg = isH ? "#FEF3C7" : isC ? "#F0FDFA" : d.isWE ? "#FFF5F5" : "#fff";
                             return (
-                              <div key={d.date} style={{minHeight:72,border:selectedRosterDate===d.date?"2px solid #0D9488":"1px solid #E2E8F0",borderRadius:8,background:bg,padding:"6px 8px",position:"relative",cursor:(role==="viewer"||role==="t1")?"pointer":"default",boxShadow:selectedRosterDate===d.date?"0 0 0 2px #99F6E4":"none"}}
+                              <div key={d.date} style={{minHeight:72,border:selectedRosterDate===d.date?"2px solid #0D9488":"1px solid #E2E8F0",borderRadius:8,background:bg,padding:"6px 8px",position:"relative",cursor:(role==="viewer"||role==="t1"||role==="return"||role==="cc")?"pointer":"default",boxShadow:selectedRosterDate===d.date?"0 0 0 2px #99F6E4":"none"}}
                                 onClick={()=>{
                                   if(role==="viewer") setCellKey(editing?null:cellK);
-                                  if(role==="t1") setSelectedRosterDate(selectedRosterDate===d.date?null:d.date);
+                                  if(role==="t1"||role==="return"||role==="cc") setSelectedRosterDate(selectedRosterDate===d.date?null:d.date);
                                 }}>
                                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                                   <div style={{fontSize:11,fontWeight:700,color:d.isWE?"#EF4444":"#1A1D2E"}}>{Number(d.dd)}</div>
@@ -2357,7 +2357,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
                 {/* My Brand Assignments — only for the selected date */}
                 {/* Request Change strip — T1 picks a new shift for the selected date, shown right above brand assignments */}
-                {role==="t1" && selectedRosterDate && (()=>{
+                {(role==="t1"||role==="return"||role==="cc") && selectedRosterDate && (()=>{
                   const dSel = dates.find(x=>x.date===selectedRosterDate);
                   const cur = asgn[`${myAgent.id}_${selectedRosterDate}`] || "";
                   const pendingHere = changeRequests.some(r=>r.agentId===myAgent.id && r.date===selectedRosterDate && r.status==="pending");
