@@ -861,6 +861,10 @@ export default function AllocationPanel({ isAdmin = true }) {
   // until next successful save). Bumped via setSaveStatus below.
   const [saveStatus, setSaveStatus] = useState(null);
   const saveAttemptRef = useRef(0);
+  // FIX (stale-tab stomp): remember last-saved JSON per key so flushSave only
+  // writes keys that actually changed in THIS tab. A tab can no longer
+  // overwrite domains its user never touched.
+  const lastSavedJson = useRef({});
 
   // FIX (per-domain key split): saveKey writes ONE domain to its own storage
   // key. Combined with the supabase.js app_state_patch RPC, this lets
