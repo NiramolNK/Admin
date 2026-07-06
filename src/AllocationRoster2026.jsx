@@ -329,7 +329,7 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
   // ── Return: fixed schedule (work all available days, no count limits) ─────
   // Return agents have a fixed weekly schedule (e.g. AOF = Mon-Sat).
   // They are NOT subject to the auto-fill count limits or day-off staggering.
-  const returnOnly = agents.filter(a => a.active && a.team === "Return");
+  const returnOnly = agents.filter(a => a.active && (a.team === "Return" || a.team === "CC"));
   returnOnly.forEach(ag => {
     dates.forEach(d => {
       const k  = `${ag.id}_${d.date}`;
