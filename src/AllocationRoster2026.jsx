@@ -5615,7 +5615,7 @@ export default function AllocationPanel({ isAdmin = true }) {
       ══════════════════════════════════════════ */}
       {showUserMgmt && role==="manager" && (
         <div style={{position:"fixed",inset:0,zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.6)",backdropFilter:"blur(4px)"}} onMouseDown={(e)=>{ if (e.target === e.currentTarget) { setShowUserMgmt(false); setEditingUser(null); } }}>
-          <div style={{background:"#fff",borderRadius:16,padding:24,width:520,maxWidth:"95vw",maxHeight:"90vh",overflow:"auto",boxShadow:"0 16px 48px #00000088"}} onClick={e=>e.stopPropagation()}>
+          <div style={{background:"#fff",borderRadius:16,padding:24,width:620,maxWidth:"95vw",maxHeight:"90vh",overflow:"auto",boxShadow:"0 16px 48px #00000088"}} onClick={e=>e.stopPropagation()}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
               <div style={{fontSize:16,fontWeight:700,color:"#1A1D2E"}}>User Accounts</div>
               <button onClick={()=>{setShowUserMgmt(false);setEditingUser(null);}} style={{background:"none",border:"none",cursor:"pointer",color:"#94A3B8",fontSize:20}}>×</button>
@@ -5624,6 +5624,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead><tr style={{background:"#F1F5F9"}}>
                   <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Email</th>
+                  <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Agent</th>
                   <th style={{padding:"8px 12px",textAlign:"left",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Role</th>
                   <th style={{padding:"8px 12px",textAlign:"center",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>Actions</th>
                 </tr></thead>
@@ -5631,6 +5632,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   {userAccounts.map((u,i) => (
                     <tr key={i} style={{borderTop:"1px solid #F1F5F9"}}>
                       <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{u.username}</td>
+                      <td style={{padding:"8px 12px",whiteSpace:"nowrap"}}>{(()=>{const ag=agents.find(a=>(a.email||"").toLowerCase()===u.username.toLowerCase());return ag?(<><span style={{fontSize:10,padding:"2px 6px",borderRadius:6,background:"#F0FDFA",color:"#0D9488",fontWeight:700,fontFamily:"monospace",marginRight:6}}>{ag.id}</span><span style={{fontWeight:600,color:"#1A1D2E"}}>{ag.name}</span></>):(<span style={{color:"#CBD5E1"}}>-</span>);})()}</td>
                       <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:ROLES[u.role]?.bg||"#F1F5F9",color:ROLES[u.role]?.color||"#64748B",fontWeight:700}}>{ROLES[u.role]?.label||u.role}</span></td>
                       <td style={{padding:"8px 12px",textAlign:"center"}}>
                         <button onClick={()=>setEditingUser({...u,_idx:i,_isNew:false})} style={{padding:"3px 10px",borderRadius:6,border:"none",background:"#EFF6FF",color:"#1D4ED8",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginRight:4}}>Edit</button>
