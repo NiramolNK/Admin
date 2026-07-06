@@ -755,7 +755,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     t1:       { label:"T1",              color:"#0D9488", bg:"#F0FDFA", tabs:["roster","payment"],                                                         canEdit:false },
     return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation","payment"],                                            canEdit:false },
     viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget"],                                                          canEdit:false },
-    fulltime: { label:"Fulltime",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","allocation","volume","agents","dates","analytics"],                canEdit:false },
+    fulltime: { label:"T2",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","payment","allocation","dates","volume","agents"],                canEdit:false },
     manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true  },
     cc:       { label:"CC",              color:"#7C3AED", bg:"#F3E8FF", tabs:["roster","allocation"],                                          canEdit:false, groupScope:"shiseido" },
   };
