@@ -3313,25 +3313,25 @@ export default function AllocationPanel({ isAdmin = true }) {
                         ))}
                       </tr></thead>
                       <tbody>
-                        {["T1","Return"].map(team => t1rList.filter(a=>a.team===team).map((a,idx) => {
+                        {t1rList.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true})).map((a,idx) => {
                           let dw=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off")dw++;});
                           const pc=dw*a.costDay;
                           const prof = userProfiles[(a.name||"").toLowerCase()] || {};
                           return (
                             <tr key={a.id} style={{borderBottom:"1px solid #F1F5F9",cursor:"pointer",opacity:a.active?1:0.5}} onClick={()=>openAgent(a)}>
-                              <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:ALLOC_TEAM_C[team].bg,color:ALLOC_TEAM_C[team].color,fontWeight:700,fontFamily:"monospace"}}>{a.id}</span></td>
+                              <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:ALLOC_TEAM_C[a.team]?.bg,color:ALLOC_TEAM_C[a.team]?.color,fontWeight:700,fontFamily:"monospace"}}>{a.id}</span></td>
                               <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{a.name}</td>
                               <td style={{padding:"8px 12px",fontSize:11,color:"#64748B"}}>{prof.fullName||a.fullName||a.thaiName||""}</td>
                               <td style={{padding:"8px 12px"}}><div style={{display:"flex",gap:3}}>{a.shifts.map(s=><span key={s} style={{fontSize:10,padding:"2px 6px",borderRadius:6,background:ALLOC_SHIFT_C[s]?.bg,color:ALLOC_SHIFT_C[s]?.color,fontWeight:700}}>{s}</span>)}</div></td>
                               <td style={{padding:"8px 12px"}}><div style={{display:"flex",gap:2}}>{ALLOC_DAYS.map(dy=>{const on=a.days.includes(dy.wd);return(<span key={dy.code} style={{display:"inline-flex",width:22,height:18,borderRadius:3,fontSize:8,fontWeight:700,alignItems:"center",justifyContent:"center",background:on?"#DBEAFE":"#F1F5F9",color:on?"#60A5FA":"#94A3B8"}}>{dy.code.slice(0,2)}</span>);})}</div></td>
                               <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:11,color:"#94A3B8"}}>฿{a.costDay}</td>
                               <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:12,fontWeight:700,color:dw>0?"#1A1D2E":"#94A3B8"}}>{dw}d</td>
-                              <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:13,fontWeight:700,color:ALLOC_TEAM_C[team].color}}>฿{pc.toLocaleString()}</td>
+                              <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:13,fontWeight:700,color:ALLOC_TEAM_C[a.team]?.color}}>฿{pc.toLocaleString()}</td>
                               <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:8,background:a.active?"#D1FAE5":"#94A3B822",color:a.active?"#06C755":"#6B7280",fontWeight:700}}>{a.active?"Active":"Off"}</span></td>
                               <td style={{padding:"8px 12px"}}><button onClick={e=>{e.stopPropagation();openAgent(a);}} style={{padding:"3px 10px",borderRadius:7,border:"none",background:"transparent",color:"#0D9488",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>Edit</button></td>
                             </tr>
                           );
-                        }))}
+                        })}
                         <tr style={{background:"#14b8a611",borderTop:"2px solid #5EEAD4"}}>
                           <td colSpan={7} style={{padding:"8px 12px",fontWeight:700,color:"#0D9488",fontSize:11}}>T1 + RETURN TOTAL ({t1rList.filter(a=>a.active).length} active)</td>
                           <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:14,fontWeight:700,color:"#0D9488"}}>฿{t1rTotal.toLocaleString()}</td>
