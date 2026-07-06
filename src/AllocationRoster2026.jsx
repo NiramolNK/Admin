@@ -2262,12 +2262,33 @@ export default function AllocationPanel({ isAdmin = true }) {
             }
           });
 
+          // Payment-period mode (default when no custom range is set):
+          // mirror the Payment Period Summary exactly - 24th of prev month
+          // to 23rd of the selected pay month, TOIL unpaid, OT 1.5x, and
+          // T2 salary taken from the pay month.
+          if (!isRangeSet) {
+            const ppPrevM = payMonth === 1 ? 12 : payMonth - 1;
+            const ppPrevY = payMonth === 1 ? payYear - 1 : payYear;
+            const ppStart = `${ppPrevY}-${String(ppPrevM).padStart(2,"0")}-24`;
+            const ppEnd   = `${payYear}-${String(payMonth).padStart(2,"0")}-23`;
+            const ppDates = mkDateRange(ppStart, ppEnd);
+            const ppAsgn  = {...(allAsgn[ppStart.slice(0,7)]||{}), ...(allAsgn[ppEnd.slice(0,7)]||{})};
+            t1rCost = 0;
+            agents.filter(a => a.active && a.team !== "T2").forEach(ag => {
+              ppDates.forEach(d => {
+                const v = ppAsgn[`${ag.id}_${d.date}`];
+                if (!v || v === "Off" || v === "TOIL") return;
+                t1rCost += ag.costDay * (v === "OT" ? 1.5 : 1);
+              });
+            });
+            t2Cost = (fulltimeSalary && fulltimeSalary[`${payYear}-${String(payMonth).padStart(2,"0")}`]) || 0;
+          }
           const grand = Math.round(t2Cost + t1rCost);
           const t2Rounded = Math.round(t2Cost);
           const t1rRounded = Math.round(t1rCost);
           const rangeLabel = isRangeSet
             ? `${rs} → ${re}`
-            : `${MONTHS[rosterMonth - 1]} ${rosterYear}`;
+            : `Pay period 24 ${MONTHS[(payMonth===1?12:payMonth-1)-1]} - 23 ${MONTHS[payMonth-1]} ${payYear}`;
 
           return (
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:22}}>
