@@ -685,6 +685,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   const [cellKey, setCellKey]       = useState(null);
   // Selected date in personal calendar view — shows brand assignments for that day only
   const [selectedRosterDate, setSelectedRosterDate] = useState(null);
+  const [dutyOpen, setDutyOpen] = useState(null); // On Duty panel: which colleague row is expanded
   const [addFlagDate,  setAddFlagDate]  = useState("");
   const [addFlagType,  setAddFlagType]  = useState("holiday");
   const [addFlagLabel, setAddFlagLabel] = useState("");
@@ -1898,6 +1899,25 @@ export default function AllocationPanel({ isAdmin = true }) {
     : null;
   // Time labels per shift code. The agent's actual roster shift on a date determines the label.
   const SHIFT_LABEL = { M: "Morning (07:00 - 16:00)", ME: "ME (12:00 - 21:00)", E: "Evening (16:00 - 01:00)" };
+  // Brands assigned to ANY agent on a given date (same matching as myBrandsForDate)
+  const brandsForAgentOn = (ag, dateStr) => {
+    const out = []; const seen = new Set();
+    if (!ag || !dateStr) return out;
+    brands.forEach(b => {
+      if (b.offboarded) return;
+      (b.platforms||[]).forEach(plat => {
+        ["M","ME","E"].forEach(shift => {
+          const raw = brandAsgn[`${b.id}_${dateStr}_${shift}_${plat}`];
+          const assigned = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+          if (assigned.includes(ag.name)) {
+            const dk = `${b.id}|${plat}`;
+            if (!seen.has(dk)) { seen.add(dk); out.push({brand:b.name, plat, wh:b.wh||""}); }
+          }
+        });
+      });
+    });
+    return out;
+  };
   const myBrands = [];
   const myBrandsForDate = []; // brand assignments for the selectedRosterDate only
   if (myAgent) {
@@ -2425,6 +2445,49 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </div>
 
                 {/* My Pending Requests */}
+                {/* On Duty: teammates working on the selected date + their brands */}
+                {selectedRosterDate && (()=>{
+                  const dSel = dates.find(x=>x.date===selectedRosterDate);
+                  const SH_ORDER = {M:0, ME:1, E:2};
+                  const onDuty = agents.filter(a=>a.active && ["M","ME","E"].includes(asgn[`${a.id}_${selectedRosterDate}`]))
+                    .sort((a,b)=>{const sa=SH_ORDER[asgn[`${a.id}_${selectedRosterDate}`]], sb=SH_ORDER[asgn[`${b.id}_${selectedRosterDate}`]]; return sa!==sb?sa-sb:String(a.id).localeCompare(String(b.id),undefined,{numeric:true});});
+                  return (
+                    <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden",marginTop:16,marginBottom:16}}>
+                      <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#F1F5F9",fontSize:12,fontWeight:700,color:"#1A1D2E"}}>
+                        On Duty {dSel?`- ${dSel.dd}/${dSel.mm} ${dSel.day}`:""} ({onDuty.length} working)
+                      </div>
+                      {onDuty.length===0 ? (
+                        <div style={{padding:24,textAlign:"center",color:"#94A3B8",fontSize:13}}>No one is scheduled on this date.</div>
+                      ) : onDuty.map(a=>{
+                        const sh = asgn[`${a.id}_${selectedRosterDate}`]; const cs = ALLOC_SHIFT_C[sh];
+                        const open = dutyOpen===a.id;
+                        const bl = open ? brandsForAgentOn(a, selectedRosterDate) : [];
+                        return (
+                          <div key={a.id} style={{borderTop:"1px solid #F1F5F9"}}>
+                            <div onClick={()=>setDutyOpen(open?null:a.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 16px",cursor:"pointer",background:open?"#F8FAFC":"#fff"}}>
+                              <span style={{fontSize:10,padding:"2px 7px",borderRadius:6,background:"#F0FDFA",color:"#0D9488",fontWeight:700,fontFamily:"monospace"}}>{a.id}</span>
+                              <span style={{fontSize:12,fontWeight:600,color:a.id===myAgent.id?"#0D9488":"#1A1D2E"}}>{a.name}{a.id===myAgent.id?" (you)":""}</span>
+                              <span style={{marginLeft:"auto",fontSize:10,padding:"2px 8px",borderRadius:4,background:cs?.bg,color:cs?.color,fontWeight:700}}>{sh}</span>
+                              <span style={{fontSize:10,color:"#0D9488",fontWeight:600}}>{open?"Hide":"View brands"}</span>
+                            </div>
+                            {open && (
+                              <div style={{padding:"4px 16px 10px 16px",background:"#F8FAFC"}}>
+                                {bl.length===0 ? <div style={{fontSize:11,color:"#94A3B8",padding:"4px 0"}}>No brand assignments this day.</div> :
+                                  bl.map((x,i)=>(
+                                    <div key={i} style={{display:"flex",alignItems:"center",gap:8,padding:"3px 0",fontSize:11}}>
+                                      <span style={{fontWeight:600,color:"#1A1D2E"}}>{x.brand}</span>
+                                      {x.wh ? <span style={{fontSize:9,padding:"1px 6px",borderRadius:4,background:"#F1F5F9",color:"#64748B",fontWeight:700}}>{x.wh}</span> : null}
+                                      <span style={{marginLeft:"auto",fontSize:9,padding:"1px 6px",borderRadius:4,background:"#EFF6FF",color:"#1D4ED8",fontWeight:700}}>{x.plat}</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
                 {changeRequests.filter(r=>r.agentId===myAgent.id).length > 0 && (
                   <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden",marginTop:16}}>
                     <div style={{padding:"12px 16px",borderBottom:"1px solid #F1F5F9",background:"#FEF3C7",fontSize:12,fontWeight:700,color:"#92400E"}}>My Change Requests</div>
