@@ -982,7 +982,12 @@ export default function AllocationPanel({ isAdmin = true }) {
     if (dirtyKeys.size === 0) { setSaveStatus(s => (s === "error" ? "error" : null)); return; }
     Promise.all(
       DOMAIN_KEYS.map(({ storageKey, stateKey }) =>
-        dirtyKeys.has(storageKey) ? window.storage.set(storageKey, state[stateKey]).then(() => { lastSavedJson.current[storageKey] = JSON.stringify(state[stateKey] ?? null); }) : Promise.resolve()
+        dirtyKeys.has(storageKey) ? window.storage.set(storageKey, state[stateKey]).then(() => { lastSavedJson.current[storageKey] = JSON.stringify(state[stateKey] ?? null); }).catch(e => {
+          // Preference-only key: a failed prefs write (last-open tab etc.) is
+          // not worth the red banner. Swallow it; prefs re-save on next change.
+          if (storageKey === "nirm-prefs") { console.warn("[save] nirm-prefs failed - ignored (low-stakes)", e); return; }
+          throw e; // real data keys still trip the banner below
+        }) : Promise.resolve()
       )
     ).then(() => {
       if (id === saveAttemptRef.current && needsSave.current === false) {

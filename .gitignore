@@ -8,3 +8,6 @@ dist
 users.csv
 push-result.txt
 pr.txt
+
+*.txt-diag
+d.txt
