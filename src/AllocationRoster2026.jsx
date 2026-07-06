@@ -948,9 +948,15 @@ export default function AllocationPanel({ isAdmin = true }) {
     // FIX (post-ship review HIGH/H): iterate DOMAIN_KEYS instead of a
     // hardcoded list — drift between this list and the subscriber's list
     // is exactly how bug D slipped in.
+    // FIX (stale-tab stomp): only write keys whose value changed in THIS tab.
+    const jsonOf = (sk) => JSON.stringify(state[sk] ?? null);
+    const dirtyKeys = new Set(DOMAIN_KEYS
+      .filter(({ storageKey, stateKey }) => lastSavedJson.current[storageKey] !== jsonOf(stateKey))
+      .map(({ storageKey }) => storageKey));
+    if (dirtyKeys.size === 0) { setSaveStatus(s => (s === "error" ? "error" : null)); return; }
     Promise.all(
       DOMAIN_KEYS.map(({ storageKey, stateKey }) =>
-        window.storage.set(storageKey, state[stateKey])
+        dirtyKeys.has(storageKey) ? window.storage.set(storageKey, state[stateKey]).then(() => { lastSavedJson.current[storageKey] = JSON.stringify(state[stateKey] ?? null); }) : Promise.resolve()
       )
     ).then(() => {
       if (id === saveAttemptRef.current && needsSave.current === false) {
