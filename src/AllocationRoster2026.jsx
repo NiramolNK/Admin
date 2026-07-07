@@ -572,7 +572,10 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
     // `shifts[shiftIdx % length]`, defaulting most M-only agents to M and
     // inflating the M count. Now we only top up to minNeeded when the user
     // has NOT set explicit shift counts (so chatCap-driven minimums still work).
-    const userSetQuota = (needM + needME + needE) > 0;
+    // FIX: judge "user set a quota" from the RAW modal inputs, not the
+    // post-default values (defaults make needM/needE always > 0, which made
+    // this permanently true and killed the chatCap-driven minNeeded top-up).
+    const userSetQuota = (needMRaw + needMERaw + needERaw) > 0;
     const stillLeft = pool.filter(ag => !nxt[`${ag.id}_${d.date}`])
                           .sort((a, b) => dayCount[a.id] - dayCount[b.id]);
 
@@ -583,9 +586,15 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       if (assigned >= minNeeded)                              { nxt[k] = "Off"; return; }
       if (budgetCap != null && budgetUsed + ag.costDay > budgetCap) { nxt[k] = "Off"; return; }
 
-      // Rotate through agent's available shifts
+      // Rotate through agent's available shifts — respecting the burnout rule
+      // (never M after yesterday's E; fall back to another shift or Off)
       const s = ag.shifts;
-      const shift = s[shiftIdx[ag.id] % s.length];
+      let shift = s[shiftIdx[ag.id] % s.length];
+      if (shift === "M" && wouldBurnout(ag.id, d.date)) {
+        const alt = s.find(x => x !== "M");
+        if (!alt) { nxt[k] = "Off"; return; }
+        shift = alt;
+      }
       nxt[k] = shift;
       budgetUsed += ag.costDay;
       assigned++;
