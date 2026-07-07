@@ -272,9 +272,12 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
         (b.platforms||[]).forEach(plat => {
           const realVol = getBrandChats(b, plat, monthlyVol, mk);
           const vol = realVol > 0 ? realVol : 0.01;
-          // How many agents for this brand+platform — zero-chat brands only
-          // get 1 agent regardless of whether they were in top3 historically.
-          const agentCount = (realVol > 0 && top3.has(b.id)) ? topBrandAgents : 1;
+          // Per-shift daily chats — same formula as the allocation UI pills
+          // (monthly chats / 30 days / 2 shifts). RULE: a brand under 20
+          // chats/shift gets exactly 1 agent, even if it ranks top-3 —
+          // multi-agent staffing is reserved for genuinely busy brands.
+          const perShiftChats = realVol / 30 / 2;
+          const agentCount = (perShiftChats >= 20 && top3.has(b.id)) ? topBrandAgents : 1;
           tasks.push({ k: `${b.id}_${d.date}_${shift}_${plat}`, vol, brandId: b.id, agentCount });
         });
       });
