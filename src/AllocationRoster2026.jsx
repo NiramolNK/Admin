@@ -1481,19 +1481,23 @@ export default function AllocationPanel({ isAdmin = true }) {
     let c = 0;
     active.filter(a => a.team !== "T2").forEach(ag => {
       const v=asgn[`${ag.id}_${d.date}`];
-      if(v&&v!=="Off"&&v!=="TOIL") c+=ag.costDay*(v==="OT"?1.5:1);
+      if(v&&v!=="Off"&&v!=="TOIL"){
+        c+=ag.costDay*(v==="OT"?1.5:1);
+        const ex=extraHrs[`${ag.id}_${d.date}`];
+        if(ex&&ex.h) c+=ex.h*(ag.costDay/8)*(ex.x||1);
+      }
     });
     // T2: spread monthly salary evenly across all days in period
     c += t2DailyShare;
     return Math.round(c);
   });
   const totalCost = active.filter(a=>a.team!=="T2").reduce((s,a)=>{
-    let c=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off"&&v!=="TOIL")c+=a.costDay*(v==="OT"?1.5:1);});
+    let c=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off"&&v!=="TOIL"){c+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${dt.date}`];if(ex&&ex.h)c+=ex.h*(a.costDay/8)*(ex.x||1);}});
     return s+c;
   },0) + t2MonthlyCost;
   const t1ReturnAgents = agents.filter(a => a.active && (a.team==="T1"||a.team==="Return"));
   const t1ReturnCost   = t1ReturnAgents.reduce((s,a) => {
-    let c=0; dates.forEach(d=>{const v=asgn[`${a.id}_${d.date}`];if(v&&v!=="Off"&&v!=="TOIL")c+=a.costDay*(v==="OT"?1.5:1);}); return s+c;
+    let c=0; dates.forEach(d=>{const v=asgn[`${a.id}_${d.date}`];if(v&&v!=="Off"&&v!=="TOIL"){c+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${d.date}`];if(ex&&ex.h)c+=ex.h*(a.costDay/8)*(ex.x||1);}}); return s+c;
   }, 0);
   const totalBudget = Object.values(budget).reduce((s,v)=>s+v,0);
 
@@ -4863,8 +4867,11 @@ export default function AllocationPanel({ isAdmin = true }) {
                     {active.filter(ag => ag.team !== "T2").map((ag,ri)=>{
                       const agCost = dates.map(d=>{
                         const v=asgn[`${ag.id}_${d.date}`];
-                        if(!v||v==="Off") return 0;
-                        return ag.costDay*(v==="OT"?1.5:1);
+                        if(!v||v==="Off"||v==="TOIL") return 0;
+                        let c=ag.costDay*(v==="OT"?1.5:1);
+                        const ex=extraHrs[`${ag.id}_${d.date}`];
+                        if(ex&&ex.h) c+=ex.h*(ag.costDay/8)*(ex.x||1);
+                        return Math.round(c);
                       });
                       const agTotal = agCost.reduce((s,v)=>s+v,0);
                       const rowBg = ri%2===0?"#FAFBFC":"transparent";
@@ -4881,7 +4888,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                             return (
                               <td key={d.date} style={{minWidth:52,padding:"3px 2px",textAlign:"center",borderRight:"1px solid #F1F5F9",background:fl?.type==="holiday"?"#F59E0B08":d.isWE?"#EE4D2D06":rowBg}}>
                                 {c>0
-                                  ? <span style={{fontFamily:"monospace",fontSize:9,fontWeight:700,color:"#0D9488"}}>฿{c.toLocaleString()}</span>
+                                  ? <span style={{fontFamily:"monospace",fontSize:9,fontWeight:700,color:"#0D9488"}}>฿{c.toLocaleString()}{extraHrs[`${ag.id}_${d.date}`]?.h>0 && <span style={{color:"#F59E0B"}}>+</span>}</span>
                                   : <span style={{fontSize:9,color:v==="Off"?"#EE4D2D33":"#E2E8F0"}}>{v==="Off"?"—":""}</span>
                                 }
                               </td>
