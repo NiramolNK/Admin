@@ -384,6 +384,11 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
     // Agent 0: off on pos 0,1,2... Agent 1: off on pos 1,2,3... Agent 2: off on pos 2,3,4...
     weekMap.forEach((week, wi) => {
       if (week.length === 0) return;
+      // Stub weeks at month edges (e.g. a lone Monday on Aug 31) must NOT
+      // consume the weekly day off — with only 1-3 days in the "week", the
+      // stagger collapses and every agent lands Off on the same day(s).
+      // Agents just work the stub; their off day comes in the full weeks.
+      if (week.length < 4) return;
       // Stagger by both week index AND agent index so no two agents share the same off day
       const offIdx = (wi + agIdx) % week.length;
       forcedOff[`${ag.id}_${week[offIdx].date}`] = true;
