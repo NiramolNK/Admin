@@ -4120,7 +4120,26 @@ export default function AllocationPanel({ isAdmin = true }) {
                 }} style={{padding:"8px 14px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
                   + Add Brand
                 </button>
-                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}safeSetBrandAsgn(autoAllocateBrands(brands,agents,asgn,dates,brandAsgn,monthlyVol,currentMK));}}
+                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}
+                  // FIX (preserve manual non-T1 assignments): Auto-Allocate rebuilds
+                  // T1 staffing fresh, but manually-added CC / Return / T2 agents
+                  // (e.g. Marker) can never be recreated by the algorithm — keep them.
+                  // Any existing key whose names include a non-T1 agent survives the
+                  // rebuild: non-T1 names are re-appended to the new allocation.
+                  safeSetBrandAsgn(prev => {
+                    const auto = autoAllocateBrands(brands,agents,asgn,dates,prev,monthlyVol,currentMK);
+                    const t1Names = new Set(agents.filter(a=>a.active&&a.team==="T1").map(a=>a.name));
+                    const merged = {...auto};
+                    Object.entries(prev||{}).forEach(([k, raw]) => {
+                      const names = Array.isArray(raw)?raw:(raw?[raw]:[]);
+                      const keep = names.filter(n => n && !t1Names.has(n));
+                      if(!keep.length) return;
+                      const base = Array.isArray(merged[k]) ? merged[k] : (merged[k]?[merged[k]]:[]);
+                      merged[k] = [...new Set([...base, ...keep])];
+                    });
+                    return merged;
+                  });
+                }}
                   style={{padding:"8px 14px",borderRadius:9,border:"none",background:isLocked?"#CBD5E1":"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit"}}>
                   Auto-Allocate All
                 </button>
