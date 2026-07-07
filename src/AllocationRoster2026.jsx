@@ -212,6 +212,11 @@ function allocAutoFill(agents, dates, flags) {
 // instead of the global brand defaults.
 function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, mk) {
   const result = {};
+  // FIX (logic review): filter offboarded brands HERE too — the earlier fix
+  // only covered allocAutoFillConstrained (shift fill). Without this line,
+  // offboarded brands still received agent allocations and skewed the
+  // top-30% / top-3 volume rankings used for ME-eligibility and multi-agent.
+  brands = (brands || []).filter(b => !b?.offboarded);
   const t1Agents = agents.filter(a => a.active && a.team === "T1");
 
   // Sort brands by total volume — per-month aware via getBrandChats
