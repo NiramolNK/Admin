@@ -864,6 +864,8 @@ export default function AllocationPanel({ isAdmin = true }) {
   // ── Month key helper ──────────────────────────────────────────────────────
   const mkKey = (y, m) => `${y}-${String(m).padStart(2,"0")}`;
   const currentMK = mkKey(rosterYear, rosterMonth);
+  // Keep payroll pay-month in sync with the roster month being viewed
+  useEffect(() => { setPayMonth(rosterMonth); setPayYear(rosterYear); }, [rosterMonth, rosterYear]);
   const isLocked = !!lockedMonths[currentMK];
 
   // ═══════════════════════════════════════════════════════════════════════════
