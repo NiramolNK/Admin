@@ -1423,6 +1423,25 @@ export default function AllocationPanel({ isAdmin = true }) {
     return () => { if (needsSave.current) flushSave(); };
   }, []);
 
+  // FIX (data-loss pass): flush pending saves the moment the tab is hidden
+  // (switching apps, closing the tab, phone locking). The 300ms debounce
+  // window plus network time was silently lost when the tab closed fast.
+  // visibilitychange fires reliably on desktop AND mobile, unlike unload.
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden" && needsSave.current) {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        flushSave();
+      }
+    };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onHide);
+    };
+  }, []);
+
   // Detect invite link (?invite=agentId) and open the payroll form
   useEffect(() => {
     if (!storageLoaded) return;
@@ -2974,6 +2993,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                         chatPerAgent: fillChatCap ? Number(fillChatCap) : null,
                         dateOverrides: fillDateOverrides,
                       };
+                      // FIX (data-loss pass): Fill All is destructive — confirm first.
+                      if (fillMode !== "fill" && !window.confirm("Fill All T1 rebuilds this month's ENTIRE roster.\n\nManual shifts, OT and TOIL for active agents will be replaced.\n(Inactive agents' history is preserved.)\n\nContinue?")) return;
                       // Pass current asgn so fairness math accounts for manual pre-assignments
                       const filled = allocAutoFillConstrained(agents, dates, flags, constraints, brands, fillMode === "fill" ? asgn : {}, monthlyVol, currentMK);
 
@@ -2987,7 +3008,18 @@ export default function AllocationPanel({ isAdmin = true }) {
                           return merged;
                         });
                       } else {
-                        safeSetAsgn(filled);
+                        // FIX (data-loss pass): Fill All replaces active agents'
+                        // month — but cells belonging to agents NOT in the fill
+                        // set (deactivated / removed agents) are preserved so
+                        // historical payroll data survives a re-fill.
+                        safeSetAsgn(prev => {
+                          const fillIds = new Set(agents.filter(a => a.active).map(a => String(a.id)));
+                          const preserved = {};
+                          Object.entries(prev || {}).forEach(([k, v]) => {
+                            if (!fillIds.has(k.split("_")[0])) preserved[k] = v;
+                          });
+                          return { ...filled, ...preserved };
+                        });
                       }
                       setFillModal(false);
                     }} style={{padding:"10px 28px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 16px #14B8A644"}}>
@@ -3810,44 +3842,17 @@ export default function AllocationPanel({ isAdmin = true }) {
                       {/* Remove button: only for existing agents (not while adding a brand-new one), and only managers. */}
                       {(role === "manager") && agents.some(a => a.id === editAgent.id) ? (
                         <button onClick={()=>{
-                          if (!window.confirm(`Remove agent "${editAgent.name || editAgent.id}"?\n\nThis will:\n  • Delete this agent from the team list\n  • Remove their assignments from all months and brands\n\nIt cannot be undone.`)) return;
+                          if (!window.confirm(`Remove agent "${editAgent.name || editAgent.id}"?\n\nThis deletes the agent from the team list and revokes their login.\nTheir past roster shifts and payroll data stay in storage, but past reports will no longer show this agent.\n\nTIP: if ${editAgent.name || "this agent"} simply left the team, click Cancel and untick "Active" instead — that keeps their payroll history visible.`)) return;
                           const id = editAgent.id;
                           // 1. Remove from agents.
                           setAgents(prev => prev.filter(a => a.id !== id));
-                          // 2. Strip them out of every monthly allocation map.
-                          setAllAsgn(prev => {
-                            const next = {};
-                            for (const [mk, m] of Object.entries(prev || {})) {
-                              const cleaned = {};
-                              for (const [k, v] of Object.entries(m || {})) {
-                                if (Array.isArray(v)) {
-                                  const filtered = v.filter(x => x !== id);
-                                  if (filtered.length) cleaned[k] = filtered;
-                                } else if (v !== id) {
-                                  cleaned[k] = v;
-                                }
-                              }
-                              next[mk] = cleaned;
-                            }
-                            return next;
-                          });
-                          // 3. Strip them out of brand assignments too.
-                          setAllBrandAsgn(prev => {
-                            const next = {};
-                            for (const [mk, m] of Object.entries(prev || {})) {
-                              const cleaned = {};
-                              for (const [k, v] of Object.entries(m || {})) {
-                                if (Array.isArray(v)) {
-                                  const filtered = v.filter(x => x !== id && x !== (editAgent.name||""));
-                                  if (filtered.length) cleaned[k] = filtered;
-                                } else if (v !== id && v !== editAgent.name) {
-                                  cleaned[k] = v;
-                                }
-                              }
-                              next[mk] = cleaned;
-                            }
-                            return next;
-                          });
+                          // 2+3. FIX (data-loss pass): historical roster shifts and brand
+                          // assignments are INTENTIONALLY PRESERVED. The previous "strip
+                          // from all months" code was both destructive by intent and
+                          // broken in practice (it compared shift codes / names against
+                          // the agent id). Payroll history is money data — never cascade
+                          // -delete it. Orphaned keys are invisible in the UI and can be
+                          // reclaimed by re-adding an agent with the same PCode.
                           // FIX (round-9 senior review MEDIUM/G): also strip
                           // the agent from userAccounts (so they can't sign in
                           // anymore) and from userProfiles (so the payroll
@@ -3862,23 +3867,11 @@ export default function AllocationPanel({ isAdmin = true }) {
                             if (agentName && uname === agentName) return false;
                             return true;
                           }));
-                          setUserProfiles(prev => {
-                            const next = { ...(prev || {}) };
-                            // userProfiles is keyed by id; also try by name
-                            // and email since older entries may use either.
-                            delete next[id];
-                            if (agentEmail) delete next[agentEmail];
-                            if (agentName) delete next[agentName];
-                            // Hunt for entries whose payload matches this agent.
-                            for (const [k, v] of Object.entries(next)) {
-                              const candidate = v || {};
-                              if (
-                                (candidate.username && candidate.username.toLowerCase() === agentEmail) ||
-                                (candidate.fullName && candidate.fullName.toLowerCase() === agentName)
-                              ) delete next[k];
-                            }
-                            return next;
-                          });
+                          // FIX (data-loss pass): userProfiles is INTENTIONALLY PRESERVED.
+                          // It holds the agent's payroll identity (bank account, tax ID,
+                          // ID card) — needed for tax records and any payroll dispute
+                          // about past periods. Login is already revoked via userAccounts
+                          // above; keeping the profile blob has zero security impact.
                           // NOTE: the agent's Supabase Auth account is NOT
                           // deleted here — that requires admin-API access
                           // (service-role key, not client-side). The user is
@@ -4143,7 +4136,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   style={{padding:"8px 14px",borderRadius:9,border:"none",background:isLocked?"#CBD5E1":"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit"}}>
                   Auto-Allocate All
                 </button>
-                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}safeSetBrandAsgn({});}} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
+                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}if(!window.confirm("Clear ALL brand allocations for this month?\n\nEvery agent assignment (including manual ones like Marker's) will be removed.\n\nThis cannot be undone."))return;safeSetBrandAsgn({});}} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
                 {role==="manager" && (
                   <button onClick={toggleLock} style={{padding:"8px 12px",borderRadius:9,border:`1px solid ${isLocked?"#F59E0B":"#E2E8F0"}`,background:isLocked?"#FEF3C7":"transparent",color:isLocked?"#D97706":"#94A3B8",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
                     {isLocked?"Unlock":"Lock"}
@@ -5540,6 +5533,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     </div>
                   </div>
                   <button onClick={()=>{
+                    if(!window.confirm("Clear this month's imported chat volume?\n\nThis ALSO resets every brand's default chat numbers to 0 — allocation and staffing math will fall back to other months' imports.\n\nThis cannot be undone."))return;
                     setMonthlyVol(prev=>{const n={...prev};delete n[mk];return n;});
                     setBrands(bs=>bs.map(b=>({...b,chats:Object.fromEntries(PLATFORMS.map(p=>[p,0]))})));
                   }} style={{padding:"5px 12px",borderRadius:7,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>

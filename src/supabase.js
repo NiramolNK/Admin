@@ -125,6 +125,10 @@ let pendingWrites = {};
 let lastSentBy = null;
 let saveInFlight = false;
 
+// FIX (data-loss pass): remembered once per session — true when the v2
+// merge-safe RPC isn't installed on the server yet (fallback to v1).
+let patchV2Missing = false;
+
 // FIX (review round 2): the previous load swallowed errors silently and left
 // lastKnownUpdatedAt = null, which made the next save unconditionally clobber
 // whatever was on the server. Now we surface the failure and refuse to save
@@ -217,11 +221,29 @@ async function saveCache(updatedBy) {
   }
 
   try {
-    const { data, error } = await supabase.rpc('app_state_patch', {
+    // FIX (data-loss pass): prefer app_state_patch_v2, which deep-merges the
+    // month-keyed collaborative keys (nirm-allAsgn / nirm-allExtraHrs /
+    // nirm-allBrandAsgn) ONE level down on the server. Two tabs editing
+    // DIFFERENT months of the same key can no longer wipe each other.
+    // Falls back to v1 (whole-key replace) until sql/app_state_patch_v2.sql
+    // has been run in the Supabase SQL editor.
+    let rpcName = patchV2Missing ? "app_state_patch" : "app_state_patch_v2";
+    let { data, error } = await supabase.rpc(rpcName, {
       p_updates: updates,
       p_deletes: deletes.length > 0 ? deletes : null,
       p_updated_by: stampedUpdatedBy,
     });
+    if (error && rpcName === "app_state_patch_v2" &&
+        (error.code === "PGRST202" || error.code === "42883" ||
+         /app_state_patch_v2/i.test(error.message || ""))) {
+      patchV2Missing = true;
+      console.warn("[supabase] app_state_patch_v2 not installed — using v1 (whole-key replace). Run sql/app_state_patch_v2.sql for merge-safe saves.");
+      ({ data, error } = await supabase.rpc("app_state_patch", {
+        p_updates: updates,
+        p_deletes: deletes.length > 0 ? deletes : null,
+        p_updated_by: stampedUpdatedBy,
+      }));
+    }
 
     if (error) {
       // Hard failure (RLS, network, auth). Merge pending writes back so
