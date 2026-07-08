@@ -219,6 +219,15 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
   brands = (brands || []).filter(b => !b?.offboarded);
   const t1Agents = agents.filter(a => a.active && a.team === "T1");
 
+  // RULE (CC brands): a brand with a "Call CC" channel is handled by the CC
+  // team — ALL of its platforms (e.g. Shiseido's Call CC + Brand.com) are
+  // allocated to CC-role agents only, never T1. CC brands are removed from
+  // the T1 pipeline and its volume rankings below, and staffed separately
+  // (round-robin across active CC agents) inside the date loop.
+  const ccAgents = agents.filter(a => a.active && a.team === "CC");
+  const ccBrands = brands.filter(b => (b.platforms||[]).includes("Call CC"));
+  brands = brands.filter(b => !(b.platforms||[]).includes("Call CC"));
+
   // Sort brands by total volume — per-month aware via getBrandChats
   const brandVol = {};
   brands.forEach(b => {
@@ -248,6 +257,25 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
     // so it gets no agents until that date arrives. Brands without a
     // startDate are always active (no restriction).
     const dateBrands = brands.filter(b => !b.startDate || b.startDate <= d.date);
+
+    // CC brands: staff every platform slot (both shifts) with CC-team agents,
+    // round-robin. CC agents keep their own fixed schedules, so no roster
+    // check — this mirrors how CC assignment was done manually (e.g. Marker
+    // on all Shiseido slots). No active CC agents → slots stay empty for
+    // manual assignment; T1 is NEVER used as a fallback here.
+    if (ccAgents.length) {
+      let ccIdx = 0;
+      ccBrands
+        .filter(b => !b.startDate || b.startDate <= d.date)
+        .forEach(b => {
+          (b.platforms||[]).forEach(plat => {
+            ["M","E"].forEach(shift => {
+              result[`${b.id}_${d.date}_${shift}_${plat}`] = [ccAgents[ccIdx % ccAgents.length].name];
+              ccIdx++;
+            });
+          });
+        });
+    }
 
     ["M","E"].forEach(shift => {
       const shiftPool = shift==="M" ? working.M : working.E;
