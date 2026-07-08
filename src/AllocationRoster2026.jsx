@@ -370,20 +370,28 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
   t2Only.forEach(ag => {
     dates.forEach(d => {
       const k  = `${ag.id}_${d.date}`;
+      // RULE: fixed schedules apply "unless manually assigned" — in Fill
+      // Empty mode a manager-set cell (e.g. Marker moved to E for one day)
+      // must survive the fill. Fill All passes existing={} so it rebuilds.
+      if (existing[k] !== undefined && existing[k] !== null && existing[k] !== "") return;
       const avail = ag.days.includes(d.wd);
       nxt[k] = avail ? (ag.shifts[0] || "M") : "Off";
     });
   });
 
-  // ── Return: fixed schedule (work all available days, no count limits) ─────
+  // ── Return/CC: fixed schedule (work all available days, no count limits) ──
   // Return agents have a fixed weekly schedule (e.g. AOF = Mon-Sat).
+  // CC agents (e.g. Marker) always work M on their available days.
   // They are NOT subject to the auto-fill count limits or day-off staggering.
   const returnOnly = agents.filter(a => a.active && (a.team === "Return" || a.team === "CC"));
   returnOnly.forEach(ag => {
     dates.forEach(d => {
       const k  = `${ag.id}_${d.date}`;
+      // Same rule: manual assignments survive Fill Empty.
+      if (existing[k] !== undefined && existing[k] !== null && existing[k] !== "") return;
       const avail = ag.days.includes(d.wd);
-      nxt[k] = avail ? (ag.shifts[0] || "M") : "Off";
+      // CC team is M-only by rule (call center hours) regardless of shifts[].
+      nxt[k] = avail ? (ag.team === "CC" ? "M" : (ag.shifts[0] || "M")) : "Off";
     });
   });
 
@@ -502,9 +510,28 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       return v === "Off" || v === "TOIL" || v === "OT" || v === "M" || v === "ME" || v === "E";
     };
     const unavail = t1.filter(a => !a.days.includes(d.wd) || forcedOff[`${a.id}_${d.date}`]);
-    const avail   = t1.filter(a =>  a.days.includes(d.wd) && !forcedOff[`${a.id}_${d.date}`] && !isFixed(a));
+    // RULE (new-agent onboarding): an agent with a Start Date works
+    // M SHIFT ONLY for their first 4 weeks (28 days) until stable, and is
+    // not scheduled at all before their start date (cells stay blank, same
+    // convention as imported history). Implemented by cloning the agent
+    // with an effective shifts=["M"] for dates inside the onboarding
+    // window — every pool/pass below reads shifts from these clones.
+    const effShiftsFor = (a) => {
+      if (!a.startDate) return a.shifts;
+      const lim = new Date(a.startDate + "T00:00:00Z");
+      lim.setUTCDate(lim.getUTCDate() + 28);
+      return d.date < lim.toISOString().slice(0,10) ? ["M"] : a.shifts;
+    };
+    const avail   = t1
+      .filter(a =>  a.days.includes(d.wd) && !forcedOff[`${a.id}_${d.date}`] && !isFixed(a))
+      .filter(a => !a.startDate || d.date >= a.startDate)
+      .map(a => { const eff = effShiftsFor(a); return eff === a.shifts ? a : { ...a, shifts: eff }; });
 
-    unavail.forEach(ag => { if (!existing[`${ag.id}_${d.date}`]) nxt[`${ag.id}_${d.date}`] = "Off"; });
+    unavail.forEach(ag => {
+      // Pre-start-date agents stay blank, never "Off".
+      if (ag.startDate && d.date < ag.startDate) return;
+      if (!existing[`${ag.id}_${d.date}`]) nxt[`${ag.id}_${d.date}`] = "Off";
+    });
     if (!avail.length) return;
 
     // Sort available agents by ascending day count (fewest days worked first = fairest)
@@ -3821,6 +3848,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                         <button onClick={()=>setEditAgent({...editAgent,days:[...ALLOC_WK]})} style={{padding:"3px 10px",borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>Mon–Fri</button>
                         <button onClick={()=>setEditAgent({...editAgent,days:[...ALLOC_ALL]})} style={{padding:"3px 10px",borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:10,cursor:"pointer",fontFamily:"inherit"}}>All Days</button>
                       </div></div>
+                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Start Date <span style={{color:"#94A3B8",fontWeight:500,textTransform:"none"}}>(first 4 weeks: M shift only)</span></label>
+                      <input type="date" value={editAgent.startDate||""} onChange={e=>setEditAgent({...editAgent,startDate:e.target.value})}
+                        style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+                      <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>Auto-fill keeps a new agent on Morning shift for 28 days from this date, and leaves dates before it blank. Clear it once they're stable.</div></div>
                     <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Special Rule</label>
                       <input value={editAgent.rule} onChange={e=>setEditAgent({...editAgent,rule:e.target.value})}
                         style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
