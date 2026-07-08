@@ -260,5 +260,10 @@ export async function installSafeStorage() {
     },
   };
 
+  // FIX (SINGLE-LAYER): announce that kv_state is the live store. The legacy
+  // supabase.js app_state shim checks this flag and goes fully silent —
+  // no writes, no realtime application, no reconnect reloads. Two live
+  // storage layers caused the 2026-07-08 brand-allocation wipe.
+  window.__nirmKvActive = true;
   console.info("[safeStorage] v2 installed — ancestor-tracked CAS active");
 }

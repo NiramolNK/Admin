@@ -183,6 +183,17 @@ function _applyPendingWritesOnTop(writes) {
 }
 
 async function saveCache(updatedBy) {
+  // FIX (SINGLE-LAYER, 2026-07-08 wipe root cause): once safeStorage v2
+  // (kv_state, per-key CAS + 3-way merge) is installed it is THE store.
+  // This legacy app_state writer must go silent — its writes made app_state
+  // a stale second copy of the world, and the reconnect handler below then
+  // pushed that stale copy back into React state, which autosave dutifully
+  // saved over kv_state: that is exactly how July's brand allocation (and
+  // an extra-hours entry) got deleted. Legacy writes now no-op.
+  if (typeof window !== "undefined" && window.__nirmKvActive) {
+    pendingWrites = {};
+    return;
+  }
   // FIX (review round 2): refuse to save if our last load failed.
   if (loadFailed) {
     const e = new Error("[supabase] Refusing to save: initial load failed, in-memory state is untrusted");
@@ -282,6 +293,9 @@ function subscribeRealtime() {
       "postgres_changes",
       { event: "UPDATE", schema: "public", table: "app_state", filter: "id=eq.main" },
       (payload) => {
+        // FIX (SINGLE-LAYER): with safeStorage v2 active, app_state is a
+        // legacy artifact — NEVER apply its (stale) snapshots to live state.
+        if (typeof window !== "undefined" && window.__nirmKvActive) return;
         const updatedBy = payload?.new?.updated_by;
         const newUpdatedAt = payload?.new?.updated_at;
 
@@ -331,6 +345,12 @@ function subscribeRealtime() {
       // other clients while we were offline. By reloading on every successful
       // SUBSCRIBED transition, we resync before any save fires.
       if (status === "SUBSCRIBED" && cacheLoaded) {
+        // FIX (SINGLE-LAYER): with safeStorage v2 active this reload is the
+        // exact mechanism that wiped data on 2026-07-08 — it pulled STALE
+        // app_state into stateCache, notified subscribers, React state took
+        // the stale view, and autosave saved it over kv_state. Never reload
+        // the legacy layer once kv is live.
+        if (typeof window !== "undefined" && window.__nirmKvActive) return;
         // Skip the very first subscribe (loadCache already ran in initStorage).
         // We track this by checking if the channel has connected before.
         if (realtimeHasConnectedOnce) {
