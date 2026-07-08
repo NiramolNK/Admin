@@ -258,21 +258,21 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
     // startDate are always active (no restriction).
     const dateBrands = brands.filter(b => !b.startDate || b.startDate <= d.date);
 
-    // CC brands: staff every platform slot (both shifts) with CC-team agents,
-    // round-robin. CC agents keep their own fixed schedules, so no roster
-    // check — this mirrors how CC assignment was done manually (e.g. Marker
-    // on all Shiseido slots). No active CC agents → slots stay empty for
-    // manual assignment; T1 is NEVER used as a fallback here.
+    // CC brands: staff every platform slot with CC-team agents, round-robin.
+    // M SHIFT ONLY — CC brands have no night coverage (call center / brand.com
+    // operate business hours), so E-shift slots are intentionally left empty.
+    // CC agents keep their own fixed schedules, so no roster check — this
+    // mirrors how CC assignment was done manually (e.g. Marker on Shiseido).
+    // No active CC agents → slots stay empty for manual assignment; T1 is
+    // NEVER used as a fallback here.
     if (ccAgents.length) {
       let ccIdx = 0;
       ccBrands
         .filter(b => !b.startDate || b.startDate <= d.date)
         .forEach(b => {
           (b.platforms||[]).forEach(plat => {
-            ["M","E"].forEach(shift => {
-              result[`${b.id}_${d.date}_${shift}_${plat}`] = [ccAgents[ccIdx % ccAgents.length].name];
-              ccIdx++;
-            });
+            result[`${b.id}_${d.date}_M_${plat}`] = [ccAgents[ccIdx % ccAgents.length].name];
+            ccIdx++;
           });
         });
     }
