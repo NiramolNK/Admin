@@ -882,6 +882,9 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // ── Storage: flag to avoid writing before initial load completes ──────────
   const [storageLoaded, setStorageLoaded] = useState(false);
+  // FIX (data-loss pass 2): non-null when the initial load failed after all
+  // retries. Renders a blocking reload screen; autosave stays disabled.
+  const [loadError, setLoadError] = useState(null);
 
   // ── Month key helper ──────────────────────────────────────────────────────
   const mkKey = (y, m) => `${y}-${String(m).padStart(2,"0")}`;
@@ -1108,6 +1111,13 @@ export default function AllocationPanel({ isAdmin = true }) {
   useEffect(() => {
     (async () => {
       if (!window.storage) { setStorageLoaded(true); return; }
+      // FIX (data-loss pass 2): retry the full load up to 3 times, and on
+      // final failure BLOCK the app instead of proceeding on default seed
+      // data with autosave armed. A failed load previously logged an error
+      // and continued — the tab then ran with 3 seed accounts / empty months
+      // and tried to save them over real data (only the shrink guard caught
+      // userAccounts 19→3; roster month keys have no such guard).
+      for (let loadAttempt = 1; loadAttempt <= 3; loadAttempt++) {
       try {
         // Try per-domain reads first — drive entirely off DOMAIN_KEYS so this
         // list can never drift from flushSave's and the subscriber's lists.
@@ -1250,8 +1260,17 @@ export default function AllocationPanel({ isAdmin = true }) {
             }
           } catch(authErr) { /* non-fatal */ }
         }
-      } catch(e) { console.error("Load failed:", e); }
-      setStorageLoaded(true);
+        setStorageLoaded(true);
+        return; // loaded OK
+      } catch(e) {
+        console.error(`[load] attempt ${loadAttempt}/3 failed:`, e?.message || e, e);
+        if (loadAttempt < 3) await new Promise(r => setTimeout(r, 1500 * loadAttempt));
+      }
+      } // retry loop
+      // All 3 attempts failed — refuse to run on defaults. storageLoaded
+      // stays false, which keeps autosave AND the realtime subscriber
+      // disabled: this tab can never save seed/empty state over real data.
+      setLoadError("Couldn't load your data from the server. Check your internet connection and reload the page. Saving is disabled to protect existing data.");
     })();
   }, []);
 
@@ -2056,6 +2075,21 @@ export default function AllocationPanel({ isAdmin = true }) {
   // ══════════════════════════════════════════════════════════════════════════
   // SINGLE RETURN
   // ══════════════════════════════════════════════════════════════════════════
+  // FIX (data-loss pass 2): blocking screen when the initial load failed.
+  // Saving is disabled in this state — the app must never run (and autosave)
+  // on default seed data over the team's real data.
+  if (loadError) {
+    return (
+      <div style={{minHeight:"100vh",background:"#FAFBFC",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif",padding:20}}>
+        <div style={{maxWidth:440,background:"#fff",border:"1px solid #FECACA",borderRadius:16,padding:"32px 28px",textAlign:"center",boxShadow:"0 8px 30px rgba(0,0,0,0.08)"}}>
+          <div style={{fontSize:40,marginBottom:12}}>📡</div>
+          <div style={{fontSize:17,fontWeight:700,color:"#B91C1C",marginBottom:10}}>Couldn't load data</div>
+          <div style={{fontSize:13.5,color:"#6B7280",lineHeight:1.6,marginBottom:22}}>{loadError}</div>
+          <button onClick={()=>window.location.reload()} style={{padding:"10px 26px",borderRadius:10,border:"none",background:"#7C3AED",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>Reload</button>
+        </div>
+      </div>
+    );
+  }
   if (!loggedIn) {
     return (
       <div style={{minHeight:"100vh",background:"#FAFBFC",display:"flex",fontFamily:"'DM Sans',sans-serif"}}>
