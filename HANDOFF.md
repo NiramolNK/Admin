@@ -1,133 +1,120 @@
-# HANDOFF — NiRM Roster (April / CREA)
+# NiRM Roster — HANDOFF
 
-> Start here in a fresh conversation. Repo: `C:\Users\April\OneDrive - Crea Co. Ltd\Documents\GitHub\Admin`
-> Branch **CREA-HQ** (never main). Deploys: push in GitHub Desktop → Vercel → https://nirmroster.vercel.app (~1 min).
-> Supabase project `bequrilwgooesolepubv`. Main file: `src/AllocationRoster2026.jsx` (~5,940 lines).
+Updated: 2026-07-08 (evening). Previous version: 2026-07-06.
 
-## Goal
-One reliable roster/allocation system for April's 17 CS agents: no data loss,
-Supabase and the app always in sync (two-way), every agent has a login that
-lands on their personal schedule, roles/tabs per team tier.
+## What this is
+React/Vite SPA (repo branch **CREA-HQ**) deployed on Vercel at
+https://nirmroster.vercel.app, data in Supabase project `bequrilwgooesolepubv`.
+Main file `src/AllocationRoster2026.jsx` (~6.4k lines). Team roster, brand
+allocation, payroll (pay period = 24th → 23rd), extra-hours pay, reports.
 
-## Current Progress (2026-07-06 evening — MAJOR session)
-- **SAVE-FAILURE SAGA CLOSED (the "red banner" bug)**: every app save of the
-  three mirrored keys (nirm-agents / nirm-brands / nirm-allBrandAsgn) failed
-  with 400 for ALL users/tabs. Root cause: the kv→tables mirror trigger
-  rebuilds tables with bare `delete from X;`. Supabase **API connections run
-  safeupdate**, which blocks DELETE without WHERE — SQL editor doesn't, which
-  is why every SQL-side diagnostic passed. Fix: `where true` added to every
-  bare DELETE in all nirm_* functions (self-patching DO block, run by April).
-  Verified 204s via REST replay as a real agent login. DB-side fix — no
-  deploy needed, all tabs healed at once.
-- **17 agent logins LIVE** (bulk script run): 15 created fresh; Joy
-  (nattakran.k) and Aof (customerservice.extrtrf) pre-existed → passwords
-  reset to sheet values. All can sign in, land on personal schedule.
-  Passwords from Admin_Nirm.xlsx are TEMPORARY — team should change them.
-- **profiles roles all correct + constraint widened** to
-  ('viewer','fulltime','manager','t1','t2','cc','return'). Joy=t1,
-  Aof=return, Marker(chakrit.s)=cc, Prim RESTORED to manager (something had
-  demoted her to t1), gmail duplicate (niramol.klanklin@gmail.com) set to
-  viewer (auth user still exists — delete when convenient).
-- **"Disappearing brand assignments" = NOT data loss**: July 2026 simply has
-  no allocations yet. nirm-allBrandAsgn holds May + June in full (5,251 June
-  date entries, ~400KB, verified via REST). Personal views default to the
-  current month (July) hence look empty. July needs allocating (month may be
-  Locked — Unlock first).
-- **T2 role shipped** (role key `fulltime`, relabeled "T2"): tabs = Roster,
-  My Invoice, Allocation, Dates, Performance, Teams (NO Report, NO CS
-  Analytics), canEdit:true. Manager-only powers (Reset, user mgmt, cost/day)
-  stay gated by role==="manager" checks, unaffected.
-- **Change-request workflow confirmed working end-to-end**: T1 clicks a date
-  in personal roster → requests shift → "Pending Change Requests" panel on
-  manager/T2 Roster tab → Approve applies to live roster. Nothing built —
-  it already existed; verified live with Joy's requests.
-- **Per-view URL hashes + tab titles** (#roster/#allocation/... +
-  "Roster - NiRM Roster") — stray tabs now identify themselves.
-- **prefs-quiet fix** in flushSave (the LIVE path): a failed nirm-prefs write
-  logs a console.warn instead of raising the red banner. NOTE: an earlier
-  version of this fix was applied to saveKey() — which is DEAD CODE and
-  tree-shaken out of every bundle (see What Didn't Work).
-- **Users panel: Agent column** (PCode badge + nickname, joined live from
-  agents by email — cannot go stale) + modal widened to 620.
-- Commits this session: 8caec87 (hashes/titles), 55a820b (dead-code fix,
-  harmless), 01c9c93 + eb73e49 (T2), fa8d73b (accidental d.txt — removed in
-  c8ed4eb), c8ed4eb (real prefs fix), db435e0 (Agent column).
+## STORAGE ARCHITECTURE — READ THIS FIRST (single layer!)
+- **The ONLY live store is the `kv_state` table** — one row per domain key
+  (`nirm-allAsgn`, `nirm-allBrandAsgn`, `nirm-allExtraHrs`, `nirm-agents`, …)
+  with a `version` column. Client layer: `src/safeStorage.js` ("safeStorage
+  v2") — per-key CAS on `version` + ancestor-tracked 3-way merge + realtime
+  channel. It installs as `window.storage` at boot and sets
+  `window.__nirmKvActive = true`.
+- **`app_state` (single-row blob) is LEGACY / DEAD.** `src/supabase.js`
+  still contains the old shim, but every dangerous part (saveCache, realtime
+  apply, reconnect reload) is gated on `window.__nirmKvActive` and no-ops.
+  Do NOT resurrect it. Do NOT run `sql/sync-mirror-tables.sql` (known
+  DELETE bug).
+- Server SQL installed (Supabase SQL editor, both DONE):
+  - `sql/app_state_patch_v2.sql` — month-level merge RPC (legacy path only,
+    now mostly moot but harmless).
+  - `sql/kv_snapshots.sql` — **automatic version history**: a trigger on
+    `kv_state` archives the previous value of every key on change (newest
+    50 per key; prefs/role/nirm-all excluded). RLS: API can only SELECT.
 
-## What Worked (environment survival guide)
-- Desktop Commander `start_process` with PowerShell = reliable workhorse.
-  edit_block/read_file/write_file also worked all session. git commit fine;
-  `git push` fails headless ("User cancelled dialog") — April pushes in
-  GitHub Desktop. `*> file.txt` redirect pattern for reading git output —
-  BUT DELETE THE TEMP FILES (a leftover d.txt got committed by GitHub
-  Desktop as "Create d.txt").
-- **REST replay technique (the session's MVP)**: the anon/publishable key is
-  extractable from the deployed bundle (`sb_publishable_...`, 46 chars — in
-  older bundles a JWT `eyJ...`). Sign in via /auth/v1/token?grant_type=
-  password with any agent's known password → Bearer token → replay the app's
-  exact kv_state GET/PATCH from PowerShell. This is how the 400 was finally
-  reproduced and its error body read. Read-only inspection of any kv value
-  works the same way.
-- **sb_secret keys + PowerShell**: Supabase rejects secret keys when the
-  User-Agent looks like a browser ("Forbidden use of secret API key in
-  browser"). Fix: $PSDefaultParameterValues['Invoke-RestMethod:UserAgent'].
-  The scary "delete this key" message is boilerplate — no rotation needed.
-- **Key-never-in-chat pattern**: scripts read NIRM_SERVICE_KEY env var,
-  wrapper fills it from clipboard (April copies key → says "go"), clears
-  clipboard after. create-users.ps1 + fix-remaining-users.ps1 support it.
-- Clipboard+SQL-editor loop still the fastest April-executes-SQL path.
-  Multi-statement scripts: editor shows only the LAST result set; RAISE
-  NOTICE output is invisible — collect diagnostics into a temp table and
-  SELECT it as the final statement (grant insert/select to authenticated
-  before set_config role switch, and SELECT before ROLLBACK).
-- **Impersonation in SQL editor**: set_config('role','authenticated',true) +
-  set_config('request.jwt.claims','{"sub":"<uuid>",...}',true) inside a
-  begin/rollback — BUT this does NOT reproduce API-only behaviors like
-  safeupdate. SQL-passes-but-API-fails = suspect the API-layer guards.
+## INCIDENT LOG — 2026-07-08 data wipe (root-caused & fixed)
+- Symptom: ALL brand-allocation months emptied (`nirm-allBrandAsgn = {}`),
+  plus one extra-hours entry lost. Roster/agents survived.
+- Root cause: **two live storage layers**. The legacy `app_state` shim's
+  reconnect handler pushed its STALE snapshot into React state after a
+  network blip; autosave then saved that stale view through safeStorage,
+  whose 3-way merge honored the "deletions". Burst write at 11:14:35 UTC.
+- Recovery: May+June allocations restored from `app_state`'s copy
+  (5,518 + 5,251 keys). July had no backup → rebuilt via Auto-Allocate.
+- Fixes shipped: single-layer gating (`window.__nirmKvActive`), load-failure
+  now BLOCKS the app (3 retries → reload screen, autosave disabled),
+  flush-on-tab-hide, confirm dialogs on all destructive buttons, agent
+  removal preserves payroll history, Fill All preserves inactive agents'
+  cells, and `kv_snapshots` so nothing is ever unrecoverable again.
+- Related earlier near-miss same day: `[save] Refused: userAccounts shrank
+  from 19 to 3` — shrink guard blocked a defaults-over-real-data save after
+  a failed load (that load path is now blocking).
 
-## What Didn't Work / gotchas discovered
-- **safeupdate on Supabase API connections**: DELETE without WHERE →
-  error 21000 "DELETE requires a WHERE clause" → PostgREST 400. SQL editor
-  is exempt. Any trigger/function reachable from app writes must use
-  `where true` (or better) on full-table deletes. THIS was the banner bug.
-- **Dead-code tree-shaking hid a fix**: saveKey() and doSaveWithRetry() in
-  AllocationRoster2026.jsx are called by NOTHING (flushSave calls
-  window.storage.set directly) — Vite/esbuild strips them from bundles, so
-  string-markers from them never appear deployed and edits to them are
-  no-ops. Cost an hour of phantom "Vercel is stuck" chasing. Candidates for
-  deletion.
-- Marker strings for "is commit X deployed" must be UNIQUE and verified with
-  context (Substring around IndexOf), not bare .Contains — two false
-  positives happened.
-- nirm-agents/brands values are raw JSON ARRAYS (no __wasString wrapper);
-  nirm-prefs and others are wrapped. Don't assume — check jsonb_typeof.
-  NEVER round-trip kv values through PowerShell ConvertTo-Json (mangles
-  structures) — PATCH the raw JSON substring instead.
-- Version-number sleuthing: truncated DevTools URLs hid the real versions
-  (…72 was …572). Get full URLs (Network tab → click request) before
-  theorizing. Per-key versions via REST: kv_state?select=key,version.
+## DATA RECOVERY RUNBOOK
+1. List history: `select id, key, version, saved_at from kv_snapshots
+   where key = 'nirm-<key>' order by saved_at desc;`
+2. Inspect a candidate: `select value from kv_snapshots where id = <ID>;`
+3. Restore: `update kv_state set value = (select value from kv_snapshots
+   where id = <ID>), version = version + 1 where key = 'nirm-<key>';`
+   **Always bump `version`** — clients CAS on it; a value change without a
+   version bump poisons tabs' shadows (they'll think their stale copy is
+   current).
+4. Tabs pick the change up via realtime; have users hard-refresh if unsure.
+5. REST replay path (when doing this for the user via PowerShell): extract
+   `sb_publishable_…` key from the deployed bundle JS, login
+   `POST /auth/v1/token?grant_type=password` (Joy's account), then
+   GET/PATCH `rest/v1/kv_state?key=eq.<key>`. PATCH body must include BOTH
+   `value` and `version` (current+1).
 
-## Next Steps
-1. **July allocation** — Allocation tab, Jul 2026, Unlock if locked, then
-   allocate (Auto-Allocate All available). Joy & co.'s personal brand
-   assignments fill in immediately after.
-2. **Re-enter lost data in ONE fresh tab**: T2 salary months (Apr/May +
-   Jul; June=198,765 survived), agent performance import, Duoke chat-volume
-   import (`Duoke_1-25_June_2026.xlsx`). Saves are safe now.
-3. Team changes temp passwords (Account → change password).
-4. Delete duplicate auth account niramol.klanklin@gmail.com (Dashboard →
-   Auth → Users; its profiles role is already viewer = powerless).
-5. Verify gates: Duoke import ~14 zero-chat brands; Marker sees only
-   Shiseido-group brands + only Roster/Allocation; two-way brand edit.
-6. Nice-to-haves: delete dead saveKey/doSaveWithRetry; personal brand-
-   assignment matching uses agent NAME strings (assigned.includes(
-   myAgent.name)) — fragile across renames, consider matching by agent id;
-   Supabase Pro ($25/mo) to stop free-tier auto-pause.
+## OPERATIONAL RULES (hard-won)
+- Desktop Commander: PowerShell `start_process` only; unique temp filename
+  per git redirect; DC occasionally hangs 4-min — restart Claude Desktop.
+  `git push` works when Windows creds cached; otherwise GitHub Desktop.
+- Bash container cannot reach supabase.co — Supabase ops run via DC
+  PowerShell on April's machine; heavy parsing (Excel) in bash container,
+  JSON handed over via DC write_file.
+- Deploy verification: fetch site HTML → regex `/assets/index-*.js` →
+  substring-search for unique string literals (comments get minified away).
+- PS 5.1: no `-AsHashtable`; use PSObject.Properties; `ConvertTo-Json
+  -Depth 10 -Compress`.
+- After ANY deploy: **close all old NiRM tabs on all devices** — old
+  bundles keep old bugs (this is how the wipe happened while fixes were
+  already committed).
 
-## Key artifacts
-- `scripts/create-users.ps1` (sheet-aware, env-key, script UA)
-- `scripts/fix-remaining-users.ps1` (repair/upsert existing users)
-- `sync-mirror-tables.sql` (v3 — NOTE: live functions now patched with
-  `where true`; if this file is ever re-run, re-apply the safeupdate fix
-  or update the file first!)
-- `src/safeStorage.js` (v2 CAS+merge — do not weaken)
-- April's sheet: `Admin_Nirm.xlsx` (has temp passwords)
+## BUSINESS RULES IMPLEMENTED (allocation & roster)
+- Extra hours: per-entry stepper 0–8h ×1x/1.5x, pays only on WORKED days,
+  flows to invoice/summary/report/exports; agents see amber `+Nh` badges
+  and an Extra Hours card in My Schedule.
+- Auto-fill: stub weeks (<4 available days) don't consume weekly day off;
+  quota top-ups respect chat caps; Pass-2 rotation respects burnout rule.
+- Brand allocation: offboarded brands excluded; **<20 chats/shift/day → 1
+  agent** (per-shift = monthChats/30/2, same as UI pills); **Call CC brands
+  → CC-team agents only, M shift only, all their platforms** (Shiseido);
+  Auto-Allocate All preserves manual non-T1 assignments (Marker etc.).
+- Roster: CC team always M unless manually overridden (manual survives
+  Fill Empty for all fixed-schedule teams); **agent Start Date field** →
+  M-shift-only first 28 days, blank before start date.
+- Agent removal keeps roster history + payroll profile; only login revoked
+  (deactivating via "Active" is the recommended departure flow).
+- Pay month follows roster month navigation.
+
+## DATA STATE (live, verified 2026-07-08 evening)
+- `nirm-allAsgn`: real imported roster Jan–Jul 2026 (from April's Excel,
+  1,844 + 513 cells verified) + August auto-fill (re-run after stub-week
+  fix if not already).
+- `nirm-allBrandAsgn`: 2026-05 + 2026-06 restored; **2026-07 must be
+  rebuilt via Auto-Allocate All** (new rules apply; re-add manual slots).
+- `nirm-allExtraHrs`: Gyb (11) 2026-07-10 +4h@1x (฿200). Ploy 18 Jul entry
+  was lost in the wipe — re-add manually if it was real.
+
+## OPEN ITEMS
+- **Report tab cost/chat window mismatch**: top cards use pay period
+  (24th–23rd), Total Cost/cost-per-chat use the picked date range → numbers
+  differ (387,065 vs 380,665 for Sep). NEEDS APRIL'S DECISION: calendar
+  month or pay period as the basis; then align/label both.
+- Re-run Auto-fill "Fill All T1" for August; import August Excel when it
+  exists ("send file + say import").
+- Re-import June Duoke volume (ONE fresh tab); T2 salaries Apr/May/Jul;
+  agent performance data.
+- Team temp-password changes; delete duplicate auth account
+  niramol.klanklin@gmail.com (Supabase Dashboard → Auth).
+- Undecided offers: ME cross-shift load balancing; brand-allocation load
+  keyed by agent id instead of name; Leave/SL codes in-app; extraHrs-aware
+  ~/day divisor.
+- Suggested: move User Password sheets out of the shared Excel workbook
+  (plaintext platform passwords).
