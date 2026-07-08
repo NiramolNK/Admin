@@ -2570,6 +2570,12 @@ export default function AllocationPanel({ isAdmin = true }) {
                                   {cs ? <div style={{background:cs.bg,color:cs.color,borderRadius:6,padding:"4px 8px",fontWeight:700,fontSize:12,width:"100%",textAlign:"center"}}>{cs.label}</div>
                                        : <div style={{color:"#CBD5E1",fontSize:11}}>—</div>}
                                 </div>
+                                {/* Extra hours badge — agents see their extras same as the manager grid */}
+                                {(() => {
+                                  const ex = extraHrs[cellK];
+                                  if (!ex || !ex.h || !val || val === "Off") return null;
+                                  return <div style={{marginTop:3,textAlign:"center",fontSize:9,fontWeight:700,color:"#B45309",background:"#FEF3C7",borderRadius:4,padding:"2px 4px"}}>+{ex.h}h{ex.x===1.5?" ×1.5":""}</div>;
+                                })()}
                                 {editing && (
                                   <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#fff",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px #00000022",padding:12,width:180,fontSize:12}}>
                                     <div style={{fontWeight:700,color:"#1A1D2E",marginBottom:4,fontSize:11}}>Request Change</div>
@@ -2611,6 +2617,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                     ["Days Off", dates.filter(d=>{const v=asgn[`${myAgent.id}_${d.date}`];return v==="Off";}).length, "#EF4444"],
                     ["Morning", dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="M").length, "#1D4ED8"],
                     ["Evening", dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="E").length, "#065F46"],
+                    // Extra hours worked this month (only counts worked days — same rule as pay)
+                    ...(()=>{ const tot = dates.reduce((s,d)=>{ const v=asgn[`${myAgent.id}_${d.date}`]; const ex=extraHrs[`${myAgent.id}_${d.date}`]; return (v&&v!=="Off"&&ex&&ex.h)?s+ex.h:s; },0); return tot>0?[["Extra Hours","+"+tot+"h","#B45309"]]:[]; })(),
                   ].map(([label,count,color])=>(
                     <div key={label} style={{background:"#fff",borderRadius:10,border:"1px solid #E2E8F0",padding:"12px 16px",textAlign:"center"}}>
                       <div style={{fontSize:22,fontWeight:700,color}}>{count}</div>
