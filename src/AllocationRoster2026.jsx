@@ -87,7 +87,7 @@ const ALLOC_BRANDS  = ["Alpha","Beta","Gamma"];
 
 // ── Platforms ────────────────────────────────────────────────────────────────
 const PLATFORMS = ["Shopee","Lazada","Tiktok","Line MyShop","Amaze","Brand.com","Call CC"];
-const PLATFORM_C = {
+const PLATFORM_C_BASE = {
   Shopee:       {color:"#EE4D2D", bg:"#FFF7ED", icon:""},
   Lazada:       {color:"#0F5BF1", bg:"#EFF6FF", icon:""},
   Tiktok:       {color:"#000000", bg:"#F1F5F9", icon:""},
@@ -96,6 +96,11 @@ const PLATFORM_C = {
   "Brand.com":  {color:"#B45309", bg:"#FEF3C7", icon:""},
   "Call CC":    {color:"#7C3AED", bg:"#F3E8FF", icon:""},
 };
+// Custom channels (manager-added, not in the fixed list) get a neutral
+// fallback style so every PLATFORM_C[name] lookup is always safe.
+const PLATFORM_C = new Proxy(PLATFORM_C_BASE, {
+  get: (t, k) => t[k] || {color:"#475569", bg:"#F1F5F9", icon:""},
+});
 
 // ── Store Performance Data — from duoke_shop_performance (Jan 1–Feb 24 2026) ─
 // chats = monthly average (YTD ÷ 1.807 months). perf = raw YTD totals for reference.
@@ -1774,9 +1779,11 @@ export default function AllocationPanel({ isAdmin = true }) {
   const openBrand = b => { setEditBrand({...b, platforms:[...(b.platforms||[])]}); setBrandModal(true); };
   const saveBrand = () => {
     setBrands(p => {
-      const i=p.findIndex(b=>b.id===editBrand.id);
-      if(i>=0){const n=[...p];n[i]=editBrand;return n;}
-      return [...p,editBrand];
+      // Strip modal-only scratch fields (e.g. the custom-channel input buffer)
+      const { _newChannel, ...clean } = editBrand;
+      const i=p.findIndex(b=>b.id===clean.id);
+      if(i>=0){const n=[...p];n[i]=clean;return n;}
+      return [...p,clean];
     });
     setBrandModal(false);
   };
@@ -4583,6 +4590,40 @@ export default function AllocationPanel({ isAdmin = true }) {
                             );
                           })}
                         </div>
+                        {/* Custom channels — manager can add anything not in the fixed list */}
+                        {(editBrand.platforms||[]).filter(p=>!PLATFORMS.includes(p)).length > 0 && (
+                          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+                            {(editBrand.platforms||[]).filter(p=>!PLATFORMS.includes(p)).map(p => (
+                              <button key={p} onClick={()=>setEditBrand({...editBrand, platforms:(editBrand.platforms||[]).filter(x=>x!==p)})}
+                                title="Remove this channel"
+                                style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,border:"2px solid #475569",background:"#F1F5F9",color:"#475569"}}>
+                                {p} <span style={{fontSize:11}}>✕</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
+                          <input value={editBrand._newChannel||""} placeholder="Other channel… (e.g. Instagram, WhatsApp)"
+                            onChange={e=>setEditBrand({...editBrand,_newChannel:e.target.value})}
+                            onKeyDown={e=>{ if(e.key!=="Enter") return; e.preventDefault();
+                              const nm=(editBrand._newChannel||"").trim();
+                              if(!nm) return;
+                              const cur=editBrand.platforms||[];
+                              if(cur.some(x=>x.toLowerCase()===nm.toLowerCase()) || PLATFORMS.some(x=>x.toLowerCase()===nm.toLowerCase() && cur.includes(x))){ setEditBrand({...editBrand,_newChannel:""}); return; }
+                              const canonical = PLATFORMS.find(x=>x.toLowerCase()===nm.toLowerCase()) || nm;
+                              setEditBrand({...editBrand, platforms:[...cur, canonical], _newChannel:""});
+                            }}
+                            style={{flex:"0 1 260px",padding:"8px 12px",borderRadius:9,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                          <button onClick={()=>{
+                              const nm=(editBrand._newChannel||"").trim();
+                              if(!nm) return;
+                              const cur=editBrand.platforms||[];
+                              if(cur.some(x=>x.toLowerCase()===nm.toLowerCase())){ setEditBrand({...editBrand,_newChannel:""}); return; }
+                              const canonical = PLATFORMS.find(x=>x.toLowerCase()===nm.toLowerCase()) || nm;
+                              setEditBrand({...editBrand, platforms:[...cur, canonical], _newChannel:""});
+                            }}
+                            style={{padding:"8px 14px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Add Channel</button>
+                        </div>
                         {(editBrand.platforms||[]).length === 0 && (
                           <div style={{marginTop:6,fontSize:10,color:"#B45309"}}>— No platforms selected — brand won't appear in allocation</div>
                         )}
@@ -5636,7 +5677,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   <button onClick={()=>{
                     if(!window.confirm("Clear this month's imported chat volume?\n\nThis ALSO resets every brand's default chat numbers to 0 — allocation and staffing math will fall back to other months' imports.\n\nThis cannot be undone."))return;
                     setMonthlyVol(prev=>{const n={...prev};delete n[mk];return n;});
-                    setBrands(bs=>bs.map(b=>({...b,chats:Object.fromEntries(PLATFORMS.map(p=>[p,0]))})));
+                    setBrands(bs=>bs.map(b=>({...b,chats:Object.fromEntries([...new Set([...PLATFORMS,...Object.keys(b.chats||{})])].map(p=>[p,0]))})));
                   }} style={{padding:"5px 12px",borderRadius:7,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
                     Clear Month
                   </button>
