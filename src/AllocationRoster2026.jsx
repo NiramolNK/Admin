@@ -3286,8 +3286,10 @@ export default function AllocationPanel({ isAdmin = true }) {
               const wkldDate  = dates[Math.min(allocDateIdx, dates.length-1)] || dates[0];
               if (!wkldDate) return null;
 
-              // Show ALL active T1 agents (not just those with a roster assignment)
-              const allT1 = agents.filter(a => a.active && a.team === "T1");
+              // Show ALL active agents who can carry brand assignments:
+              // T1 (auto-allocated) plus CC and Return teams (e.g. Marker's
+              // Call CC brands) — previously CC/Return had no card at all.
+              const allT1 = agents.filter(a => a.active && (a.team === "T1" || a.team === "CC" || a.team === "Return"));
               const wkldPool = getWorkingAgents(wkldDate.date, wkldShift);
               const workingIds = new Set(wkldPool.map(a => a.id));
 
@@ -3307,8 +3309,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                     }
                   });
                 });
-                const isWorking = workingIds.has(ag.id);
                 const shift = asgn[`${ag.id}_${wkldDate.date}`];
+                // Return team isn't in getWorkingAgents — derive from roster directly.
+                const isWorking = workingIds.has(ag.id) ||
+                  ((ag.team === "CC" || ag.team === "Return") && !!shift && shift !== "Off" && shift !== "TOIL" && (shift === wkldShift || shift === "ME"));
                 return {ag, myAssigned, totalVol, isWorking, shift};
               });
 
