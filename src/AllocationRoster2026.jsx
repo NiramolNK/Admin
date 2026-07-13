@@ -4849,32 +4849,25 @@ export default function AllocationPanel({ isAdmin = true }) {
                 cur.setMonth(cur.getMonth()+1);
               }
 
-              // Sum chats across months in range, PRORATED by day overlap.
-              // Chat volume is stored per CALENDAR month, but the report runs
-              // on PAY PERIODS (24th → 23rd, April's decision 2026-07-13):
-              // 24 Aug – 23 Sep takes 8/31 of Aug + 23/30 of Sep instead of
-              // double-counting both whole months.
+              // Chats: WHOLE-MONTH basis (April's decision 2026-07-13 v2).
+              // A month's FULL chat volume counts when that month's pay-period
+              // end (the 23rd) falls inside the range. So the Sep pay period
+              // (24 Aug – 23 Sep) uses ALL of September's chats; a two-period
+              // range (24 Jul – 23 Sep) uses Aug + Sep in full. No proration,
+              // no double counting.
               const rangeBrandChats = {}; // brandId → {platform → totalChats}
               rangeMonths.forEach(mk => {
                 const vol = monthlyVol[mk];
                 if (!vol) return;
-                const [yy, mm] = mk.split("-").map(Number);
-                const mStart = new Date(yy, mm-1, 1), mEnd = new Date(yy, mm, 0);
-                const dim = mEnd.getDate();
-                const ovStart = startD > mStart ? startD : mStart;
-                const ovEnd = endD < mEnd ? endD : mEnd;
-                const ovDays = Math.max(0, Math.round((ovEnd - ovStart)/86400000) + 1);
-                const f = Math.min(1, ovDays / dim);
-                if (f <= 0) return;
+                const payEnd = new Date(mk + "-23T00:00:00");
+                if (payEnd < startD || payEnd > endD) return; // not this range's pay month
                 Object.entries(vol).forEach(([bid, platVol]) => {
                   if (!rangeBrandChats[bid]) rangeBrandChats[bid] = {};
                   Object.entries(platVol).forEach(([p, c]) => {
-                    rangeBrandChats[bid][p] = (rangeBrandChats[bid][p]||0) + (c||0)*f;
+                    rangeBrandChats[bid][p] = (rangeBrandChats[bid][p]||0) + (c||0);
                   });
                 });
               });
-              // Round prorated fractions for clean display everywhere below.
-              Object.values(rangeBrandChats).forEach(pv => Object.keys(pv).forEach(p => { pv[p] = Math.round(pv[p]); }));
 
               // If no monthlyVol data found, fall back to current month brands.chats
               const hasRangeData = Object.keys(rangeBrandChats).length > 0;
