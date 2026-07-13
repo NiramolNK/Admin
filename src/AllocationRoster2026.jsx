@@ -1085,6 +1085,31 @@ export default function AllocationPanel({ isAdmin = true }) {
       .filter(({ storageKey, stateKey }) => lastSavedJson.current[storageKey] !== jsonOf(stateKey))
       .map(({ storageKey }) => storageKey));
     if (dirtyKeys.size === 0) { setSaveStatus(s => (s === "error" ? "error" : null)); return; }
+    // [DBG-wipe] Client tripwire (debug session 2026-07-13): on 07-10 a
+    // healthy tab wiped nirm-allBrandAsgn to {} through this very path, and
+    // every state writer has been exonerated by code trace — the origin is
+    // still unidentified. Any dirty MAP key whose serialized size collapses
+    // below 10% of what THIS tab last saved is (a) dropped from the save and
+    // (b) reported with full forensics, so the next occurrence identifies
+    // itself. Server-side kv_guard independently rejects such writes from
+    // ANY client, so this is belt on top of braces.
+    const WIPE_WATCH = ["nirm-allAsgn","nirm-allBrandAsgn","nirm-allExtraHrs","nirm-monthlyVol","nirm-userProfiles","nirm-fulltimeSalary"];
+    for (const storageKey of WIPE_WATCH) {
+      if (!dirtyKeys.has(storageKey)) continue;
+      const prevJson = lastSavedJson.current[storageKey];
+      if (typeof prevJson !== "string" || prevJson.length < 1000) continue; // no in-session baseline — server guard covers this case
+      const stateKeyW = (DOMAIN_KEYS.find(k => k.storageKey === storageKey) || {}).stateKey;
+      const nextJson = jsonOf(stateKeyW);
+      if (nextJson.length < prevJson.length / 10) {
+        dirtyKeys.delete(storageKey);
+        const topKeys = (j) => { try { return Object.keys(JSON.parse(j) || {}); } catch (_) { return ["<unparseable>"]; } };
+        console.error(`[DBG-wipe] BLOCKED suspicious shrink of ${storageKey}: ${prevJson.length} -> ${nextJson.length} chars`, {
+          before: topKeys(prevJson), after: topKeys(nextJson), stack: new Error().stack,
+        });
+        setSaveStatus("error");
+      }
+    }
+    if (dirtyKeys.size === 0) { return; }
     Promise.all(
       DOMAIN_KEYS.map(({ storageKey, stateKey }) =>
         dirtyKeys.has(storageKey) ? window.storage.set(storageKey, state[stateKey]).then(() => { lastSavedJson.current[storageKey] = JSON.stringify(state[stateKey] ?? null); }).catch(e => {
