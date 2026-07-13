@@ -2398,8 +2398,10 @@ export default function AllocationPanel({ isAdmin = true }) {
         {/* ── KPI Bar — Report tab only — range-aware ── */}
         {allocTab==="budget" && role!=="viewer" && (() => {
           // Compute range-aware costs (T2 pro-rated, T1+Return summed across range)
-          const rs = reportStartDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-01`;
-          const re = reportEndDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-${new Date(rosterYear, rosterMonth, 0).getDate()}`;
+          // Default range = the roster month's PAY PERIOD (24th → 23rd),
+          // matching the payroll cards (April's decision 2026-07-13).
+          const rs = reportStartDate || `${rosterMonth===1?rosterYear-1:rosterYear}-${String(rosterMonth===1?12:rosterMonth-1).padStart(2,"0")}-24`;
+          const re = reportEndDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-23`;
           const sD = new Date(rs + "T00:00:00");
           const eD = new Date(re + "T00:00:00");
           const isRangeSet = !!(reportStartDate || reportEndDate);
@@ -4832,8 +4834,10 @@ export default function AllocationPanel({ isAdmin = true }) {
             {role!=="viewer" && (() => {
               // ── Date range logic ──────────────────────────────────
               // Determine which months are in range
-              const rangeStart = reportStartDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-01`;
-              const rangeEnd = reportEndDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-${new Date(rosterYear, rosterMonth, 0).getDate()}`;
+              // Default range = the roster month's PAY PERIOD (24th → 23rd),
+              // matching the payroll cards (April's decision 2026-07-13).
+              const rangeStart = reportStartDate || `${rosterMonth===1?rosterYear-1:rosterYear}-${String(rosterMonth===1?12:rosterMonth-1).padStart(2,"0")}-24`;
+              const rangeEnd = reportEndDate || `${rosterYear}-${String(rosterMonth).padStart(2,"0")}-23`;
               const startD = new Date(rangeStart + "T00:00:00");
               const endD = new Date(rangeEnd + "T00:00:00");
 
@@ -4845,18 +4849,32 @@ export default function AllocationPanel({ isAdmin = true }) {
                 cur.setMonth(cur.getMonth()+1);
               }
 
-              // Sum chats across all months in range
+              // Sum chats across months in range, PRORATED by day overlap.
+              // Chat volume is stored per CALENDAR month, but the report runs
+              // on PAY PERIODS (24th → 23rd, April's decision 2026-07-13):
+              // 24 Aug – 23 Sep takes 8/31 of Aug + 23/30 of Sep instead of
+              // double-counting both whole months.
               const rangeBrandChats = {}; // brandId → {platform → totalChats}
               rangeMonths.forEach(mk => {
                 const vol = monthlyVol[mk];
                 if (!vol) return;
+                const [yy, mm] = mk.split("-").map(Number);
+                const mStart = new Date(yy, mm-1, 1), mEnd = new Date(yy, mm, 0);
+                const dim = mEnd.getDate();
+                const ovStart = startD > mStart ? startD : mStart;
+                const ovEnd = endD < mEnd ? endD : mEnd;
+                const ovDays = Math.max(0, Math.round((ovEnd - ovStart)/86400000) + 1);
+                const f = Math.min(1, ovDays / dim);
+                if (f <= 0) return;
                 Object.entries(vol).forEach(([bid, platVol]) => {
                   if (!rangeBrandChats[bid]) rangeBrandChats[bid] = {};
                   Object.entries(platVol).forEach(([p, c]) => {
-                    rangeBrandChats[bid][p] = (rangeBrandChats[bid][p]||0) + (c||0);
+                    rangeBrandChats[bid][p] = (rangeBrandChats[bid][p]||0) + (c||0)*f;
                   });
                 });
               });
+              // Round prorated fractions for clean display everywhere below.
+              Object.values(rangeBrandChats).forEach(pv => Object.keys(pv).forEach(p => { pv[p] = Math.round(pv[p]); }));
 
               // If no monthlyVol data found, fall back to current month brands.chats
               const hasRangeData = Object.keys(rangeBrandChats).length > 0;
@@ -4961,12 +4979,15 @@ export default function AllocationPanel({ isAdmin = true }) {
 
                   {/* Month-shortcut buttons — click to set range to that month */}
                   <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:14,flexWrap:"wrap"}}>
-                    <div style={{fontSize:11,color:"#94A3B8",fontWeight:600,marginRight:4}}>Quick month:</div>
+                    <div style={{fontSize:11,color:"#94A3B8",fontWeight:600,marginRight:4}}>Quick month <span style={{fontWeight:500}}>(pay period 24th → 23rd)</span>:</div>
                     {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((mn, i) => {
                       const mNum = i + 1;
-                      const last = new Date(rosterYear, mNum, 0).getDate();
-                      const from = `${rosterYear}-${String(mNum).padStart(2,"0")}-01`;
-                      const to   = `${rosterYear}-${String(mNum).padStart(2,"0")}-${String(last).padStart(2,"0")}`;
+                      // Pay-period basis (April's decision): month M = 24th of
+                      // M-1 → 23rd of M, matching the payroll cards above.
+                      const py = mNum === 1 ? rosterYear - 1 : rosterYear;
+                      const pm = mNum === 1 ? 12 : mNum - 1;
+                      const from = `${py}-${String(pm).padStart(2,"0")}-24`;
+                      const to   = `${rosterYear}-${String(mNum).padStart(2,"0")}-23`;
                       const active = reportStartDate === from && reportEndDate === to;
                       return (
                         <button key={mn} onClick={()=>{ setReportStartDate(from); setReportEndDate(to); }} style={{
