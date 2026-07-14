@@ -855,7 +855,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget"],                                                          canEdit:false },
     fulltime: { label:"T2",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","payment","allocation","dates","volume","agents"],                canEdit:true  },
     manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics"], canEdit:true  },
-    cc:       { label:"CC",              color:"#7C3AED", bg:"#F3E8FF", tabs:["roster","allocation"],                                          canEdit:false, groupScope:"shiseido" },
+    cc:       { label:"CC",              color:"#7C3AED", bg:"#F3E8FF", tabs:["roster","payment","allocation"],                                canEdit:false, groupScope:"shiseido" },
   };
 
   // User accounts — stored in state, persisted to storage.
@@ -2085,9 +2085,10 @@ export default function AllocationPanel({ isAdmin = true }) {
     if (a.name && a.name.toLowerCase().trim() === lu) return true;
     return false;
   }) : null;
-  // Separate lookup for payroll: T1 and RT&RF both see their own monthly invoice,
-  // regardless of whether the full roster view applies.
-  const myPayrollAgent = (role==="t1" || role==="return")
+  // Separate lookup for payroll: T1, RT&RF and CC all see their own monthly
+  // invoice (all three teams are daily-rate paid), regardless of whether the
+  // full roster view applies.
+  const myPayrollAgent = (role==="t1" || role==="return" || role==="cc")
     ? agents.find(a => {
         const lu = (loginUser||"").toLowerCase().trim();
         if (!lu) return false;
