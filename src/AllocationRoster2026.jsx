@@ -2539,7 +2539,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                             <div style={{display:"flex",gap:8,marginTop:10}}>
                               <button onClick={()=>{
                                 const rv = violatesRest(r.agentId, r.date, r.requestedShift);
-                                if (rv) { alert("This change now conflicts with the rest rule (Evening and Morning back-to-back). Please Decline and ask your manager for a new request."); return; }
+                                // FLEXIBLE burnout rule: notify + allow conscious accept.
+                                if (rv && !window.confirm("⚠ Rest-rule warning: this change creates Evening and Morning back-to-back (only 6 hours rest).\n\nAccept anyway?")) return;
                                 applyShiftForDate(r.agentId, r.date, r.requestedShift);
                                 setChangeRequests(prev=>prev.map(x=>x.id===r.id?{...x,status:"approved",acceptedAt:new Date().toISOString()}:x));
                               }} style={{padding:"6px 16px",borderRadius:8,border:"none",background:"#D1FAE5",color:"#059669",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Accept</button>
@@ -2831,7 +2832,9 @@ export default function AllocationPanel({ isAdmin = true }) {
                   const ag = agents.find(a=>a.id===mgrReq.agentId); if(!ag) return;
                   const cur = (allAsgn[mgrReq.date.slice(0,7)]||{})[`${mgrReq.agentId}_${mgrReq.date}`] || "";
                   const rv = violatesRest(mgrReq.agentId, mgrReq.date, mgrReq.shift);
-                  if (rv) { alert(rv==="M-after-E" ? `${ag.name} works Evening the day before ${mgrReq.date} (ends 01:00). Morning would give only 6h rest.` : `${ag.name} works Morning the day after ${mgrReq.date}. Evening ends 01:00 - only 6h rest.`); return; }
+                  // FLEXIBLE burnout rule: warn the manager, allow sending anyway —
+                  // the agent then gets notified and can accept or decline.
+                  if (rv && !window.confirm((rv==="M-after-E" ? `⚠ ${ag.name} works Evening the day before ${mgrReq.date} (ends 01:00). Morning would give only 6h rest.` : `⚠ ${ag.name} works Morning the day after ${mgrReq.date}. Evening ends 01:00 — only 6h rest.`) + `\n\nSend the request anyway? ${ag.name} will see this warning and can accept or decline.`)) return;
                   setChangeRequests(prev=>[...prev,{
                     id: Date.now().toString(36)+Math.random().toString(36).slice(2,6),
                     agentId:ag.id, agentName:ag.name, date:mgrReq.date,
@@ -3237,13 +3240,13 @@ export default function AllocationPanel({ isAdmin = true }) {
                                             const nextD = new Date(dt); nextD.setUTCDate(dt.getUTCDate()+1);
                                             const prevShift = asgn[`${ag.id}_${ymd(prevD)}`];
                                             const nextShift = asgn[`${ag.id}_${ymd(nextD)}`];
+                                            // FLEXIBLE burnout rule (April 2026-07-16): warn + let the
+                                            // manager consciously accept, instead of hard-blocking.
                                             if (code === "M" && prevShift === "E") {
-                                              alert(`Cannot assign Morning to ${ag.name} on ${d.dd}/${d.mm}.\n\n${ag.name} worked Evening yesterday (ends 01:00).\nOnly 6 hours rest before Morning starts 07:00.\n\nThis rule prevents burnout.`);
-                                              return;
+                                              if (!window.confirm(`⚠ Rest-rule warning for ${ag.name} on ${d.dd}/${d.mm}:\n\n${ag.name} worked Evening yesterday (ends 01:00).\nOnly 6 hours rest before Morning starts 07:00.\n\nAssign Morning anyway?`)) return;
                                             }
                                             if (code === "E" && nextShift === "M") {
-                                              alert(`Cannot assign Evening to ${ag.name} on ${d.dd}/${d.mm}.\n\n${ag.name} is scheduled Morning tomorrow.\nEvening ends 01:00 — only 6 hours rest before next Morning at 07:00.\n\nThis rule prevents burnout.`);
-                                              return;
+                                              if (!window.confirm(`⚠ Rest-rule warning for ${ag.name} on ${d.dd}/${d.mm}:\n\n${ag.name} is scheduled Morning tomorrow.\nEvening ends 01:00 — only 6 hours rest before next Morning at 07:00.\n\nAssign Evening anyway?`)) return;
                                             }
                                           }
                                           safeSetAsgn(p=>({...p,[k]:code}));setCellKey(null);
