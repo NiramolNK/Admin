@@ -316,7 +316,6 @@ export default function SVCRServiceDesk({ role, canEdit }) {
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
 
-  const open = isServiceOpen(now, settings.holidays);
   const todayStr = toDateStr(now);
   const activeBrand = settings.activeBrand || "ALL";
   const setActiveBrand = (b) => setSettings((s) => ({ ...s, activeBrand: b }));
@@ -424,18 +423,11 @@ export default function SVCRServiceDesk({ role, canEdit }) {
   return (
     <div style={S.page}>
       <div style={S.header}>
-        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
           <div>
             <div style={S.kicker}>CREA · CX Operations</div>
             <div style={S.h1}>SVCR Service Desk</div>
             <div style={S.sub}>TikTok comments &amp; DM · LINE OA · Email · Amaze · Daily operation log</div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.1)", borderRadius: 12, padding: "10px 16px" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 999, background: open ? "#34D399" : "#FB7185", boxShadow: open ? "0 0 8px #34D399" : "none" }} />
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>{open ? "Service OPEN" : "Service CLOSED"}</div>
-              <div style={{ fontSize: 11, opacity: 0.8 }}>Mon–Fri 09:00–18:00 · now {now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</div>
-            </div>
           </div>
         </div>
 
