@@ -301,6 +301,20 @@ export default function SVCRServiceDesk({ role, canEdit }) {
         });
         mergedSettings = { ...mergedSettings, channels };
       }
+      // Backfill: any brand missing one or more of the five channel keys
+      // (added before auto-seeding existed, or via the bizIds migration
+      // above, which only covers the two TikTok channels) gets the rest
+      // filled in as empty/unconnected — so Channel Connections always
+      // shows all five services for every brand, old or new.
+      const backfilledChannels = { ...mergedSettings.channels };
+      (mergedSettings.brands || []).forEach((brand) => {
+        const existing = backfilledChannels[brand] || {};
+        backfilledChannels[brand] = CHANNEL_DEFS.reduce(
+          (acc, c) => ({ ...acc, [c.key]: existing[c.key] || { endpoint: "", accountId: "" } }),
+          {}
+        );
+      });
+      mergedSettings = { ...mergedSettings, channels: backfilledChannels };
       setInquiries(migratedInq); setTemplates(tpl); setNotes(nts);
       setSettings(mergedSettings);
       setLoaded(true);
@@ -965,6 +979,22 @@ function TemplatesPane({ templates, setTemplates, settings, activeBrand, showToa
 }
 
 // ═══════════════════════ DAILY LOG ═══════════════════════
+// CountList at module scope (not nested inside DailyLogPane) for the same
+// reason as ListEditor above — keeps a stable component identity across renders.
+function CountList({ title, data }) {
+  return (
+    <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, flex: 1, minWidth: 180 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>{title}</div>
+      {Object.keys(data).length === 0 ? <div style={{ fontSize: 12, color: "#94A3B8" }}>—</div> :
+        Object.entries(data).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+          <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}>
+            <span style={{ color: "#475569" }}>{k}</span><span style={{ fontWeight: 700, color: NAVY }}>{v}</span>
+          </div>
+        ))}
+    </div>
+  );
+}
+
 function DailyLogPane({ inquiries, activeBrand, notes, setNotes, settings, exportCSV }) {
   const [day, setDay] = useState(toDateStr(new Date()));
   const noteKey = activeBrand === "ALL" ? day : `${day}::${activeBrand}`;
@@ -976,18 +1006,6 @@ function DailyLogPane({ inquiries, activeBrand, notes, setNotes, settings, expor
 
   const agg = (fn) => rows.reduce((o, i) => { const k = fn(i); if (k) o[k] = (o[k] || 0) + 1; return o; }, {});
   const byChannel = agg((i) => getChannelDef(i.channel).label), byType = agg((i) => i.type), byAgent = agg((i) => i.agent), byBrand = agg((i) => i.brand || "(no brand)");
-
-  const CountList = ({ title, data }) => (
-    <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, flex: 1, minWidth: 180 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>{title}</div>
-      {Object.keys(data).length === 0 ? <div style={{ fontSize: 12, color: "#94A3B8" }}>—</div> :
-        Object.entries(data).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
-          <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}>
-            <span style={{ color: "#475569" }}>{k}</span><span style={{ fontWeight: 700, color: NAVY }}>{v}</span>
-          </div>
-        ))}
-    </div>
-  );
 
   return (
     <div>
@@ -1019,11 +1037,13 @@ function DailyLogPane({ inquiries, activeBrand, notes, setNotes, settings, expor
 }
 
 // ═══════════════════════ SETTINGS ═══════════════════════
-function SettingsPane({ settings, setSettings }) {
-  const [inp, setInp] = useState({ agent: "", brand: "", holiday: "" });
-  const setI = (k, v) => setInp((p) => ({ ...p, [k]: v }));
-
-  const ListEditor = ({ title, items, k, placeholder, type = "text", onAdd, onRemove }) => (
+// ListEditor lives at module scope (not nested inside SettingsPane) — a
+// component redefined on every parent render gets a new identity each time,
+// which makes React unmount/remount its <input>, wiping focus after every
+// keystroke. Defining it once here, and passing inp/setI in as props,
+// keeps the same component identity across renders so typing works normally.
+function ListEditor({ title, items, k, placeholder, type = "text", onAdd, onRemove, inp, setI }) {
+  return (
     <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12 }}>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>{title}</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
@@ -1041,6 +1061,11 @@ function SettingsPane({ settings, setSettings }) {
       </div>
     </div>
   );
+}
+
+function SettingsPane({ settings, setSettings }) {
+  const [inp, setInp] = useState({ agent: "", brand: "", holiday: "" });
+  const setI = (k, v) => setInp((p) => ({ ...p, [k]: v }));
 
   const setChannelField = (brand, key, field, value) => setSettings((s) => ({
     ...s,
@@ -1065,13 +1090,26 @@ function SettingsPane({ settings, setSettings }) {
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(320px,1fr))", gap: 14 }}>
       <ListEditor title="Agents" items={settings.agents} k="agent" placeholder="Agent name"
         onAdd={(v) => setSettings((s) => ({ ...s, agents: Array.from(new Set([...s.agents, v])) }))}
-        onRemove={(v) => setSettings((s) => ({ ...s, agents: s.agents.filter((a) => a !== v) }))} />
+        onRemove={(v) => setSettings((s) => ({ ...s, agents: s.agents.filter((a) => a !== v) }))} inp={inp} setI={setI} />
       <ListEditor title="Brands / Shops" items={settings.brands} k="brand" placeholder="Brand or shop name"
-        onAdd={(v) => setSettings((s) => ({ ...s, brands: Array.from(new Set([...s.brands, v])) }))}
-        onRemove={(v) => setSettings((s) => ({ ...s, brands: s.brands.filter((b) => b !== v), activeBrand: s.activeBrand === v ? "ALL" : s.activeBrand }))} />
+        onAdd={(v) => setSettings((s) => ({
+          ...s,
+          brands: Array.from(new Set([...s.brands, v])),
+          // Auto-add all five services for every new brand — TikTok DM,
+          // TikTok Video Comment, LINE OA, Email, Amaze — so they're all
+          // visible in Channel Connections right away instead of needing
+          // to be added one by one per brand.
+          channels: {
+            ...s.channels,
+            [v]: {
+              ...CHANNEL_DEFS.reduce((acc, c) => ({ ...acc, [c.key]: (s.channels?.[v]?.[c.key]) || { endpoint: "", accountId: "" } }), {}),
+            },
+          },
+        }))}
+        onRemove={(v) => setSettings((s) => ({ ...s, brands: s.brands.filter((b) => b !== v), activeBrand: s.activeBrand === v ? "ALL" : s.activeBrand }))} inp={inp} setI={setI} />
       <ListEditor title="Public holidays (service closed)" items={settings.holidays} k="holiday" placeholder="YYYY-MM-DD" type="date"
         onAdd={(v) => setSettings((s) => ({ ...s, holidays: Array.from(new Set([...s.holidays, v])).sort() }))}
-        onRemove={(v) => setSettings((s) => ({ ...s, holidays: s.holidays.filter((h) => h !== v) }))} />
+        onRemove={(v) => setSettings((s) => ({ ...s, holidays: s.holidays.filter((h) => h !== v) }))} inp={inp} setI={setI} />
       <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12 }}>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>SLA target — first reply (business minutes)</div>
         <input type="number" min="5" step="5" style={{ ...S.input, width: 110 }} value={settings.slaTarget}
