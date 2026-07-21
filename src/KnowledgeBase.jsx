@@ -231,12 +231,22 @@ function PicDirectory({ pics, canEdit, updatePic, removePic, addPic, search, set
           </>
         )}
       </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+      {/* Brand column is sticky (position: sticky; left: 0) so it stays
+          visible while scrolling right through the other 8 PIC columns —
+          otherwise a wide table like this loses track of which row is
+          which brand the moment you scroll past the first column. */}
+      <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: 8 }}>
+        <table style={{ borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
+          <colgroup>
+            <col style={{ width: 130 }} />
+            {PIC_COLS.map((c) => <col key={c.key} style={{ width: 84 }} />)}
+            <col style={{ width: 220 }} />
+            {canEdit && <col style={{ width: 28 }} />}
+          </colgroup>
           <thead>
             <tr style={{ borderBottom: "2px solid #E2E8F0" }}>
-              <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700, whiteSpace: "nowrap" }}>Brand</th>
-              {PIC_COLS.map((c) => <th key={c.key} style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700, whiteSpace: "nowrap" }}>{c.label}</th>)}
+              <th style={{ position: "sticky", left: 0, background: "#F8FAFC", zIndex: 2, textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700, borderRight: "1px solid #E2E8F0" }}>Brand</th>
+              {PIC_COLS.map((c) => <th key={c.key} style={{ textAlign: "left", padding: "6px 6px", color: "#64748B", fontWeight: 700, fontSize: 11 }}>{c.label}</th>)}
               <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700 }}>Note</th>
               {canEdit && <th></th>}
             </tr>
@@ -244,18 +254,18 @@ function PicDirectory({ pics, canEdit, updatePic, removePic, addPic, search, set
           <tbody>
             {filtered.map((p) => (
               <tr key={p.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                <td style={{ padding: "4px 8px", fontWeight: 700, color: "#1E293B", whiteSpace: "nowrap" }}>
-                  {canEdit ? <input style={{ ...S.input, padding: "3px 6px", fontWeight: 700, minWidth: 120 }} value={p.brand} onChange={(e) => updatePic(p.id, "brand", e.target.value)} /> : p.brand}
+                <td style={{ position: "sticky", left: 0, background: "#fff", zIndex: 1, padding: "4px 8px", fontWeight: 700, color: "#1E293B", borderRight: "1px solid #E2E8F0" }}>
+                  {canEdit ? <input style={{ ...S.input, padding: "3px 6px", fontWeight: 700, width: "100%", boxSizing: "border-box" }} value={p.brand} onChange={(e) => updatePic(p.id, "brand", e.target.value)} /> : p.brand}
                 </td>
                 {PIC_COLS.map((c) => (
-                  <td key={c.key} style={{ padding: "4px 8px", color: "#334155", whiteSpace: "nowrap" }}>
-                    {canEdit ? <input style={{ ...S.input, padding: "3px 6px", minWidth: 70 }} value={p[c.key] || ""} onChange={(e) => updatePic(p.id, c.key, e.target.value)} /> : (p[c.key] || "—")}
+                  <td key={c.key} style={{ padding: "4px 4px", color: "#334155" }}>
+                    {canEdit ? <input style={{ ...S.input, padding: "3px 4px", width: "100%", boxSizing: "border-box", fontSize: 11 }} value={p[c.key] || ""} onChange={(e) => updatePic(p.id, c.key, e.target.value)} /> : <span style={{ fontSize: 11 }}>{p[c.key] || "—"}</span>}
                   </td>
                 ))}
-                <td style={{ padding: "4px 8px", color: "#64748B", minWidth: 200 }}>
-                  {canEdit ? <input style={{ ...S.input, padding: "3px 6px", width: "100%" }} value={p.note || ""} onChange={(e) => updatePic(p.id, "note", e.target.value)} /> : (p.note || "")}
+                <td style={{ padding: "4px 8px", color: "#64748B" }}>
+                  {canEdit ? <input style={{ ...S.input, padding: "3px 6px", width: "100%", boxSizing: "border-box" }} value={p.note || ""} onChange={(e) => updatePic(p.id, "note", e.target.value)} /> : (p.note || "")}
                 </td>
-                {canEdit && <td style={{ padding: "4px 8px" }}><button style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }} onClick={() => window.confirm(`Remove ${p.brand}?`) && removePic(p.id)}>✕</button></td>}
+                {canEdit && <td style={{ padding: "4px 4px", textAlign: "center" }}><button style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }} onClick={() => window.confirm(`Remove ${p.brand}?`) && removePic(p.id)}>✕</button></td>}
               </tr>
             ))}
           </tbody>
