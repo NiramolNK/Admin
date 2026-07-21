@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
+import SEED_RESOURCES from "./data/kb-resources-seed.json";
+import DEFAULT_PICS from "./data/kb-brand-pics.json";
 
 // ═══════════════════════════════════════════════════════════════
 // KNOWLEDGE BASE — org-wide resource library for NiRM Roster.
@@ -8,6 +10,12 @@ import React, { useState, useEffect, useMemo } from "react";
 // without asking someone. Adding/editing/deleting is restricted to
 // canEdit roles (Manager / T2); everyone else can browse and open links.
 // Persists via window.storage shim → kv_state, under kb-* keys.
+//
+// Two sections: Resources (link library, seeded from the team's existing
+// FAQ/PDF/training sheets) and Brand PIC Directory (who's responsible for
+// each brand — Lead/KAM/ASSO/MC/Affiliate/Live Admin/LAM — imported from
+// the KAM PIC roster). Both seed their real starting data on first load
+// and are then fully editable going forward.
 // ═══════════════════════════════════════════════════════════════
 
 const NAVY = "#0F172A";
@@ -30,7 +38,7 @@ function fmtDT(iso) {
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-const K = { resources: "kb-resources" };
+const K = { resources: "kb-resources", pics: "kb-brand-pics" };
 async function loadKey(key, fallback) {
   try { const r = await window.storage.get(key); return r && r.value ? JSON.parse(r.value) : fallback; }
   catch (e) { console.warn("[KB] load failed", key, e); return fallback; }
@@ -58,7 +66,9 @@ const S = {
 const Field = ({ label, children }) => (<label style={S.label}>{label}{children}</label>);
 
 export default function KnowledgeBase({ role, canEdit }) {
+  const [section, setSection] = useState("resources"); // "resources" | "pics"
   const [resources, setResources] = useState([]);
+  const [pics, setPics] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [fType, setFType] = useState("All");
@@ -69,12 +79,18 @@ export default function KnowledgeBase({ role, canEdit }) {
 
   useEffect(() => {
     (async () => {
-      const res = await loadKey(K.resources, []);
-      setResources(res);
+      // Seed real starting data on first load only — never overwrites once
+      // someone has actually edited it (i.e. once a saved value exists,
+      // however small, that's used instead of the seed).
+      const res = await loadKey(K.resources, null);
+      const pc = await loadKey(K.pics, null);
+      setResources(res !== null ? res : SEED_RESOURCES);
+      setPics(pc !== null ? pc : DEFAULT_PICS);
       setLoaded(true);
     })();
   }, []);
   useEffect(() => { if (loaded) saveKey(K.resources, resources); }, [resources, loaded]);
+  useEffect(() => { if (loaded) saveKey(K.pics, pics); }, [pics, loaded]);
 
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
 
@@ -97,6 +113,13 @@ export default function KnowledgeBase({ role, canEdit }) {
   };
   const removeResource = (id) => setResources((p) => p.filter((r) => r.id !== id));
 
+  const updatePic = (id, field, value) => setPics((p) => p.map((x) => (x.id === id ? { ...x, [field]: value } : x)));
+  const removePic = (id) => setPics((p) => p.filter((x) => x.id !== id));
+  const addPic = (brand) => {
+    if (!brand.trim()) return;
+    setPics((p) => [{ id: uid(), brand: brand.trim(), lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", note: "" }, ...p]);
+  };
+
   if (!loaded) return <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300, color: "#94A3B8", fontSize: 13 }}>Loading knowledge base…</div>;
 
   return (
@@ -105,9 +128,16 @@ export default function KnowledgeBase({ role, canEdit }) {
         <div style={S.kicker}>NiRM · Reference Library</div>
         <div style={S.h1}>Knowledge Base</div>
         <div style={S.sub}>Excel sheets, PDFs, training videos, SOPs, and reference docs — shared across every team.</div>
+        <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+          <button onClick={() => setSection("resources")} style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer", background: section === "resources" ? "#fff" : "rgba(255,255,255,0.15)", color: section === "resources" ? NAVY : "#fff" }}>Resources</button>
+          <button onClick={() => setSection("pics")} style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer", background: section === "pics" ? "#fff" : "rgba(255,255,255,0.15)", color: section === "pics" ? NAVY : "#fff" }}>Brand PIC Directory</button>
+        </div>
       </div>
 
       <div style={S.body}>
+        {section === "pics" ? (
+          <PicDirectory pics={pics} canEdit={canEdit} updatePic={updatePic} removePic={removePic} addPic={addPic} search={search} setSearch={setSearch} />
+        ) : (
         <div style={S.card}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
             {canEdit && <button style={S.btn(TEAL)} onClick={() => setShowForm((s) => !s)}>{showForm ? "Close" : "+ Add resource"}</button>}
@@ -167,8 +197,71 @@ export default function KnowledgeBase({ role, canEdit }) {
             </div>
           )}
         </div>
+        )}
       </div>
       {toast && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#0F172A", color: "#fff", fontSize: 13, padding: "8px 18px", borderRadius: 999, zIndex: 9999 }}>{toast}</div>}
+    </div>
+  );
+}
+
+// ── Brand PIC Directory — who's responsible for each brand ──
+const PIC_COLS = [
+  { key: "lead", label: "Lead" }, { key: "kam", label: "KAM" }, { key: "asso", label: "ASSO" },
+  { key: "mc", label: "MC" }, { key: "affiliate", label: "Affiliate" }, { key: "liveAdmin", label: "Live Admin" },
+  { key: "lam", label: "LAM" }, { key: "lamAsso", label: "LAM ASSO" },
+];
+function PicDirectory({ pics, canEdit, updatePic, removePic, addPic, search, setSearch }) {
+  const [newBrand, setNewBrand] = useState("");
+  const filtered = pics.filter((p) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return `${p.brand} ${p.lead} ${p.kam} ${p.asso} ${p.mc} ${p.affiliate} ${p.liveAdmin} ${p.lam} ${p.note}`.toLowerCase().includes(q);
+  });
+
+  return (
+    <div style={S.card}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
+        <input style={{ ...S.input, flex: 1, minWidth: 200 }} placeholder="Search brand or PIC name…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <span style={{ fontSize: 12, color: "#94A3B8" }}>{filtered.length} brands</span>
+        {canEdit && (
+          <>
+            <input style={S.input} placeholder="New brand name" value={newBrand} onChange={(e) => setNewBrand(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && newBrand.trim()) { addPic(newBrand); setNewBrand(""); } }} />
+            <button style={S.btn(TEAL)} onClick={() => { if (newBrand.trim()) { addPic(newBrand); setNewBrand(""); } }}>+ Add brand</button>
+          </>
+        )}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: "2px solid #E2E8F0" }}>
+              <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700, whiteSpace: "nowrap" }}>Brand</th>
+              {PIC_COLS.map((c) => <th key={c.key} style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700, whiteSpace: "nowrap" }}>{c.label}</th>)}
+              <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700 }}>Note</th>
+              {canEdit && <th></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((p) => (
+              <tr key={p.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                <td style={{ padding: "4px 8px", fontWeight: 700, color: "#1E293B", whiteSpace: "nowrap" }}>
+                  {canEdit ? <input style={{ ...S.input, padding: "3px 6px", fontWeight: 700, minWidth: 120 }} value={p.brand} onChange={(e) => updatePic(p.id, "brand", e.target.value)} /> : p.brand}
+                </td>
+                {PIC_COLS.map((c) => (
+                  <td key={c.key} style={{ padding: "4px 8px", color: "#334155", whiteSpace: "nowrap" }}>
+                    {canEdit ? <input style={{ ...S.input, padding: "3px 6px", minWidth: 70 }} value={p[c.key] || ""} onChange={(e) => updatePic(p.id, c.key, e.target.value)} /> : (p[c.key] || "—")}
+                  </td>
+                ))}
+                <td style={{ padding: "4px 8px", color: "#64748B", minWidth: 200 }}>
+                  {canEdit ? <input style={{ ...S.input, padding: "3px 6px", width: "100%" }} value={p.note || ""} onChange={(e) => updatePic(p.id, "note", e.target.value)} /> : (p.note || "")}
+                </td>
+                {canEdit && <td style={{ padding: "4px 8px" }}><button style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }} onClick={() => window.confirm(`Remove ${p.brand}?`) && removePic(p.id)}>✕</button></td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: "30px 0" }}>No brands match this search.</div>}
+      </div>
     </div>
   );
 }
