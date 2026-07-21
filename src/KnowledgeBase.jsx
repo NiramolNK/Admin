@@ -38,7 +38,7 @@ function fmtDT(iso) {
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-const K = { resources: "kb-resources", pics: "kb-brand-pics" };
+const K = { resources: "kb-resources", pics: "kb-brand-pics", seeded: "kb-seeded-flag" };
 async function loadKey(key, fallback) {
   try { const r = await window.storage.get(key); return r && r.value ? JSON.parse(r.value) : fallback; }
   catch (e) { console.warn("[KB] load failed", key, e); return fallback; }
@@ -79,13 +79,25 @@ export default function KnowledgeBase({ role, canEdit }) {
 
   useEffect(() => {
     (async () => {
-      // Seed real starting data on first load only — never overwrites once
-      // someone has actually edited it (i.e. once a saved value exists,
-      // however small, that's used instead of the seed).
-      const res = await loadKey(K.resources, null);
-      const pc = await loadKey(K.pics, null);
-      setResources(res !== null ? res : SEED_RESOURCES);
-      setPics(pc !== null ? pc : DEFAULT_PICS);
+      // Seed real starting data exactly once, ever — gated by an explicit
+      // flag rather than "is the stored value null/empty". The earlier
+      // null-check version broke in production: the page had been opened
+      // once before the seed data existed, which saved an empty array —
+      // and an empty array looks identical to "someone deleted everything
+      // on purpose", so the seed could never run again. A dedicated flag
+      // means it's unambiguous: seeded once, never touched again, no matter
+      // what state the data is later left in.
+      const alreadySeeded = await loadKey(K.seeded, false);
+      const res = await loadKey(K.resources, []);
+      const pc = await loadKey(K.pics, []);
+      if (!alreadySeeded) {
+        setResources(res.length ? res : SEED_RESOURCES);
+        setPics(pc.length ? pc : DEFAULT_PICS);
+        await saveKey(K.seeded, true);
+      } else {
+        setResources(res);
+        setPics(pc);
+      }
       setLoaded(true);
     })();
   }, []);
