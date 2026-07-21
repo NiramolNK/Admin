@@ -1,0 +1,174 @@
+import React, { useState, useEffect, useMemo } from "react";
+
+// ═══════════════════════════════════════════════════════════════
+// KNOWLEDGE BASE — org-wide resource library for NiRM Roster.
+// Visible to every role (T1, RT&RF, Viewer, T2, Manager, CC); a shared
+// reference shelf for links to Excel sheets, PDFs, training videos, SOP
+// docs, slide decks, etc. — anything an agent might need to look up
+// without asking someone. Adding/editing/deleting is restricted to
+// canEdit roles (Manager / T2); everyone else can browse and open links.
+// Persists via window.storage shim → kv_state, under kb-* keys.
+// ═══════════════════════════════════════════════════════════════
+
+const NAVY = "#0F172A";
+const TEAL = "#0D9488";
+
+const TYPE_DEFS = [
+  { key: "excel", label: "Excel / Sheet", chipBg: "#DCFCE7", chipFg: "#166534" },
+  { key: "pdf",   label: "PDF",           chipBg: "#FEE2E2", chipFg: "#991B1B" },
+  { key: "video", label: "Video",         chipBg: "#EDE9FE", chipFg: "#5B21B6" },
+  { key: "doc",   label: "Doc",           chipBg: "#DBEAFE", chipFg: "#1E40AF" },
+  { key: "slides",label: "Slides",        chipBg: "#FEF3C7", chipFg: "#92400E" },
+  { key: "link",  label: "Link",          chipBg: "#F1F5F9", chipFg: "#334155" },
+  { key: "other", label: "Other",         chipBg: "#F1F5F9", chipFg: "#334155" },
+];
+function getTypeDef(key) { return TYPE_DEFS.find((t) => t.key === key) || TYPE_DEFS[TYPE_DEFS.length - 1]; }
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function fmtDT(iso) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+const K = { resources: "kb-resources" };
+async function loadKey(key, fallback) {
+  try { const r = await window.storage.get(key); return r && r.value ? JSON.parse(r.value) : fallback; }
+  catch (e) { console.warn("[KB] load failed", key, e); return fallback; }
+}
+async function saveKey(key, val) {
+  try { await window.storage.set(key, JSON.stringify(val)); }
+  catch (e) { console.error("[KB] save failed", key, e); }
+}
+
+const S = {
+  page: { fontFamily: "'Galano Grotesque','Segoe UI',sans-serif", background: "#F1F5F9", minHeight: "100%", padding: 0 },
+  header: { background: `linear-gradient(100deg, ${NAVY} 0%, #1E293B 100%)`, color: "#fff", padding: "20px 24px 16px" },
+  kicker: { fontSize: 11, letterSpacing: 2, textTransform: "uppercase", opacity: 0.7, fontWeight: 600 },
+  h1: { fontSize: 20, fontWeight: 700, margin: "2px 0 0" },
+  sub: { fontSize: 12, opacity: 0.8, marginTop: 4 },
+  body: { maxWidth: 1100, margin: "0 auto", padding: "20px 20px 40px" },
+  card: { background: "#fff", border: "1px solid #CBD5E1", borderRadius: 12, padding: 16 },
+  input: { border: "1px solid #CBD5E1", borderRadius: 8, padding: "6px 10px", fontSize: 13, fontFamily: "inherit", background: "#fff", color: "#1E293B", outline: "none" },
+  label: { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, fontWeight: 600, color: "#64748B" },
+  btn: (bg) => ({ background: bg, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }),
+  btnGhost: { background: "#fff", color: "#475569", border: "1px solid #CBD5E1", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" },
+  chip: (bg, fg) => ({ background: bg, color: fg, padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }),
+  panel: { border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, background: "#F8FAFC", marginBottom: 14 },
+};
+const Field = ({ label, children }) => (<label style={S.label}>{label}{children}</label>);
+
+export default function KnowledgeBase({ role, canEdit }) {
+  const [resources, setResources] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [fType, setFType] = useState("All");
+  const [fCategory, setFCategory] = useState("All");
+  const [search, setSearch] = useState("");
+  const [form, setForm] = useState({ title: "", type: "excel", url: "", description: "", category: "" });
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      const res = await loadKey(K.resources, []);
+      setResources(res);
+      setLoaded(true);
+    })();
+  }, []);
+  useEffect(() => { if (loaded) saveKey(K.resources, resources); }, [resources, loaded]);
+
+  const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
+
+  const categories = useMemo(() => Array.from(new Set(resources.map((r) => r.category).filter(Boolean))).sort(), [resources]);
+  const filtered = resources.filter((r) => {
+    if (fType !== "All" && r.type !== fType) return false;
+    if (fCategory !== "All" && r.category !== fCategory) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!`${r.title} ${r.description} ${r.category}`.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
+  const addResource = () => {
+    if (!form.title.trim() || !form.url.trim()) return;
+    setResources((p) => [{ id: uid(), ...form, addedBy: role || "", addedAt: new Date().toISOString() }, ...p]);
+    setForm({ title: "", type: form.type, url: "", description: "", category: form.category });
+    showToast("Resource added");
+  };
+  const removeResource = (id) => setResources((p) => p.filter((r) => r.id !== id));
+
+  if (!loaded) return <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300, color: "#94A3B8", fontSize: 13 }}>Loading knowledge base…</div>;
+
+  return (
+    <div style={S.page}>
+      <div style={S.header}>
+        <div style={S.kicker}>NiRM · Reference Library</div>
+        <div style={S.h1}>Knowledge Base</div>
+        <div style={S.sub}>Excel sheets, PDFs, training videos, SOPs, and reference docs — shared across every team.</div>
+      </div>
+
+      <div style={S.body}>
+        <div style={S.card}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
+            {canEdit && <button style={S.btn(TEAL)} onClick={() => setShowForm((s) => !s)}>{showForm ? "Close" : "+ Add resource"}</button>}
+            <select style={S.input} value={fType} onChange={(e) => setFType(e.target.value)}>
+              <option value="All">All types</option>
+              {TYPE_DEFS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+            <select style={S.input} value={fCategory} onChange={(e) => setFCategory(e.target.value)}>
+              <option value="All">All categories</option>
+              {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <input style={{ ...S.input, flex: 1, minWidth: 160 }} placeholder="Search title / description / category…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+
+          {showForm && canEdit && (
+            <div style={S.panel}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 10 }}>
+                <Field label="Title"><input style={S.input} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. CUSP Query Cheat Sheet" /></Field>
+                <Field label="Type">
+                  <select style={S.input} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                    {TYPE_DEFS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Category (optional)"><input style={S.input} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} placeholder="e.g. CX Operations, CUSP, HR" /></Field>
+                <Field label="Link / URL"><input style={S.input} value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://…" /></Field>
+                <Field label="Description"><input style={S.input} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What's in it, when to use it" /></Field>
+              </div>
+              <button style={{ ...S.btn(NAVY), marginTop: 10 }} onClick={addResource}>Save resource</button>
+            </div>
+          )}
+
+          {filtered.length === 0 ? (
+            <div style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: "40px 0" }}>
+              {resources.length === 0 ? "No resources yet." + (canEdit ? " Add the first one above." : " Check back once a manager adds some.") : "No resources match this filter."}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 10 }}>
+              {filtered.map((r) => {
+                const t = getTypeDef(r.type);
+                return (
+                  <div key={r.id} style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span style={S.chip(t.chipBg, t.chipFg)}>{t.label}</span>
+                      {r.category && <span style={S.chip("#F1F5F9", "#64748B")}>{r.category}</span>}
+                      <div style={{ flex: 1 }} />
+                      {canEdit && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94A3B8" }} onClick={() => window.confirm("Remove this resource?") && removeResource(r.id)}>✕</button>}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#1E293B" }}>{r.title}</div>
+                    {r.description && <div style={{ fontSize: 12, color: "#64748B" }}>{r.description}</div>}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                      <span style={{ fontSize: 11, color: "#94A3B8" }}>Added {fmtDT(r.addedAt)}</span>
+                      <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 700, color: TEAL, textDecoration: "none" }}>Open ↗</a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+      {toast && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#0F172A", color: "#fff", fontSize: 13, padding: "8px 18px", borderRadius: 999, zIndex: 9999 }}>{toast}</div>}
+    </div>
+  );
+}

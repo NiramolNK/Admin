@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import CSAnalyticsTab from "./CSAnalyticsTab.jsx";
 import SVCRServiceDesk from "./SVCRServiceDesk.jsx";
+import KnowledgeBase from "./KnowledgeBase.jsx";
 import { supabase, onStateChange } from "./supabase.js";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -14,6 +15,7 @@ const IconGrid = (p) => <Ico {...p}><rect x="3" y="3" width="7" height="7" rx="1
 const IconUsers = (p) => <Ico {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></Ico>;
 const IconBarChart = (p) => <Ico {...p}><path d="M12 20V10M18 20V4M6 20v-4"/></Ico>;
 const IconFileText = (p) => <Ico {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 13h4M10 17h4M8 9h2"/></Ico>;
+const IconBook = (p) => <Ico {...p}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></Ico>;
 const NirmLogo = ({size=32,light=false}) => {
   const bg = light ? "#fff" : "#0D9488";
   const fg = light ? "#0D9488" : "#fff";
@@ -851,12 +853,12 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // Role definitions
   const ROLES = {
-    t1:       { label:"T1",              color:"#0D9488", bg:"#F0FDFA", tabs:["roster","payment"],                                                         canEdit:false },
-    return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation","payment"],                                            canEdit:false },
-    viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget"],                                                          canEdit:false },
-    fulltime: { label:"T2",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","payment","allocation","dates","volume","agents","svcr"],                canEdit:true  },
-    manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics","svcr"], canEdit:true  },
-    cc:       { label:"CC",              color:"#7C3AED", bg:"#F3E8FF", tabs:["roster","payment","allocation"],                                canEdit:false, groupScope:"shiseido" },
+    t1:       { label:"T1",              color:"#0D9488", bg:"#F0FDFA", tabs:["roster","payment","kb"],                                                         canEdit:false },
+    return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation","payment","kb"],                                            canEdit:false },
+    viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget","kb"],                                                          canEdit:false },
+    fulltime: { label:"T2",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","payment","allocation","dates","volume","agents","svcr","kb"],                canEdit:true  },
+    manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics","svcr","kb"], canEdit:true  },
+    cc:       { label:"CC",              color:"#7C3AED", bg:"#F3E8FF", tabs:["roster","payment","allocation","kb"],                                canEdit:false, groupScope:"shiseido" },
   };
 
   // User accounts — stored in state, persisted to storage.
@@ -2271,7 +2273,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
         {/* Nav items */}
         <div style={{flex:1,padding:"12px 8px",display:"flex",flexDirection:"column",gap:2}}>
-          {[["roster","Roster"],["payment","My Invoice"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"],["svcr","SVCR Desk"]].map(([t,l])=>{
+          {[["roster","Roster"],["payment","My Invoice"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"],["svcr","SVCR Desk"],["kb","Knowledge Base"]].map(([t,l])=>{
             if(!allowedTabs.includes(t)) return null;
             const active2 = allocTab===t;
             const iconColor = active2?"#0D9488":"#94A3B8";
@@ -2294,6 +2296,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {t==="payment"&&<IconFileText size={18} color={iconColor}/>}
                 {t==="analytics"&&<IconBarChart size={18} color={iconColor}/>}
                 {t==="svcr"&&<IconUsers size={18} color={iconColor}/>}
+                {t==="kb"&&<IconBook size={18} color={iconColor}/>}
                 {sidebarOpen && l}
               </button>
             );
@@ -6075,6 +6078,15 @@ export default function AllocationPanel({ isAdmin = true }) {
         {allocTab==="svcr" && (
           <div style={{margin:"-24px -28px"}}>
             <SVCRServiceDesk role={role} canEdit={canEdit} />
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            KB TAB — Knowledge Base (org-wide, all roles)
+        ══════════════════════════════════════════ */}
+        {allocTab==="kb" && (
+          <div style={{margin:"-24px -28px"}}>
+            <KnowledgeBase role={role} canEdit={canEdit} />
           </div>
         )}
 
