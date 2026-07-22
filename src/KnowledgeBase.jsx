@@ -95,6 +95,46 @@ async function saveKey(key, val) {
   catch (e) { console.error("[KB] save failed", key, e); }
 }
 
+// Reads the NiRM Roster's own live brand list (key "nirm-brands", written by
+// AllocationRoster2026.jsx) so new brands added in Roster automatically show
+// up here too. Roster stores this value directly (not JSON.stringify'd first
+// the way our own kb-* keys are), so r.value may already be a parsed
+// array/object rather than a string — handle both shapes defensively.
+async function loadRosterBrands() {
+  try {
+    const r = await window.storage.get("nirm-brands");
+    if (!r || r.value == null) return [];
+    return typeof r.value === "string" ? JSON.parse(r.value) : r.value;
+  } catch (e) { console.warn("[KB] failed to load nirm-brands", e); return []; }
+}
+// Merges Roster's brand list into the PIC directory: any active (non-
+// offboarded) Roster brand not already present (matched by name,
+// case-insensitive) gets added with its platforms + WH pre-filled from
+// Roster. Existing rows are never removed or have their manually-edited
+// fields overwritten — only `platforms` is kept in sync on every load,
+// since that's Roster's authoritative data, not something edited here.
+function syncPicsWithRoster(pics, rosterBrands) {
+  const byName = new Map(pics.map((p) => [p.brand.trim().toLowerCase(), p]));
+  const list = [...pics];
+  const added = [];
+  rosterBrands.forEach((b) => {
+    if (b.offboarded || !b.name) return;
+    const key = b.name.trim().toLowerCase();
+    const platformsStr = Array.isArray(b.platforms) ? b.platforms.join(", ") : "";
+    const existing = byName.get(key);
+    if (existing) {
+      const idx = list.findIndex((p) => p.id === existing.id);
+      if (idx >= 0 && list[idx].platforms !== platformsStr) list[idx] = { ...list[idx], platforms: platformsStr };
+    } else {
+      const fresh = { id: uid(), brand: b.name.trim(), group: b.group || "", lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: b.wh || "", taxProvider: "", note: "", platforms: platformsStr };
+      list.unshift(fresh);
+      byName.set(key, fresh);
+      added.push(b.name.trim());
+    }
+  });
+  return { list, added };
+}
+
 const S = {
   page: { fontFamily: "'Galano Grotesque','Segoe UI',sans-serif", background: "#F1F5F9", minHeight: "100%", padding: 0 },
   header: { background: `linear-gradient(100deg, ${NAVY} 0%, #1E293B 100%)`, color: "#fff", padding: "20px 24px 16px" },
@@ -147,6 +187,20 @@ export default function KnowledgeBase({ role, canEdit }) {
         setResources(res);
         setPics(pc);
       }
+
+      // Auto-link new brands from Roster on every load — not gated by the
+      // one-time seed flag above, since Roster's brand list changes over
+      // time and each load should pick up anything added since the last one.
+      try {
+        const rosterBrands = await loadRosterBrands();
+        if (rosterBrands.length) {
+          const basePics = alreadySeeded ? pc : (pc.length ? pc : DEFAULT_PICS);
+          const { list, added } = syncPicsWithRoster(basePics, rosterBrands);
+          setPics(list);
+          if (added.length) showToast(`Linked ${added.length} new brand${added.length > 1 ? "s" : ""} from Roster: ${added.slice(0, 3).join(", ")}${added.length > 3 ? "…" : ""}`);
+        }
+      } catch (e) { console.warn("[KB] Roster brand sync skipped", e); }
+
       setLoaded(true);
     })();
   }, []);
@@ -375,7 +429,7 @@ const PIC_COLS = [
   { key: "mc", label: "MC" }, { key: "affiliate", label: "Affiliate" }, { key: "liveAdmin", label: "Live Admin" },
   { key: "lam", label: "LAM" }, { key: "lamAsso", label: "LAM ASSO" },
 ];
-const PIC_CSV_COLS = [{ key: "brand", label: "Brand" }, ...PIC_COLS, { key: "note", label: "Note" }];
+const PIC_CSV_COLS = [{ key: "brand", label: "Brand" }, { key: "platforms", label: "Platforms" }, ...PIC_COLS, { key: "note", label: "Note" }];
 function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, setSearch, exportPicsCSV, importPicsCSV }) {
   const [newBrand, setNewBrand] = useState("");
   const fileRef = useRef(null);
@@ -410,6 +464,7 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
         <table style={{ borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
           <colgroup>
             <col style={{ width: 130 }} />
+            <col style={{ width: 130 }} />
             {PIC_COLS.map((c) => <col key={c.key} style={{ width: 84 }} />)}
             <col style={{ width: 220 }} />
             {canEdit && <col style={{ width: 28 }} />}
@@ -417,6 +472,7 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
           <thead>
             <tr style={{ borderBottom: "2px solid #E2E8F0" }}>
               <th style={{ position: "sticky", left: 0, background: "#F8FAFC", zIndex: 2, textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700, borderRight: "1px solid #E2E8F0" }}>Brand</th>
+              <th style={{ textAlign: "left", padding: "6px 6px", color: "#64748B", fontWeight: 700, fontSize: 11 }} title="From NiRM Roster — read-only, syncs automatically">Platforms</th>
               {PIC_COLS.map((c) => <th key={c.key} style={{ textAlign: "left", padding: "6px 6px", color: "#64748B", fontWeight: 700, fontSize: 11 }}>{c.label}</th>)}
               <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700 }}>Note</th>
               {canEdit && <th></th>}
@@ -427,6 +483,12 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
               <tr key={p.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
                 <td style={{ position: "sticky", left: 0, background: "#fff", zIndex: 1, padding: "4px 8px", fontWeight: 700, color: "#1E293B", borderRight: "1px solid #E2E8F0" }}>
                   {canEdit ? <input style={{ ...S.input, padding: "3px 6px", fontWeight: 700, width: "100%", boxSizing: "border-box" }} value={p.brand} onChange={(e) => updatePic(p.id, "brand", e.target.value)} /> : p.brand}
+                </td>
+                <td style={{ padding: "4px 6px" }}>
+                  {(p.platforms || "").split(",").map((s) => s.trim()).filter(Boolean).map((pf) => (
+                    <span key={pf} style={{ ...S.chip("#EEF2FF", "#4338CA"), marginRight: 3, marginBottom: 2, display: "inline-block" }}>{pf}</span>
+                  ))}
+                  {!p.platforms && <span style={{ fontSize: 10, color: "#CBD5E1" }}>—</span>}
                 </td>
                 {PIC_COLS.map((c) => (
                   <td key={c.key} style={{ padding: "4px 4px", color: "#334155" }}>
