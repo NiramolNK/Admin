@@ -259,7 +259,7 @@ const S = {
   sub: { fontSize: 12, opacity: 0.8, marginTop: 4 },
   pill: (on) => ({ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer", background: on ? "#fff" : "rgba(255,255,255,0.15)", color: on ? PURPLE : "#fff" }),
   kpi: { background: "rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", minWidth: 110 },
-  body: { maxWidth: 1100, margin: "0 auto", padding: "0 20px 40px" },
+  body: { maxWidth: 1650, margin: "0 auto", padding: "0 20px 40px" },
   tabBtn: (on) => ({ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: "8px 8px 0 0", border: "1px solid " + (on ? "#CBD5E1" : "transparent"), borderBottom: "none", cursor: "pointer", background: on ? "#fff" : "rgba(148,163,184,0.15)", color: on ? "#0F172A" : "#64748B" }),
   card: { background: "#fff", border: "1px solid #CBD5E1", borderRadius: "0 12px 12px 12px", padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" },
   input: { border: "1px solid #CBD5E1", borderRadius: 8, padding: "6px 10px", fontSize: 13, fontFamily: "inherit", background: "#fff", color: "#1E293B", outline: "none" },
