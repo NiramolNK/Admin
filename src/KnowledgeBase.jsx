@@ -71,6 +71,7 @@ export default function KnowledgeBase({ role, canEdit }) {
   const [pics, setPics] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [fType, setFType] = useState("All");
   const [fCategory, setFCategory] = useState("All");
   const [search, setSearch] = useState("");
@@ -119,11 +120,28 @@ export default function KnowledgeBase({ role, canEdit }) {
 
   const addResource = () => {
     if (!form.title.trim() || !form.url.trim()) return;
-    setResources((p) => [{ id: uid(), ...form, addedBy: role || "", addedAt: new Date().toISOString() }, ...p]);
+    if (editingId) {
+      setResources((p) => p.map((r) => (r.id === editingId ? { ...r, ...form } : r)));
+      showToast("Resource updated");
+      setEditingId(null);
+      setShowForm(false);
+    } else {
+      setResources((p) => [{ id: uid(), ...form, addedBy: role || "", addedAt: new Date().toISOString() }, ...p]);
+      showToast("Resource added");
+    }
     setForm({ title: "", type: form.type, url: "", description: "", category: form.category });
-    showToast("Resource added");
   };
   const removeResource = (id) => setResources((p) => p.filter((r) => r.id !== id));
+  const startEdit = (r) => {
+    setEditingId(r.id);
+    setForm({ title: r.title, type: r.type, url: r.url, description: r.description || "", category: r.category || "" });
+    setShowForm(true);
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setShowForm(false);
+    setForm({ title: "", type: "excel", url: "", description: "", category: "" });
+  };
 
   const updatePic = (id, field, value) => setPics((p) => p.map((x) => (x.id === id ? { ...x, [field]: value } : x)));
   const removePic = (id) => setPics((p) => p.filter((x) => x.id !== id));
@@ -152,7 +170,7 @@ export default function KnowledgeBase({ role, canEdit }) {
         ) : (
         <div style={S.card}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
-            {canEdit && <button style={S.btn(TEAL)} onClick={() => setShowForm((s) => !s)}>{showForm ? "Close" : "+ Add resource"}</button>}
+            {canEdit && <button style={S.btn(TEAL)} onClick={() => (showForm ? cancelEdit() : setShowForm(true))}>{showForm ? "Close" : "+ Add resource"}</button>}
             <select style={S.input} value={fType} onChange={(e) => setFType(e.target.value)}>
               <option value="All">All types</option>
               {TYPE_DEFS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
@@ -177,7 +195,10 @@ export default function KnowledgeBase({ role, canEdit }) {
                 <Field label="Link / URL"><input style={S.input} value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://…" /></Field>
                 <Field label="Description"><input style={S.input} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What's in it, when to use it" /></Field>
               </div>
-              <button style={{ ...S.btn(NAVY), marginTop: 10 }} onClick={addResource}>Save resource</button>
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button style={S.btn(NAVY)} onClick={addResource}>{editingId ? "Save changes" : "Save resource"}</button>
+                {editingId && <button style={S.btnGhost} onClick={cancelEdit}>Cancel</button>}
+              </div>
             </div>
           )}
 
@@ -187,31 +208,49 @@ export default function KnowledgeBase({ role, canEdit }) {
             </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 10 }}>
-              {filtered.map((r) => {
-                const t = getTypeDef(r.type);
-                return (
-                  <div key={r.id} style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <span style={S.chip(t.chipBg, t.chipFg)}>{t.label}</span>
-                      {r.category && <span style={S.chip("#F1F5F9", "#64748B")}>{r.category}</span>}
-                      <div style={{ flex: 1 }} />
-                      {canEdit && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94A3B8" }} onClick={() => window.confirm("Remove this resource?") && removeResource(r.id)}>✕</button>}
-                    </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#1E293B" }}>{r.title}</div>
-                    {r.description && <div style={{ fontSize: 12, color: "#64748B" }}>{r.description}</div>}
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-                      <span style={{ fontSize: 11, color: "#94A3B8" }}>Added {fmtDT(r.addedAt)}</span>
-                      <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 700, color: TEAL, textDecoration: "none" }}>Open ↗</a>
-                    </div>
-                  </div>
-                );
-              })}
+              {filtered.map((r) => (
+                <ResourceCard key={r.id} r={r} canEdit={canEdit} onEdit={startEdit} onRemove={removeResource} />
+              ))}
             </div>
           )}
         </div>
         )}
       </div>
       {toast && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#0F172A", color: "#fff", fontSize: 13, padding: "8px 18px", borderRadius: 999, zIndex: 9999 }}>{toast}</div>}
+    </div>
+  );
+}
+
+// ── Resource card: preview toggle (best-effort iframe) + edit/delete ──
+function ResourceCard({ r, canEdit, onEdit, onRemove }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const t = getTypeDef(r.type);
+  return (
+    <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={S.chip(t.chipBg, t.chipFg)}>{t.label}</span>
+        {r.category && <span style={S.chip("#F1F5F9", "#64748B")}>{r.category}</span>}
+        <div style={{ flex: 1 }} />
+        {canEdit && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#64748B" }} onClick={() => onEdit(r)} title="Edit">✎</button>}
+        {canEdit && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94A3B8" }} onClick={() => window.confirm("Remove this resource?") && onRemove(r.id)} title="Delete">✕</button>}
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "#1E293B" }}>{r.title}</div>
+      {r.description && <div style={{ fontSize: 12, color: "#64748B" }}>{r.description}</div>}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+        <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#64748B", padding: 0 }} onClick={() => setPreviewOpen((o) => !o)}>{previewOpen ? "Hide preview" : "👁 Preview"}</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 11, color: "#94A3B8" }}>Added {fmtDT(r.addedAt)}</span>
+          <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 700, color: TEAL, textDecoration: "none" }}>Open ↗</a>
+        </div>
+      </div>
+      {previewOpen && (
+        <div style={{ marginTop: 4 }}>
+          <iframe src={r.url} title={r.title} style={{ width: "100%", height: 220, border: "1px solid #E2E8F0", borderRadius: 8 }} />
+          <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 4 }}>
+            Blank or blocked above? Some sources (SharePoint, some Google Docs) don't allow embedded previews — use Open ↗ instead.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
