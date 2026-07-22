@@ -157,7 +157,7 @@ const S = {
   kicker: { fontSize: 11, letterSpacing: 2, textTransform: "uppercase", opacity: 0.7, fontWeight: 600 },
   h1: { fontSize: 20, fontWeight: 700, margin: "2px 0 0" },
   sub: { fontSize: 12, opacity: 0.8, marginTop: 4 },
-  body: { maxWidth: 1100, margin: "0 auto", padding: "20px 20px 40px" },
+  body: { maxWidth: 1650, margin: "0 auto", padding: "20px 20px 40px" },
   card: { background: "#fff", border: "1px solid #CBD5E1", borderRadius: 12, padding: 16 },
   input: { border: "1px solid #CBD5E1", borderRadius: 8, padding: "6px 10px", fontSize: 13, fontFamily: "inherit", background: "#fff", color: "#1E293B", outline: "none" },
   label: { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, fontWeight: 600, color: "#64748B" },
@@ -561,12 +561,12 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
       <div style={{ overflowX: "auto", border: "1px solid #E2E8F0", borderRadius: 8 }}>
         <table style={{ borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
           <colgroup>
-            <col style={{ width: 130 }} />
-            <col style={{ width: 130 }} />
-            {PIC_COLS.map((c) => <col key={c.key} style={{ width: 84 }} />)}
-            <col style={{ width: 220 }} />
-            <col style={{ width: 100 }} />
-            {canEdit && <col style={{ width: 28 }} />}
+            <col style={{ width: 115 }} />
+            <col style={{ width: 110 }} />
+            {PIC_COLS.map((c) => <col key={c.key} style={{ width: 72 }} />)}
+            <col style={{ width: 170 }} />
+            <col style={{ width: 90 }} />
+            {canEdit && <col style={{ width: 40 }} />}
           </colgroup>
           <thead>
             <tr style={{ borderBottom: "2px solid #E2E8F0" }}>
