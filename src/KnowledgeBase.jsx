@@ -244,7 +244,9 @@ export default function KnowledgeBase({ role, canEdit }) {
   const [loaded, setLoaded] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [fType, setFType] = useState("All");
+  const [fTypes, setFTypes] = useState([]); // [] = all types (multi-select)
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [fYear, setFYear] = useState("All");
   const [fCategory, setFCategory] = useState("All");
   const [search, setSearch] = useState("");
   const [resPage, setResPage] = useState(1);
@@ -310,8 +312,10 @@ export default function KnowledgeBase({ role, canEdit }) {
   const showToast = (m, duration = 2200) => { setToast(m); setTimeout(() => setToast(null), duration); };
 
   const categories = useMemo(() => Array.from(new Set(resources.map((r) => r.category).filter(Boolean))).sort(), [resources]);
+  const years = useMemo(() => Array.from(new Set(resources.map((r) => (r.addedAt || "").slice(0, 4)).filter(Boolean))).sort().reverse(), [resources]);
   const filtered = resources.filter((r) => {
-    if (fType !== "All" && r.type !== fType) return false;
+    if (fTypes.length && !fTypes.includes(r.type)) return false;
+    if (fYear !== "All" && (r.addedAt || "").slice(0, 4) !== fYear) return false;
     if (fCategory !== "All" && r.category !== fCategory) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -319,11 +323,12 @@ export default function KnowledgeBase({ role, canEdit }) {
     }
     return true;
   });
-  useEffect(() => { setResPage(1); }, [search, fType, fCategory]);
+  useEffect(() => { setResPage(1); }, [search, fTypes, fYear, fCategory]);
   const resTotalPages = Math.max(1, Math.ceil(filtered.length / resPerPage));
   const resPageSafe = Math.min(resPage, resTotalPages);
   const pagedResources = filtered.slice((resPageSafe - 1) * resPerPage, resPageSafe * resPerPage);
-  const resetResourceFilters = () => { setSearch(""); setFType("All"); setFCategory("All"); };
+  const resetResourceFilters = () => { setSearch(""); setFTypes([]); setFYear("All"); setFCategory("All"); };
+  const toggleType = (key) => setFTypes((p) => (p.includes(key) ? p.filter((t) => t !== key) : [...p, key]));
 
   const askAi = async () => {
     if (!aiQuery.trim() || aiLoading) return;
@@ -492,9 +497,24 @@ export default function KnowledgeBase({ role, canEdit }) {
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
             {canEdit && <button style={{ ...S.btn(PURPLE), display: "flex", alignItems: "center", gap: 6 }} onClick={() => (showForm ? cancelEdit() : setShowForm(true))}>{showForm ? "Close" : (<>+ Add resource</>)}</button>}
-            <select style={S.input} value={fType} onChange={(e) => setFType(e.target.value)}>
-              <option value="All">All types</option>
-              {TYPE_DEFS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            <div style={{ position: "relative" }}>
+              <button style={{ ...S.btnGhost, display: "flex", alignItems: "center", gap: 6 }} onClick={() => setTypeMenuOpen((o) => !o)}>
+                <IconGrid size={13} /> {fTypes.length === 0 ? "All types" : `${fTypes.length} type${fTypes.length > 1 ? "s" : ""}`}
+              </button>
+              {typeMenuOpen && (
+                <div style={{ position: "absolute", left: 0, top: "100%", zIndex: 5, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", minWidth: 160, padding: 6, marginTop: 4 }}>
+                  {TYPE_DEFS.map((t) => (
+                    <label key={t.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", fontSize: 12, cursor: "pointer", borderRadius: 6 }}>
+                      <input type="checkbox" checked={fTypes.includes(t.key)} onChange={() => toggleType(t.key)} />
+                      <span style={S.chip(t.chipBg, t.chipFg)}>{t.label}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <select style={S.input} value={fYear} onChange={(e) => setFYear(e.target.value)}>
+              <option value="All">All years</option>
+              {years.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
             <select style={S.input} value={fCategory} onChange={(e) => setFCategory(e.target.value)}>
               <option value="All">All categories</option>
@@ -510,13 +530,19 @@ export default function KnowledgeBase({ role, canEdit }) {
               onChange={(e) => { const f = e.target.files?.[0]; if (f) importResourcesCSV(f); e.target.value = ""; }} />}
           </div>
 
-          {(fType !== "All" || fCategory !== "All" || search) && (
+          {(fTypes.length > 0 || fYear !== "All" || fCategory !== "All" || search) && (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase" }}>Filters</span>
-              {fType !== "All" && (
-                <span style={{ ...S.chip(getTypeDef(fType).chipBg, getTypeDef(fType).chipFg), display: "flex", alignItems: "center", gap: 4 }}>
-                  {getTypeDef(fType).label}
-                  <button onClick={() => setFType("All")} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, fontSize: 12 }}>✕</button>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase" }}>Type</span>
+              {fTypes.map((tk) => (
+                <span key={tk} style={{ ...S.chip(getTypeDef(tk).chipBg, getTypeDef(tk).chipFg), display: "flex", alignItems: "center", gap: 4 }}>
+                  {getTypeDef(tk).label}
+                  <button onClick={() => toggleType(tk)} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, fontSize: 12 }}>✕</button>
+                </span>
+              ))}
+              {fYear !== "All" && (
+                <span style={{ ...S.chip("#F1F5F9", "#334155"), display: "flex", alignItems: "center", gap: 4 }}>
+                  {fYear}
+                  <button onClick={() => setFYear("All")} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, fontSize: 12 }}>✕</button>
                 </span>
               )}
               {fCategory !== "All" && (
@@ -531,7 +557,7 @@ export default function KnowledgeBase({ role, canEdit }) {
                   <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, fontSize: 12 }}>✕</button>
                 </span>
               )}
-              <button onClick={resetResourceFilters} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: PURPLE, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}><IconReset size={12} /> Reset filters</button>
+              <button onClick={resetResourceFilters} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: PURPLE, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}><IconReset size={12} /> Clear all</button>
             </div>
           )}
 
