@@ -20,6 +20,7 @@ import DEFAULT_PICS from "./data/kb-brand-pics.json";
 
 const NAVY = "#0F172A";
 const TEAL = "#0D9488";
+const PURPLE = "#7300E6";
 
 const TYPE_DEFS = [
   { key: "excel", label: "Excel / Sheet", chipBg: "#DCFCE7", chipFg: "#166534" },
@@ -430,21 +431,94 @@ const PIC_COLS = [
   { key: "lam", label: "LAM" }, { key: "lamAsso", label: "LAM ASSO" },
 ];
 const PIC_CSV_COLS = [{ key: "brand", label: "Brand" }, { key: "platforms", label: "Platforms" }, ...PIC_COLS, { key: "note", label: "Note" }];
+// Which core PIC roles count toward "complete" — Group/WH/Tax Provider/Note
+// are metadata, not staffing, so they don't factor into completeness.
+const CORE_ROLE_KEYS = ["lead", "kam", "asso", "mc", "affiliate", "liveAdmin", "lam", "lamAsso"];
+function picFilledCount(p) { return CORE_ROLE_KEYS.filter((k) => (p[k] || "").trim()).length; }
+function picStatus(p) {
+  const filled = picFilledCount(p);
+  if (filled === 0) return "Incomplete";
+  if (filled === CORE_ROLE_KEYS.length) return "Complete";
+  return "Need Update";
+}
+const PIC_STATUS_STYLE = {
+  Complete: { bg: "#D1FAE5", fg: "#065F46" },
+  "Need Update": { bg: "#FEF3C7", fg: "#92400E" },
+  Incomplete: { bg: "#E0E7FF", fg: "#4338CA" },
+};
+
+function StatCard({ value, label, sub, color }) {
+  return (
+    <div style={{ flex: "1 1 180px", border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px", background: "#fff" }}>
+      <div style={{ fontSize: 26, fontWeight: 800, color: color || "#1E293B" }}>{value}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#334155", marginTop: 2 }}>{label}</div>
+      <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>{sub}</div>
+    </div>
+  );
+}
+
 function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, setSearch, exportPicsCSV, importPicsCSV }) {
   const [newBrand, setNewBrand] = useState("");
+  const [fLead, setFLead] = useState("All");
+  const [fMC, setFMC] = useState("All");
+  const [fStatus, setFStatus] = useState("All");
+  const [page, setPage] = useState(1);
+  const perPage = 12;
   const fileRef = useRef(null);
+
+  const leadOptions = useMemo(() => Array.from(new Set(pics.map((p) => p.lead).filter(Boolean))).sort(), [pics]);
+  const mcOptions = useMemo(() => Array.from(new Set(pics.map((p) => p.mc).filter(Boolean))).sort(), [pics]);
+
   const filtered = pics.filter((p) => {
-    if (!search) return true;
-    const q = search.toLowerCase();
-    return `${p.brand} ${p.lead} ${p.kam} ${p.asso} ${p.mc} ${p.affiliate} ${p.liveAdmin} ${p.lam} ${p.group || ""} ${p.wh || ""} ${p.taxProvider || ""} ${p.note}`.toLowerCase().includes(q);
+    if (fLead !== "All" && p.lead !== fLead) return false;
+    if (fMC !== "All" && p.mc !== fMC) return false;
+    if (fStatus !== "All" && picStatus(p) !== fStatus) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!`${p.brand} ${p.lead} ${p.kam} ${p.asso} ${p.mc} ${p.affiliate} ${p.liveAdmin} ${p.lam} ${p.group || ""} ${p.wh || ""} ${p.taxProvider || ""} ${p.note}`.toLowerCase().includes(q)) return false;
+    }
+    return true;
   });
+
+  useEffect(() => { setPage(1); }, [search, fLead, fMC, fStatus]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
+  const pageSafe = Math.min(page, totalPages);
+  const pageRows = filtered.slice((pageSafe - 1) * perPage, pageSafe * perPage);
+
+  const totalPICs = useMemo(() => pics.reduce((sum, p) => sum + picFilledCount(p), 0), [pics]);
+  const completeCount = useMemo(() => pics.filter((p) => picStatus(p) === "Complete").length, [pics]);
+  const needUpdateCount = useMemo(() => pics.filter((p) => picStatus(p) === "Need Update").length, [pics]);
+
+  const resetFilters = () => { setSearch(""); setFLead("All"); setFMC("All"); setFStatus("All"); };
+
+
 
   return (
     <div style={S.card}>
+      {/* ── summary stat cards ── */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
+        <StatCard value={pics.length} label="Total Brands" sub="All active brands" />
+        <StatCard value={totalPICs} label="Total PICs" sub="Across all brands" />
+        <StatCard value={completeCount} label="With Complete Info" sub="PIC details complete" color="#059669" />
+        <StatCard value={needUpdateCount} label="Need Update" sub="Missing information" color="#D97706" />
+      </div>
+
+      {/* ── search + filters + actions ── */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
         <input style={{ ...S.input, flex: 1, minWidth: 200 }} placeholder="Search brand or PIC name…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <select style={S.input} value={fLead} onChange={(e) => setFLead(e.target.value)}>
+          <option value="All">All Lead</option>{leadOptions.map((l) => <option key={l} value={l}>{l}</option>)}
+        </select>
+        <select style={S.input} value={fMC} onChange={(e) => setFMC(e.target.value)}>
+          <option value="All">All MC</option>{mcOptions.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <select style={S.input} value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+          <option value="All">All Status</option><option>Complete</option><option>Need Update</option><option>Incomplete</option>
+        </select>
+        <button style={S.btnGhost} onClick={resetFilters}>↺ Reset</button>
         <span style={{ fontSize: 12, color: "#94A3B8" }}>{filtered.length} brands</span>
-        <button style={S.btnGhost} onClick={exportPicsCSV}>Export CSV</button>
+        <div style={{ flex: 1 }} />
+        <button style={S.btnGhost} onClick={exportPicsCSV}>↓ Export</button>
         {canEdit && <button style={S.btnGhost} onClick={() => fileRef.current?.click()}>Import CSV</button>}
         {canEdit && <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) importPicsCSV(f); e.target.value = ""; }} />}
@@ -452,7 +526,7 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
           <>
             <input style={S.input} placeholder="New brand name" value={newBrand} onChange={(e) => setNewBrand(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && newBrand.trim()) { addPic(newBrand); setNewBrand(""); } }} />
-            <button style={S.btn(TEAL)} onClick={() => { if (newBrand.trim()) { addPic(newBrand); setNewBrand(""); } }}>+ Add brand</button>
+            <button style={S.btn(PURPLE)} onClick={() => { if (newBrand.trim()) { addPic(newBrand); setNewBrand(""); } }}>+ Add Brand</button>
           </>
         )}
       </div>
@@ -467,6 +541,7 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
             <col style={{ width: 130 }} />
             {PIC_COLS.map((c) => <col key={c.key} style={{ width: 84 }} />)}
             <col style={{ width: 220 }} />
+            <col style={{ width: 100 }} />
             {canEdit && <col style={{ width: 28 }} />}
           </colgroup>
           <thead>
@@ -475,13 +550,16 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
               <th style={{ textAlign: "left", padding: "6px 6px", color: "#64748B", fontWeight: 700, fontSize: 11 }} title="From NiRM Roster — read-only, syncs automatically">Platforms</th>
               {PIC_COLS.map((c) => <th key={c.key} style={{ textAlign: "left", padding: "6px 6px", color: "#64748B", fontWeight: 700, fontSize: 11 }}>{c.label}</th>)}
               <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700 }}>Note</th>
+              <th style={{ textAlign: "left", padding: "6px 8px", color: "#64748B", fontWeight: 700 }}>Status</th>
               {canEdit && <th></th>}
             </tr>
           </thead>
           <tbody>
-            {filtered.map((p) => (
-              <tr key={p.id} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                <td style={{ position: "sticky", left: 0, background: "#fff", zIndex: 1, padding: "4px 8px", fontWeight: 700, color: "#1E293B", borderRight: "1px solid #E2E8F0" }}>
+            {pageRows.map((p, i) => {
+              const st = PIC_STATUS_STYLE[picStatus(p)];
+              return (
+              <tr key={p.id} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 ? "#FBFCFE" : "#fff" }}>
+                <td style={{ position: "sticky", left: 0, background: i % 2 ? "#FBFCFE" : "#fff", zIndex: 1, padding: "4px 8px", fontWeight: 700, color: "#1E293B", borderRight: "1px solid #E2E8F0" }}>
                   {canEdit ? <input style={{ ...S.input, padding: "3px 6px", fontWeight: 700, width: "100%", boxSizing: "border-box" }} value={p.brand} onChange={(e) => updatePic(p.id, "brand", e.target.value)} /> : p.brand}
                 </td>
                 <td style={{ padding: "4px 6px" }}>
@@ -498,13 +576,36 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
                 <td style={{ padding: "4px 8px", color: "#64748B" }}>
                   {canEdit ? <input style={{ ...S.input, padding: "3px 6px", width: "100%", boxSizing: "border-box" }} value={p.note || ""} onChange={(e) => updatePic(p.id, "note", e.target.value)} /> : (p.note || "")}
                 </td>
+                <td style={{ padding: "4px 8px" }}><span style={S.chip(st.bg, st.fg)}>{picStatus(p)}</span></td>
                 {canEdit && <td style={{ padding: "4px 4px", textAlign: "center" }}><button style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }} onClick={() => window.confirm(`Remove ${p.brand}?`) && removePic(p.id)}>✕</button></td>}
               </tr>
-            ))}
+            );})}
           </tbody>
         </table>
         {filtered.length === 0 && <div style={{ textAlign: "center", color: "#94A3B8", fontSize: 13, padding: "30px 0" }}>No brands match this search.</div>}
       </div>
+      {/* ── pagination ── */}
+      {filtered.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
+          <span style={{ fontSize: 12, color: "#94A3B8" }}>
+            Showing {(pageSafe - 1) * perPage + 1} to {Math.min(pageSafe * perPage, filtered.length)} of {filtered.length} brands
+          </span>
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <button style={S.btnGhost} disabled={pageSafe <= 1} onClick={() => setPage(1)}>«</button>
+            <button style={S.btnGhost} disabled={pageSafe <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter((n) => n === 1 || n === totalPages || Math.abs(n - pageSafe) <= 1)
+              .map((n, idx, arr) => (
+                <React.Fragment key={n}>
+                  {idx > 0 && arr[idx - 1] !== n - 1 && <span style={{ color: "#CBD5E1", padding: "0 2px" }}>…</span>}
+                  <button style={{ ...S.btnGhost, background: n === pageSafe ? PURPLE : "#fff", color: n === pageSafe ? "#fff" : "#475569", borderColor: n === pageSafe ? PURPLE : "#CBD5E1" }} onClick={() => setPage(n)}>{n}</button>
+                </React.Fragment>
+              ))}
+            <button style={S.btnGhost} disabled={pageSafe >= totalPages} onClick={() => setPage((p) => p + 1)}>›</button>
+            <button style={S.btnGhost} disabled={pageSafe >= totalPages} onClick={() => setPage(totalPages)}>»</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
