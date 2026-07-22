@@ -138,6 +138,14 @@ async function loadRosterBrands() {
     return typeof r.value === "string" ? JSON.parse(r.value) : r.value;
   } catch (e) { console.warn("[KB] failed to load nirm-brands", e); return []; }
 }
+// Strips Roster's naming-convention suffixes (-IN, -CMG, -Amore, -PWB, -CPB,
+// -PFC, -PVH, etc.) so "111SKIN" and "111SKIN-IN" are recognized as the same
+// brand instead of creating a duplicate row every sync. Matches the same
+// normalization used to de-duplicate the live data directly in the database.
+function normalizeBrandName(name) {
+  return (name || "").trim().toLowerCase()
+    .replace(/\s*[-–]\s*(in|cmg|amore?|pwb|cpb|pfc|pvh|crea|notax|deca)\s*$/i, "");
+}
 // Merges Roster's brand list into the PIC directory: any active (non-
 // offboarded) Roster brand not already present (matched by name,
 // case-insensitive) gets added with its platforms + WH pre-filled from
@@ -145,17 +153,22 @@ async function loadRosterBrands() {
 // fields overwritten — only `platforms` is kept in sync on every load,
 // since that's Roster's authoritative data, not something edited here.
 function syncPicsWithRoster(pics, rosterBrands) {
-  const byName = new Map(pics.map((p) => [p.brand.trim().toLowerCase(), p]));
+  const byName = new Map(pics.map((p) => [normalizeBrandName(p.brand), p]));
   const list = [...pics];
   const added = [];
   rosterBrands.forEach((b) => {
     if (b.offboarded || !b.name) return;
-    const key = b.name.trim().toLowerCase();
+    const key = normalizeBrandName(b.name);
     const platformsStr = Array.isArray(b.platforms) ? b.platforms.join(", ") : "";
     const existing = byName.get(key);
     if (existing) {
       const idx = list.findIndex((p) => p.id === existing.id);
-      if (idx >= 0 && list[idx].platforms !== platformsStr) list[idx] = { ...list[idx], platforms: platformsStr };
+      if (idx < 0) return;
+      const patch = {};
+      if (list[idx].platforms !== platformsStr) patch.platforms = platformsStr;
+      if (!list[idx].wh && b.wh) patch.wh = b.wh;
+      if (!list[idx].group && b.group) patch.group = b.group;
+      if (Object.keys(patch).length) list[idx] = { ...list[idx], ...patch };
     } else {
       const fresh = { id: uid(), brand: b.name.trim(), group: b.group || "", lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: b.wh || "", taxProvider: "", note: "", platforms: platformsStr };
       list.push(fresh);
@@ -626,6 +639,30 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
   const [page, setPage] = useState(1);
   const perPage = 12;
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [editingCell, setEditingCell] = useState(null); // { id, key } | null
+  // Click-to-edit: cells display as plain text by default and only turn
+  // into an <input> when clicked — otherwise a mostly-empty table (which is
+  // most rows, since PIC assignment is still in progress for many brands)
+  // renders as a wall of empty bordered boxes, which is exactly the kind of
+  // visual noise that made the table hard to read.
+  const cell = (p, key, value, fontSize = 11) => {
+    if (!canEdit) return <span style={{ fontSize }}>{value || "—"}</span>;
+    const isEditing = editingCell && editingCell.id === p.id && editingCell.key === key;
+    if (isEditing) {
+      return (
+        <input autoFocus style={{ ...S.input, padding: "3px 4px", width: "100%", boxSizing: "border-box", fontSize }}
+          value={value} onChange={(e) => updatePic(p.id, key, e.target.value)}
+          onBlur={() => setEditingCell(null)}
+          onKeyDown={(e) => { if (e.key === "Enter") setEditingCell(null); }} />
+      );
+    }
+    return (
+      <span onClick={() => setEditingCell({ id: p.id, key })} style={{ fontSize, cursor: "text", display: "block", minHeight: 18, color: value ? "#334155" : "#CBD5E1", padding: "2px 3px", borderRadius: 4 }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "#F8FAFC")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+        {value || "—"}
+      </span>
+    );
+  };
   const fileRef = useRef(null);
 
   const leadOptions = useMemo(() => Array.from(new Set(pics.map((p) => p.lead).filter(Boolean))).sort(), [pics]);
@@ -725,7 +762,7 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
               return (
               <tr key={p.id} style={{ borderBottom: "1px solid #F1F5F9", background: i % 2 ? "#FBFCFE" : "#fff" }}>
                 <td style={{ position: "sticky", left: 0, background: i % 2 ? "#FBFCFE" : "#fff", zIndex: 1, padding: "4px 8px", fontWeight: 700, color: "#1E293B", borderRight: "1px solid #E2E8F0" }}>
-                  {canEdit ? <input style={{ ...S.input, padding: "3px 6px", fontWeight: 700, width: "100%", boxSizing: "border-box" }} value={p.brand} onChange={(e) => updatePic(p.id, "brand", e.target.value)} /> : p.brand}
+                  {canEdit ? cell(p, "brand", p.brand, 13) : p.brand}
                 </td>
                 <td style={{ padding: "4px 6px" }}>
                   {(p.platforms || "").split(",").map((s) => s.trim()).filter(Boolean).map((pf) => (
@@ -735,16 +772,16 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
                 </td>
                 {PIC_COLS.map((c) => (
                   <td key={c.key} style={{ padding: "4px 4px", color: "#334155" }}>
-                    {canEdit ? <input style={{ ...S.input, padding: "3px 4px", width: "100%", boxSizing: "border-box", fontSize: 11 }} value={p[c.key] || ""} onChange={(e) => updatePic(p.id, c.key, e.target.value)} /> : <span style={{ fontSize: 11 }}>{p[c.key] || "—"}</span>}
+                    {cell(p, c.key, p[c.key])}
                   </td>
                 ))}
                 <td style={{ padding: "4px 8px", color: "#64748B" }}>
-                  {canEdit ? <input style={{ ...S.input, padding: "3px 6px", width: "100%", boxSizing: "border-box" }} value={p.note || ""} onChange={(e) => updatePic(p.id, "note", e.target.value)} /> : (p.note || "")}
+                  {cell(p, "note", p.note)}
                 </td>
                 <td style={{ padding: "4px 8px" }}><span style={S.chip(st.bg, st.fg)}>{picStatus(p)}</span></td>
                 {canEdit && (
                   <td style={{ padding: "4px 4px", textAlign: "center", position: "relative" }}>
-                    <button title="Cells are already editable inline — click any field" style={{ background: "none", border: "none", cursor: "default", color: "#94A3B8", marginRight: 4 }}><IconPencil size={14} /></button>
+                    <button title="Click any field to edit it" style={{ background: "none", border: "none", cursor: "default", color: "#94A3B8", marginRight: 4 }}><IconPencil size={14} /></button>
                     <button onClick={() => setOpenMenuId((id) => (id === p.id ? null : p.id))} style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }}><IconDots size={14} /></button>
                     {openMenuId === p.id && (
                       <div style={{ position: "absolute", right: 6, top: "100%", zIndex: 5, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", minWidth: 110 }}>
