@@ -225,7 +225,7 @@ export default function KnowledgeBase({ role, canEdit }) {
   const removePic = (id) => setPics((p) => p.filter((x) => x.id !== id));
   const addPic = (brand) => {
     if (!brand.trim()) return;
-    setPics((p) => [{ id: uid(), brand: brand.trim(), lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: "", taxProvider: "", note: "" }, ...p]);
+    setPics((p) => [{ id: uid(), brand: brand.trim(), group: "", lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: "", taxProvider: "", note: "" }, ...p]);
   };
   const exportPicsCSV = () => downloadCSV(toCSV(pics, PIC_CSV_COLS), `knowledge-base-brand-pics-${new Date().toISOString().slice(0, 10)}.csv`);
   // Upserts by brand name (case-insensitive) — re-uploading an updated master
@@ -251,7 +251,7 @@ export default function KnowledgeBase({ role, canEdit }) {
           if (colIdx.note >= 0) patch.note = (r[colIdx.note] || "").trim();
           const existingIdx = list.findIndex((x) => x.brand.trim().toLowerCase() === brand.toLowerCase());
           if (existingIdx >= 0) { list[existingIdx] = { ...list[existingIdx], ...patch }; updated++; }
-          else { list.unshift({ id: uid(), lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: "", taxProvider: "", note: "", ...patch }); added++; }
+          else { list.unshift({ id: uid(), group: "", lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: "", taxProvider: "", note: "", ...patch }); added++; }
         });
         return list;
       });
@@ -370,10 +370,10 @@ function ResourceCard({ r, canEdit, onEdit, onRemove }) {
 
 // ── Brand PIC Directory — who's responsible for each brand ──
 const PIC_COLS = [
+  { key: "group", label: "Group" }, { key: "wh", label: "WH" }, { key: "taxProvider", label: "Tax Provider" },
   { key: "lead", label: "Lead" }, { key: "kam", label: "KAM" }, { key: "asso", label: "ASSO" },
   { key: "mc", label: "MC" }, { key: "affiliate", label: "Affiliate" }, { key: "liveAdmin", label: "Live Admin" },
   { key: "lam", label: "LAM" }, { key: "lamAsso", label: "LAM ASSO" },
-  { key: "wh", label: "WH" }, { key: "taxProvider", label: "Tax Provider" },
 ];
 const PIC_CSV_COLS = [{ key: "brand", label: "Brand" }, ...PIC_COLS, { key: "note", label: "Note" }];
 function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, setSearch, exportPicsCSV, importPicsCSV }) {
@@ -382,7 +382,7 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
   const filtered = pics.filter((p) => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return `${p.brand} ${p.lead} ${p.kam} ${p.asso} ${p.mc} ${p.affiliate} ${p.liveAdmin} ${p.lam} ${p.wh || ""} ${p.taxProvider || ""} ${p.note}`.toLowerCase().includes(q);
+    return `${p.brand} ${p.lead} ${p.kam} ${p.asso} ${p.mc} ${p.affiliate} ${p.liveAdmin} ${p.lam} ${p.group || ""} ${p.wh || ""} ${p.taxProvider || ""} ${p.note}`.toLowerCase().includes(q);
   });
 
   return (
