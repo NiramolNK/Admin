@@ -103,6 +103,20 @@ function readFileAsText(file) {
 }
 
 const K = { resources: "kb-resources", pics: "kb-brand-pics", seeded: "kb-seeded-flag" };
+// Text-only "Ask AI" over the Resources list — matches which resource titles
+// look relevant to a question. Does NOT read file contents, images, or video,
+// and does NOT search the public web (that would need Vertex AI Search /
+// Document AI / Gemini multimodal — separate GCP infrastructure).
+const KB_FN_BASE = "https://bequrilwgooesolepubv.supabase.co/functions/v1";
+async function askKBAi(query, resources) {
+  const r = await fetch(`${KB_FN_BASE}/kb-ai-search`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, resources: resources.map((x) => ({ id: x.id, title: x.title, type: x.type, category: x.category, description: x.description, url: x.url })) }),
+  });
+  if (!r.ok) throw new Error(`ai-search ${r.status}`);
+  return r.json();
+}
+
 async function loadKey(key, fallback) {
   try { const r = await window.storage.get(key); return r && r.value ? JSON.parse(r.value) : fallback; }
   catch (e) { console.warn("[KB] load failed", key, e); return fallback; }
@@ -184,6 +198,10 @@ export default function KnowledgeBase({ role, canEdit }) {
   const [form, setForm] = useState({ title: "", type: "excel", url: "", description: "", category: "" });
   const [toast, setToast] = useState(null);
   const resourceFileRef = useRef(null);
+  const [aiQuery, setAiQuery] = useState("");
+  const [aiResult, setAiResult] = useState(null); // { answer, sourceIds, hasAnswer }
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -243,6 +261,18 @@ export default function KnowledgeBase({ role, canEdit }) {
   const resPageSafe = Math.min(resPage, resTotalPages);
   const pagedResources = filtered.slice((resPageSafe - 1) * resPerPage, resPageSafe * resPerPage);
   const resetResourceFilters = () => { setSearch(""); setFType("All"); setFCategory("All"); };
+
+  const askAi = async () => {
+    if (!aiQuery.trim() || aiLoading) return;
+    setAiLoading(true); setAiError(null); setAiResult(null);
+    try {
+      const res = await askKBAi(aiQuery.trim(), resources);
+      setAiResult(res);
+    } catch (e) {
+      console.warn(e);
+      setAiError("Ask AI failed — the kb-ai-search function may need its OpenAI key checked.");
+    } finally { setAiLoading(false); }
+  };
 
   const addResource = () => {
     if (!form.title.trim() || !form.url.trim()) return;
@@ -364,6 +394,39 @@ export default function KnowledgeBase({ role, canEdit }) {
           <PicDirectory pics={pics} canEdit={canEdit} updatePic={updatePic} removePic={removePic} addPic={addPic} search={search} setSearch={setSearch} exportPicsCSV={exportPicsCSV} importPicsCSV={importPicsCSV} />
         ) : (
         <div style={S.card}>
+          <div style={{ borderRadius: 12, padding: 14, background: "linear-gradient(120deg,#F6F1FF,#F0FBF8)", border: "1px solid #E4DAF6", marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: PURPLE }}>✨ Ask AI</span>
+              <span style={{ fontSize: 11, color: "#94A3B8" }}>Matches your question against resource titles &amp; descriptions — doesn't read inside files, images, or video, and doesn't search the web.</span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input style={{ ...S.input, flex: 1 }} value={aiQuery} onChange={(e) => setAiQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && askAi()} placeholder="e.g. How do I set up a Lazada Flexi Combo?" />
+              <button style={{ ...S.btn(aiLoading ? "#A78BDA" : PURPLE) }} disabled={aiLoading} onClick={askAi}>{aiLoading ? "Asking…" : "Ask"}</button>
+            </div>
+            {aiError && <div style={{ fontSize: 12, color: "#E11D48", marginTop: 8 }}>{aiError}</div>}
+            {aiResult && (
+              <div style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, padding: 12, marginTop: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                  <span style={S.chip(aiResult.hasAnswer ? "#D1FAE5" : "#FEF3C7", aiResult.hasAnswer ? "#065F46" : "#92400E")}>
+                    {aiResult.hasAnswer ? "AI Interpretation" : "No Approved Internal Answer"}
+                  </span>
+                </div>
+                <div style={{ fontSize: 13, color: "#334155", whiteSpace: "pre-wrap" }}>{aiResult.answer}</div>
+                {aiResult.sourceIds?.length > 0 && (
+                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    <span style={{ fontSize: 11, color: "#94A3B8" }}>Sources:</span>
+                    {aiResult.sourceIds.map((sid) => {
+                      const src = resources.find((r) => r.id === sid);
+                      if (!src) return null;
+                      return <a key={sid} href={src.url} target="_blank" rel="noopener noreferrer" style={{ ...S.chip("#EEF2FF", "#4338CA"), textDecoration: "none" }}>{src.title} ↗</a>;
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
             {canEdit && <button style={{ ...S.btn(PURPLE), display: "flex", alignItems: "center", gap: 6 }} onClick={() => (showForm ? cancelEdit() : setShowForm(true))}>{showForm ? "Close" : (<>+ Add resource</>)}</button>}
             <select style={S.input} value={fType} onChange={(e) => setFType(e.target.value)}>
