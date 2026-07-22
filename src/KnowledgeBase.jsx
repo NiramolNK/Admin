@@ -36,6 +36,7 @@ const IconReset = (p) => <Ico {...p}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path
 const IconDownload = (p) => <Ico {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M7 10l5 5 5-5" /><path d="M12 15V3" /></Ico>;
 const IconPencil = (p) => <Ico {...p}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></Ico>;
 const IconDots = (p) => <Ico {...p}><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></Ico>;
+const IconEye = (p) => <Ico {...p}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></Ico>;
 
 const TYPE_DEFS = [
   { key: "excel", label: "Excel / Sheet", chipBg: "#DCFCE7", chipFg: "#166534" },
@@ -178,6 +179,8 @@ export default function KnowledgeBase({ role, canEdit }) {
   const [fType, setFType] = useState("All");
   const [fCategory, setFCategory] = useState("All");
   const [search, setSearch] = useState("");
+  const [resPage, setResPage] = useState(1);
+  const resPerPage = 16;
   const [form, setForm] = useState({ title: "", type: "excel", url: "", description: "", category: "" });
   const [toast, setToast] = useState(null);
   const resourceFileRef = useRef(null);
@@ -223,7 +226,7 @@ export default function KnowledgeBase({ role, canEdit }) {
   useEffect(() => { if (loaded) saveKey(K.resources, resources); }, [resources, loaded]);
   useEffect(() => { if (loaded) saveKey(K.pics, pics); }, [pics, loaded]);
 
-  const showToast = (m) => { setToast(m); setTimeout(() => setToast(null), 2200); };
+  const showToast = (m, duration = 2200) => { setToast(m); setTimeout(() => setToast(null), duration); };
 
   const categories = useMemo(() => Array.from(new Set(resources.map((r) => r.category).filter(Boolean))).sort(), [resources]);
   const filtered = resources.filter((r) => {
@@ -235,6 +238,11 @@ export default function KnowledgeBase({ role, canEdit }) {
     }
     return true;
   });
+  useEffect(() => { setResPage(1); }, [search, fType, fCategory]);
+  const resTotalPages = Math.max(1, Math.ceil(filtered.length / resPerPage));
+  const resPageSafe = Math.min(resPage, resTotalPages);
+  const pagedResources = filtered.slice((resPageSafe - 1) * resPerPage, resPageSafe * resPerPage);
+  const resetResourceFilters = () => { setSearch(""); setFType("All"); setFCategory("All"); };
 
   const addResource = () => {
     if (!form.title.trim() || !form.url.trim()) return;
@@ -334,9 +342,17 @@ export default function KnowledgeBase({ role, canEdit }) {
   return (
     <div style={S.page}>
       <div style={S.header}>
-        <div style={S.kicker}>NiRM · Reference Library</div>
-        <div style={S.h1}>Knowledge Base</div>
-        <div style={S.sub}>Excel sheets, PDFs, training videos, SOPs, and reference docs — shared across every team.</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={S.kicker}>NiRM · Reference Library</div>
+            <div style={S.h1}>Knowledge Base</div>
+            <div style={S.sub}>Excel sheets, PDFs, training videos, SOPs, and reference docs — shared across every team.</div>
+          </div>
+          <button onClick={() => showToast("Resources: browse links, filter by type/category, click Preview or Open. Brand PIC Directory: click any cell to edit inline, use ⋮ for more actions.", 6000)}
+            style={{ background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.25)", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            ⓘ How to use
+          </button>
+        </div>
         <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
           <button onClick={() => setSection("resources")} style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer", background: section === "resources" ? "#fff" : "rgba(255,255,255,0.15)", color: section === "resources" ? NAVY : "#fff" }}>Resources</button>
           <button onClick={() => setSection("pics")} style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer", background: section === "pics" ? "#fff" : "rgba(255,255,255,0.15)", color: section === "pics" ? NAVY : "#fff" }}>Brand PIC Directory</button>
@@ -349,7 +365,7 @@ export default function KnowledgeBase({ role, canEdit }) {
         ) : (
         <div style={S.card}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
-            {canEdit && <button style={S.btn(TEAL)} onClick={() => (showForm ? cancelEdit() : setShowForm(true))}>{showForm ? "Close" : "+ Add resource"}</button>}
+            {canEdit && <button style={{ ...S.btn(PURPLE), display: "flex", alignItems: "center", gap: 6 }} onClick={() => (showForm ? cancelEdit() : setShowForm(true))}>{showForm ? "Close" : (<>+ Add resource</>)}</button>}
             <select style={S.input} value={fType} onChange={(e) => setFType(e.target.value)}>
               <option value="All">All types</option>
               {TYPE_DEFS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
@@ -358,12 +374,41 @@ export default function KnowledgeBase({ role, canEdit }) {
               <option value="All">All categories</option>
               {categories.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
-            <input style={{ ...S.input, flex: 1, minWidth: 160 }} placeholder="Search title / description / category…" value={search} onChange={(e) => setSearch(e.target.value)} />
-            <button style={S.btnGhost} onClick={exportResourcesCSV}>Export CSV</button>
+            <div style={{ position: "relative", flex: 1, minWidth: 160 }}>
+              <IconSearch size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94A3B8", pointerEvents: "none" }} />
+              <input style={{ ...S.input, width: "100%", boxSizing: "border-box", paddingLeft: 32 }} placeholder="Search title / description / category…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <button style={{ ...S.btnGhost, display: "flex", alignItems: "center", gap: 6 }} onClick={exportResourcesCSV}><IconDownload size={13} /> Export CSV</button>
             {canEdit && <button style={S.btnGhost} onClick={() => resourceFileRef.current?.click()}>Import CSV</button>}
             {canEdit && <input ref={resourceFileRef} type="file" accept=".csv" style={{ display: "none" }}
               onChange={(e) => { const f = e.target.files?.[0]; if (f) importResourcesCSV(f); e.target.value = ""; }} />}
           </div>
+
+          {(fType !== "All" || fCategory !== "All" || search) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase" }}>Filters</span>
+              {fType !== "All" && (
+                <span style={{ ...S.chip(getTypeDef(fType).chipBg, getTypeDef(fType).chipFg), display: "flex", alignItems: "center", gap: 4 }}>
+                  {getTypeDef(fType).label}
+                  <button onClick={() => setFType("All")} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, fontSize: 12 }}>✕</button>
+                </span>
+              )}
+              {fCategory !== "All" && (
+                <span style={{ ...S.chip("#F1F5F9", "#334155"), display: "flex", alignItems: "center", gap: 4 }}>
+                  {fCategory}
+                  <button onClick={() => setFCategory("All")} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, fontSize: 12 }}>✕</button>
+                </span>
+              )}
+              {search && (
+                <span style={{ ...S.chip("#F1F5F9", "#334155"), display: "flex", alignItems: "center", gap: 4 }}>
+                  "{search}"
+                  <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, fontSize: 12 }}>✕</button>
+                </span>
+              )}
+              <button onClick={resetResourceFilters} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: PURPLE, fontWeight: 700, display: "flex", alignItems: "center", gap: 4 }}><IconReset size={12} /> Reset filters</button>
+            </div>
+          )}
+
 
           {showForm && canEdit && (
             <div style={S.panel}>
@@ -390,10 +435,31 @@ export default function KnowledgeBase({ role, canEdit }) {
               {resources.length === 0 ? "No resources yet." + (canEdit ? " Add the first one above." : " Check back once a manager adds some.") : "No resources match this filter."}
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 10 }}>
-              {filtered.map((r) => (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 10 }}>
+              {pagedResources.map((r) => (
                 <ResourceCard key={r.id} r={r} canEdit={canEdit} onEdit={startEdit} onRemove={removeResource} />
               ))}
+            </div>
+          )}
+          {filtered.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", justifyContent: "space-between", marginTop: 14 }}>
+              <span style={{ fontSize: 12, color: "#94A3B8" }}>
+                Showing {(resPageSafe - 1) * resPerPage + 1} to {Math.min(resPageSafe * resPerPage, filtered.length)} of {filtered.length} resources
+              </span>
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <button style={S.btnGhost} disabled={resPageSafe <= 1} onClick={() => setResPage(1)}>«</button>
+                <button style={S.btnGhost} disabled={resPageSafe <= 1} onClick={() => setResPage((p) => p - 1)}>‹</button>
+                {Array.from({ length: resTotalPages }, (_, i) => i + 1)
+                  .filter((n) => n === 1 || n === resTotalPages || Math.abs(n - resPageSafe) <= 1)
+                  .map((n, idx, arr) => (
+                    <React.Fragment key={n}>
+                      {idx > 0 && arr[idx - 1] !== n - 1 && <span style={{ color: "#CBD5E1", padding: "0 2px" }}>…</span>}
+                      <button style={{ ...S.btnGhost, background: n === resPageSafe ? PURPLE : "#fff", color: n === resPageSafe ? "#fff" : "#475569", borderColor: n === resPageSafe ? PURPLE : "#CBD5E1" }} onClick={() => setResPage(n)}>{n}</button>
+                    </React.Fragment>
+                  ))}
+                <button style={S.btnGhost} disabled={resPageSafe >= resTotalPages} onClick={() => setResPage((p) => p + 1)}>›</button>
+                <button style={S.btnGhost} disabled={resPageSafe >= resTotalPages} onClick={() => setResPage(resTotalPages)}>»</button>
+              </div>
             </div>
           )}
         </div>
@@ -407,6 +473,7 @@ export default function KnowledgeBase({ role, canEdit }) {
 // ── Resource card: preview toggle (best-effort iframe) + edit/delete ──
 function ResourceCard({ r, canEdit, onEdit, onRemove }) {
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const t = getTypeDef(r.type);
   return (
     <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -414,13 +481,24 @@ function ResourceCard({ r, canEdit, onEdit, onRemove }) {
         <span style={S.chip(t.chipBg, t.chipFg)}>{t.label}</span>
         {r.category && <span style={S.chip("#F1F5F9", "#64748B")}>{r.category}</span>}
         <div style={{ flex: 1 }} />
-        {canEdit && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#64748B" }} onClick={() => onEdit(r)} title="Edit">✎</button>}
-        {canEdit && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94A3B8" }} onClick={() => window.confirm("Remove this resource?") && onRemove(r.id)} title="Delete">✕</button>}
+        {canEdit && (
+          <div style={{ position: "relative" }}>
+            <button style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }} onClick={() => setMenuOpen((o) => !o)}><IconDots size={14} /></button>
+            {menuOpen && (
+              <div style={{ position: "absolute", right: 0, top: "100%", zIndex: 5, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", minWidth: 100 }}>
+                <button onClick={() => { setMenuOpen(false); onEdit(r); }} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", color: "#334155", padding: "8px 12px", fontSize: 12 }}>Edit</button>
+                <button onClick={() => { setMenuOpen(false); if (window.confirm("Remove this resource?")) onRemove(r.id); }} style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", color: "#DC2626", padding: "8px 12px", fontSize: 12 }}>Delete</button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <div style={{ fontSize: 14, fontWeight: 700, color: "#1E293B" }}>{r.title}</div>
       {r.description && <div style={{ fontSize: 12, color: "#64748B" }}>{r.description}</div>}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
-        <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#64748B", padding: 0 }} onClick={() => setPreviewOpen((o) => !o)}>{previewOpen ? "Hide preview" : "👁 Preview"}</button>
+        <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#64748B", padding: 0, display: "flex", alignItems: "center", gap: 4 }} onClick={() => setPreviewOpen((o) => !o)}>
+          {previewOpen ? "Hide preview" : (<><IconEye size={12} /> Preview</>)}
+        </button>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 11, color: "#94A3B8" }}>Added {fmtDT(r.addedAt)}</span>
           <a href={r.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 700, color: TEAL, textDecoration: "none" }}>Open ↗</a>
