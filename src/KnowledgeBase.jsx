@@ -147,7 +147,7 @@ export default function KnowledgeBase({ role, canEdit }) {
   const removePic = (id) => setPics((p) => p.filter((x) => x.id !== id));
   const addPic = (brand) => {
     if (!brand.trim()) return;
-    setPics((p) => [{ id: uid(), brand: brand.trim(), lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", note: "" }, ...p]);
+    setPics((p) => [{ id: uid(), brand: brand.trim(), lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: "", taxProvider: "", note: "" }, ...p]);
   };
 
   if (!loaded) return <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300, color: "#94A3B8", fontSize: 13 }}>Loading knowledge base…</div>;
@@ -260,13 +260,14 @@ const PIC_COLS = [
   { key: "lead", label: "Lead" }, { key: "kam", label: "KAM" }, { key: "asso", label: "ASSO" },
   { key: "mc", label: "MC" }, { key: "affiliate", label: "Affiliate" }, { key: "liveAdmin", label: "Live Admin" },
   { key: "lam", label: "LAM" }, { key: "lamAsso", label: "LAM ASSO" },
+  { key: "wh", label: "WH" }, { key: "taxProvider", label: "Tax Provider" },
 ];
 function PicDirectory({ pics, canEdit, updatePic, removePic, addPic, search, setSearch }) {
   const [newBrand, setNewBrand] = useState("");
   const filtered = pics.filter((p) => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return `${p.brand} ${p.lead} ${p.kam} ${p.asso} ${p.mc} ${p.affiliate} ${p.liveAdmin} ${p.lam} ${p.note}`.toLowerCase().includes(q);
+    return `${p.brand} ${p.lead} ${p.kam} ${p.asso} ${p.mc} ${p.affiliate} ${p.liveAdmin} ${p.lam} ${p.wh || ""} ${p.taxProvider || ""} ${p.note}`.toLowerCase().includes(q);
   });
 
   return (
