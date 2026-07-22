@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import SEED_RESOURCES from "./data/kb-resources-seed.json";
 import DEFAULT_PICS from "./data/kb-brand-pics.json";
 
@@ -31,11 +31,58 @@ const TYPE_DEFS = [
   { key: "other", label: "Other",         chipBg: "#F1F5F9", chipFg: "#334155" },
 ];
 function getTypeDef(key) { return TYPE_DEFS.find((t) => t.key === key) || TYPE_DEFS[TYPE_DEFS.length - 1]; }
+const RESOURCE_CSV_COLS = [
+  { key: "title", label: "Title" }, { key: "type", label: "Type" }, { key: "category", label: "Category" },
+  { key: "url", label: "URL" }, { key: "description", label: "Description" },
+];
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function fmtDT(iso) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+// ── CSV helpers (no library dependency — hand-rolled RFC4180-ish parser/writer) ──
+function toCSV(rows, cols) {
+  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const header = cols.map((c) => esc(c.label)).join(",");
+  const lines = rows.map((r) => cols.map((c) => esc(r[c.key])).join(","));
+  return "\uFEFF" + [header, ...lines].join("\r\n");
+}
+function downloadCSV(text, filename) {
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  URL.revokeObjectURL(a.href);
+}
+// Handles quoted fields containing commas, quotes, and newlines — the parts
+// a naive text.split(",") gets wrong on real-world exported spreadsheets.
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQuotes = false; }
+      else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+      else if (c === "\r") { /* skip — \n handles the line break */ }
+      else field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim() !== ""));
+}
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
 }
 
 const K = { resources: "kb-resources", pics: "kb-brand-pics", seeded: "kb-seeded-flag" };
@@ -77,6 +124,7 @@ export default function KnowledgeBase({ role, canEdit }) {
   const [search, setSearch] = useState("");
   const [form, setForm] = useState({ title: "", type: "excel", url: "", description: "", category: "" });
   const [toast, setToast] = useState(null);
+  const resourceFileRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -143,11 +191,72 @@ export default function KnowledgeBase({ role, canEdit }) {
     setForm({ title: "", type: "excel", url: "", description: "", category: "" });
   };
 
+  const exportResourcesCSV = () => downloadCSV(toCSV(resources, RESOURCE_CSV_COLS), `knowledge-base-resources-${new Date().toISOString().slice(0, 10)}.csv`);
+  const importResourcesCSV = async (file) => {
+    try {
+      const text = await readFileAsText(file);
+      const rows = parseCSV(text);
+      if (rows.length < 2) { showToast("CSV has no data rows"); return; }
+      const header = rows[0].map((h) => h.trim().toLowerCase());
+      const idx = (name) => header.indexOf(name);
+      const iTitle = idx("title"), iType = idx("type"), iCategory = idx("category"), iUrl = idx("url") >= 0 ? idx("url") : idx("link / url"), iDesc = idx("description");
+      if (iTitle < 0 || iUrl < 0) { showToast("CSV needs at least Title and URL columns"); return; }
+      const validTypes = new Set(TYPE_DEFS.map((t) => t.key));
+      const imported = rows.slice(1).map((r) => {
+        const rawType = (r[iType] || "").trim().toLowerCase();
+        return {
+          id: uid(),
+          title: (r[iTitle] || "").trim(),
+          type: validTypes.has(rawType) ? rawType : "link",
+          category: iCategory >= 0 ? (r[iCategory] || "").trim() : "",
+          url: (r[iUrl] || "").trim(),
+          description: iDesc >= 0 ? (r[iDesc] || "").trim() : "",
+          addedBy: `${role || ""} (CSV import)`,
+          addedAt: new Date().toISOString(),
+        };
+      }).filter((r) => r.title && r.url);
+      if (!imported.length) { showToast("No valid rows found — check Title and URL columns"); return; }
+      setResources((p) => [...imported, ...p]);
+      showToast(`Imported ${imported.length} resource${imported.length > 1 ? "s" : ""} — appended, nothing overwritten`);
+    } catch (e) { console.error(e); showToast("Import failed — check the file is a valid CSV"); }
+  };
+
   const updatePic = (id, field, value) => setPics((p) => p.map((x) => (x.id === id ? { ...x, [field]: value } : x)));
   const removePic = (id) => setPics((p) => p.filter((x) => x.id !== id));
   const addPic = (brand) => {
     if (!brand.trim()) return;
     setPics((p) => [{ id: uid(), brand: brand.trim(), lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: "", taxProvider: "", note: "" }, ...p]);
+  };
+  const exportPicsCSV = () => downloadCSV(toCSV(pics, PIC_CSV_COLS), `knowledge-base-brand-pics-${new Date().toISOString().slice(0, 10)}.csv`);
+  // Upserts by brand name (case-insensitive) — re-uploading an updated master
+  // roster sheet updates matching brands in place instead of duplicating them;
+  // any brand name not already present gets added as a new row.
+  const importPicsCSV = async (file) => {
+    try {
+      const text = await readFileAsText(file);
+      const rows = parseCSV(text);
+      if (rows.length < 2) { showToast("CSV has no data rows"); return; }
+      const header = rows[0].map((h) => h.trim().toLowerCase());
+      const idx = (name) => header.indexOf(name);
+      const colIdx = { brand: idx("brand"), ...Object.fromEntries(PIC_COLS.map((c) => [c.key, idx(c.label.toLowerCase())])), note: idx("note") };
+      if (colIdx.brand < 0) { showToast("CSV needs a Brand column"); return; }
+      let updated = 0, added = 0;
+      setPics((prev) => {
+        const list = [...prev];
+        rows.slice(1).forEach((r) => {
+          const brand = (r[colIdx.brand] || "").trim();
+          if (!brand) return;
+          const patch = { brand };
+          PIC_COLS.forEach((c) => { if (colIdx[c.key] >= 0) patch[c.key] = (r[colIdx[c.key]] || "").trim(); });
+          if (colIdx.note >= 0) patch.note = (r[colIdx.note] || "").trim();
+          const existingIdx = list.findIndex((x) => x.brand.trim().toLowerCase() === brand.toLowerCase());
+          if (existingIdx >= 0) { list[existingIdx] = { ...list[existingIdx], ...patch }; updated++; }
+          else { list.unshift({ id: uid(), lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: "", taxProvider: "", note: "", ...patch }); added++; }
+        });
+        return list;
+      });
+      showToast(`Imported: ${updated} brand${updated === 1 ? "" : "s"} updated, ${added} added`);
+    } catch (e) { console.error(e); showToast("Import failed — check the file is a valid CSV"); }
   };
 
   if (!loaded) return <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300, color: "#94A3B8", fontSize: 13 }}>Loading knowledge base…</div>;
@@ -166,7 +275,7 @@ export default function KnowledgeBase({ role, canEdit }) {
 
       <div style={S.body}>
         {section === "pics" ? (
-          <PicDirectory pics={pics} canEdit={canEdit} updatePic={updatePic} removePic={removePic} addPic={addPic} search={search} setSearch={setSearch} />
+          <PicDirectory pics={pics} canEdit={canEdit} updatePic={updatePic} removePic={removePic} addPic={addPic} search={search} setSearch={setSearch} exportPicsCSV={exportPicsCSV} importPicsCSV={importPicsCSV} />
         ) : (
         <div style={S.card}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
@@ -180,6 +289,10 @@ export default function KnowledgeBase({ role, canEdit }) {
               {categories.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
             <input style={{ ...S.input, flex: 1, minWidth: 160 }} placeholder="Search title / description / category…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <button style={S.btnGhost} onClick={exportResourcesCSV}>Export CSV</button>
+            {canEdit && <button style={S.btnGhost} onClick={() => resourceFileRef.current?.click()}>Import CSV</button>}
+            {canEdit && <input ref={resourceFileRef} type="file" accept=".csv" style={{ display: "none" }}
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) importResourcesCSV(f); e.target.value = ""; }} />}
           </div>
 
           {showForm && canEdit && (
@@ -262,8 +375,10 @@ const PIC_COLS = [
   { key: "lam", label: "LAM" }, { key: "lamAsso", label: "LAM ASSO" },
   { key: "wh", label: "WH" }, { key: "taxProvider", label: "Tax Provider" },
 ];
-function PicDirectory({ pics, canEdit, updatePic, removePic, addPic, search, setSearch }) {
+const PIC_CSV_COLS = [{ key: "brand", label: "Brand" }, ...PIC_COLS, { key: "note", label: "Note" }];
+function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, setSearch, exportPicsCSV, importPicsCSV }) {
   const [newBrand, setNewBrand] = useState("");
+  const fileRef = useRef(null);
   const filtered = pics.filter((p) => {
     if (!search) return true;
     const q = search.toLowerCase();
@@ -275,6 +390,10 @@ function PicDirectory({ pics, canEdit, updatePic, removePic, addPic, search, set
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
         <input style={{ ...S.input, flex: 1, minWidth: 200 }} placeholder="Search brand or PIC name…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <span style={{ fontSize: 12, color: "#94A3B8" }}>{filtered.length} brands</span>
+        <button style={S.btnGhost} onClick={exportPicsCSV}>Export CSV</button>
+        {canEdit && <button style={S.btnGhost} onClick={() => fileRef.current?.click()}>Import CSV</button>}
+        {canEdit && <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }}
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) importPicsCSV(f); e.target.value = ""; }} />}
         {canEdit && (
           <>
             <input style={S.input} placeholder="New brand name" value={newBrand} onChange={(e) => setNewBrand(e.target.value)}
