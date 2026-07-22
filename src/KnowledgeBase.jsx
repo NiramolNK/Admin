@@ -22,6 +22,21 @@ const NAVY = "#0F172A";
 const TEAL = "#0D9488";
 const PURPLE = "#7300E6";
 
+// ── small inline SVG icons (no external icon library in this project) ──
+const Ico = ({ children, size = 16, ...p }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}>{children}</svg>
+);
+const IconGrid = (p) => <Ico {...p}><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></Ico>;
+const IconUsersIco = (p) => <Ico {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></Ico>;
+const IconCheckCircle = (p) => <Ico {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="M22 4 12 14.01l-3-3" /></Ico>;
+const IconClock = (p) => <Ico {...p}><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></Ico>;
+const IconSearch = (p) => <Ico {...p}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></Ico>;
+const IconFilter = (p) => <Ico {...p}><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" /></Ico>;
+const IconReset = (p) => <Ico {...p}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></Ico>;
+const IconDownload = (p) => <Ico {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M7 10l5 5 5-5" /><path d="M12 15V3" /></Ico>;
+const IconPencil = (p) => <Ico {...p}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></Ico>;
+const IconDots = (p) => <Ico {...p}><circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" /></Ico>;
+
 const TYPE_DEFS = [
   { key: "excel", label: "Excel / Sheet", chipBg: "#DCFCE7", chipFg: "#166534" },
   { key: "pdf",   label: "PDF",           chipBg: "#FEE2E2", chipFg: "#991B1B" },
@@ -447,12 +462,17 @@ const PIC_STATUS_STYLE = {
   Incomplete: { bg: "#E0E7FF", fg: "#4338CA" },
 };
 
-function StatCard({ value, label, sub, color }) {
+function StatCard({ value, label, sub, iconBg, iconFg, Icon }) {
   return (
-    <div style={{ flex: "1 1 180px", border: "1px solid #E2E8F0", borderRadius: 12, padding: "14px 16px", background: "#fff" }}>
-      <div style={{ fontSize: 26, fontWeight: 800, color: color || "#1E293B" }}>{value}</div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#334155", marginTop: 2 }}>{label}</div>
-      <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>{sub}</div>
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flex: "1 1 220px", border: "1px solid #E2E8F0", borderRadius: 12, padding: "16px 18px", background: "#fff" }}>
+      <div style={{ width: 44, height: 44, borderRadius: 10, background: iconBg, color: iconFg, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <Icon size={20} />
+      </div>
+      <div>
+        <div style={{ fontSize: 26, fontWeight: 800, color: "#1E293B", lineHeight: 1.1 }}>{value}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#334155", marginTop: 3 }}>{label}</div>
+        <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 1 }}>{sub}</div>
+      </div>
     </div>
   );
 }
@@ -464,6 +484,7 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
   const [fStatus, setFStatus] = useState("All");
   const [page, setPage] = useState(1);
   const perPage = 12;
+  const [openMenuId, setOpenMenuId] = useState(null);
   const fileRef = useRef(null);
 
   const leadOptions = useMemo(() => Array.from(new Set(pics.map((p) => p.lead).filter(Boolean))).sort(), [pics]);
@@ -497,15 +518,18 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
     <div style={S.card}>
       {/* ── summary stat cards ── */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
-        <StatCard value={pics.length} label="Total Brands" sub="All active brands" />
-        <StatCard value={totalPICs} label="Total PICs" sub="Across all brands" />
-        <StatCard value={completeCount} label="With Complete Info" sub="PIC details complete" color="#059669" />
-        <StatCard value={needUpdateCount} label="Need Update" sub="Missing information" color="#D97706" />
+        <StatCard value={pics.length} label="Total Brands" sub="All active brands" iconBg="#EDE9FE" iconFg="#7C3AED" Icon={IconGrid} />
+        <StatCard value={totalPICs} label="Total PICs" sub="Across all brands" iconBg="#DBEAFE" iconFg="#2563EB" Icon={IconUsersIco} />
+        <StatCard value={completeCount} label="With Complete Info" sub="PIC details complete" iconBg="#D1FAE5" iconFg="#059669" Icon={IconCheckCircle} />
+        <StatCard value={needUpdateCount} label="Need Update" sub="Missing information" iconBg="#FEF3C7" iconFg="#D97706" Icon={IconClock} />
       </div>
 
       {/* ── search + filters + actions ── */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
-        <input style={{ ...S.input, flex: 1, minWidth: 200 }} placeholder="Search brand or PIC name…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <div style={{ position: "relative", flex: 1, minWidth: 200 }}>
+          <IconSearch size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94A3B8", pointerEvents: "none" }} />
+          <input style={{ ...S.input, width: "100%", boxSizing: "border-box", paddingLeft: 32 }} placeholder="Search brand or PIC name…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
         <select style={S.input} value={fLead} onChange={(e) => setFLead(e.target.value)}>
           <option value="All">All Lead</option>{leadOptions.map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
@@ -515,10 +539,10 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
         <select style={S.input} value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
           <option value="All">All Status</option><option>Complete</option><option>Need Update</option><option>Incomplete</option>
         </select>
-        <button style={S.btnGhost} onClick={resetFilters}>↺ Reset</button>
+        <button style={{ ...S.btnGhost, display: "flex", alignItems: "center", gap: 6 }} onClick={resetFilters}><IconReset size={13} /> Reset</button>
         <span style={{ fontSize: 12, color: "#94A3B8" }}>{filtered.length} brands</span>
         <div style={{ flex: 1 }} />
-        <button style={S.btnGhost} onClick={exportPicsCSV}>↓ Export</button>
+        <button style={{ ...S.btnGhost, display: "flex", alignItems: "center", gap: 6 }} onClick={exportPicsCSV}><IconDownload size={13} /> Export</button>
         {canEdit && <button style={S.btnGhost} onClick={() => fileRef.current?.click()}>Import CSV</button>}
         {canEdit && <input ref={fileRef} type="file" accept=".csv" style={{ display: "none" }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) importPicsCSV(f); e.target.value = ""; }} />}
@@ -577,7 +601,20 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
                   {canEdit ? <input style={{ ...S.input, padding: "3px 6px", width: "100%", boxSizing: "border-box" }} value={p.note || ""} onChange={(e) => updatePic(p.id, "note", e.target.value)} /> : (p.note || "")}
                 </td>
                 <td style={{ padding: "4px 8px" }}><span style={S.chip(st.bg, st.fg)}>{picStatus(p)}</span></td>
-                {canEdit && <td style={{ padding: "4px 4px", textAlign: "center" }}><button style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }} onClick={() => window.confirm(`Remove ${p.brand}?`) && removePic(p.id)}>✕</button></td>}
+                {canEdit && (
+                  <td style={{ padding: "4px 4px", textAlign: "center", position: "relative" }}>
+                    <button title="Cells are already editable inline — click any field" style={{ background: "none", border: "none", cursor: "default", color: "#94A3B8", marginRight: 4 }}><IconPencil size={14} /></button>
+                    <button onClick={() => setOpenMenuId((id) => (id === p.id ? null : p.id))} style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }}><IconDots size={14} /></button>
+                    {openMenuId === p.id && (
+                      <div style={{ position: "absolute", right: 6, top: "100%", zIndex: 5, background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", minWidth: 110 }}>
+                        <button
+                          onClick={() => { setOpenMenuId(null); if (window.confirm(`Remove ${p.brand}?`)) removePic(p.id); }}
+                          style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", cursor: "pointer", color: "#DC2626", padding: "8px 12px", fontSize: 12 }}
+                        >Delete</button>
+                      </div>
+                    )}
+                  </td>
+                )}
               </tr>
             );})}
           </tbody>
