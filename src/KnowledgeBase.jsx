@@ -165,7 +165,17 @@ function dedupePics(pics) {
   groups.forEach((members) => {
     if (members.length === 1) { result.push(members[0]); return; }
     mergedCount += members.length - 1;
-    const sorted = [...members].sort((a, b) => (/^pic\d+$/.test(b.id) ? 1 : 0) - (/^pic\d+$/.test(a.id) ? 1 : 0));
+    // Prefer whichever member has more real filled-in PIC data — this is a
+    // data-driven signal, unlike the old id-pattern check, which broke once
+    // repeated corrupt/re-fix cycles caused the original "picN"-style id to
+    // no longer survive on the correctly-named entry. Tie-break on shorter
+    // brand name, since Roster's suffixed variants (-IN, -CMG, etc.) are
+    // always longer than the clean curated name.
+    const sorted = [...members].sort((a, b) => {
+      const diff = picFilledCount(b) - picFilledCount(a);
+      if (diff !== 0) return diff;
+      return a.brand.length - b.brand.length;
+    });
     const primary = sorted[0];
     const firstNonEmpty = (field) => sorted.find((m) => m[field])?.[field] || "";
     result.push({
