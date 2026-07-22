@@ -144,7 +144,7 @@ function syncPicsWithRoster(pics, rosterBrands) {
       if (idx >= 0 && list[idx].platforms !== platformsStr) list[idx] = { ...list[idx], platforms: platformsStr };
     } else {
       const fresh = { id: uid(), brand: b.name.trim(), group: b.group || "", lead: "", kam: "", asso: "", mc: "", affiliate: "", liveAdmin: "", lam: "", lamAsso: "", wh: b.wh || "", taxProvider: "", note: "", platforms: platformsStr };
-      list.unshift(fresh);
+      list.push(fresh);
       byName.set(key, fresh);
       added.push(b.name.trim());
     }
@@ -577,7 +577,7 @@ function PicDirectory({ pics, canEdit, removePic, addPic, updatePic, search, set
       if (!`${p.brand} ${p.lead} ${p.kam} ${p.asso} ${p.mc} ${p.affiliate} ${p.liveAdmin} ${p.lam} ${p.group || ""} ${p.wh || ""} ${p.taxProvider || ""} ${p.note}`.toLowerCase().includes(q)) return false;
     }
     return true;
-  });
+  }).sort((a, b) => a.brand.localeCompare(b.brand));
 
   useEffect(() => { setPage(1); }, [search, fLead, fMC, fStatus]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
