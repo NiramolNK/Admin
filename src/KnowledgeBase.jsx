@@ -146,6 +146,37 @@ function normalizeBrandName(name) {
   return (name || "").trim().toLowerCase()
     .replace(/\s*[-–]\s*(in|cmg|amore?|pwb|cpb|pfc|pvh|crea|notax|deca)\s*$/i, "");
 }
+// Self-heals duplicate brand rows every time the app loads, regardless of
+// how they got created (old cached code still running in someone's browser
+// tab, a race between two sessions syncing at once, etc.) — rather than
+// only preventing NEW duplicates, this actively cleans up existing ones on
+// every load, using the same normalized-name matching. Prefers the row with
+// a "picN" id (the original curated seed data) as the base to keep, and
+// merges in Platforms/WH/Group from whichever duplicate has them filled.
+function dedupePics(pics) {
+  const groups = new Map();
+  pics.forEach((p) => {
+    const key = normalizeBrandName(p.brand);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  });
+  const result = [];
+  let mergedCount = 0;
+  groups.forEach((members) => {
+    if (members.length === 1) { result.push(members[0]); return; }
+    mergedCount += members.length - 1;
+    const sorted = [...members].sort((a, b) => (/^pic\d+$/.test(b.id) ? 1 : 0) - (/^pic\d+$/.test(a.id) ? 1 : 0));
+    const primary = sorted[0];
+    const firstNonEmpty = (field) => sorted.find((m) => m[field])?.[field] || "";
+    result.push({
+      ...primary,
+      platforms: primary.platforms || firstNonEmpty("platforms"),
+      wh: primary.wh || firstNonEmpty("wh"),
+      group: primary.group || firstNonEmpty("group"),
+    });
+  });
+  return { list: result, mergedCount };
+}
 // Merges Roster's brand list into the PIC directory: any active (non-
 // offboarded) Roster brand not already present (matched by name,
 // case-insensitive) gets added with its platforms + WH pre-filled from
@@ -241,14 +272,23 @@ export default function KnowledgeBase({ role, canEdit }) {
       // Auto-link new brands from Roster on every load — not gated by the
       // one-time seed flag above, since Roster's brand list changes over
       // time and each load should pick up anything added since the last one.
+      // Also self-heals any duplicate rows first, regardless of source
+      // (stale cached code re-adding them, a race between two sessions,
+      // etc.) — this runs on every single load, not just once.
       try {
+        const basePicsRaw = alreadySeeded ? pc : (pc.length ? pc : DEFAULT_PICS);
+        const { list: deduped, mergedCount } = dedupePics(basePicsRaw);
+        let finalList = deduped;
         const rosterBrands = await loadRosterBrands();
         if (rosterBrands.length) {
-          const basePics = alreadySeeded ? pc : (pc.length ? pc : DEFAULT_PICS);
-          const { list, added } = syncPicsWithRoster(basePics, rosterBrands);
-          setPics(list);
+          const { list, added } = syncPicsWithRoster(deduped, rosterBrands);
+          finalList = list;
           if (added.length) showToast(`Linked ${added.length} new brand${added.length > 1 ? "s" : ""} from Roster: ${added.slice(0, 3).join(", ")}${added.length > 3 ? "…" : ""}`);
+          else if (mergedCount > 0) showToast(`Cleaned up ${mergedCount} duplicate brand${mergedCount > 1 ? "s" : ""}`);
+        } else if (mergedCount > 0) {
+          showToast(`Cleaned up ${mergedCount} duplicate brand${mergedCount > 1 ? "s" : ""}`);
         }
+        setPics(finalList);
       } catch (e) { console.warn("[KB] Roster brand sync skipped", e); }
 
       setLoaded(true);
