@@ -799,7 +799,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   // Selected date in personal calendar view — shows brand assignments for that day only
   const [selectedRosterDate, setSelectedRosterDate] = useState(null);
   const [dutyOpen, setDutyOpen] = useState(null); // On Duty panel: which colleague row is expanded
-  const [mgrReq, setMgrReq] = useState({agentId:"", date:"", shift:"M"}); // Manager/T2 shift-change request form
+  const [mgrReq, setMgrReq] = useState({agentId:"", date:"", dateEnd:"", shift:"M"}); // Manager/T2 shift-change request form — dateEnd optional, blank = single day
   const [addFlagDate,  setAddFlagDate]  = useState("");
   const [addFlagType,  setAddFlagType]  = useState("holiday");
   const [addFlagLabel, setAddFlagLabel] = useState("");
@@ -2843,25 +2843,41 @@ export default function AllocationPanel({ isAdmin = true }) {
                   ))}
                 </select>
                 <input type="date" value={mgrReq.date} onChange={e=>setMgrReq(p=>({...p,date:e.target.value}))} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit"}}/>
+                <span style={{fontSize:11,color:"#94A3B8"}}>to (optional)</span>
+                <input type="date" value={mgrReq.dateEnd} min={mgrReq.date||undefined} onChange={e=>setMgrReq(p=>({...p,dateEnd:e.target.value}))} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit"}}/>
                 <select value={mgrReq.shift} onChange={e=>setMgrReq(p=>({...p,shift:e.target.value}))} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit"}}>
                   {["M","ME","E","Off"].map(s=><option key={s} value={s}>{s==="M"?"Morning (M)":s==="ME"?"Mid (ME)":s==="E"?"Evening (E)":"Day Off"}</option>)}
                 </select>
                 <button onClick={()=>{
                   if(!mgrReq.agentId || !mgrReq.date) return;
                   const ag = agents.find(a=>a.id===mgrReq.agentId); if(!ag) return;
-                  const cur = (allAsgn[mgrReq.date.slice(0,7)]||{})[`${mgrReq.agentId}_${mgrReq.date}`] || "";
-                  const rv = violatesRest(mgrReq.agentId, mgrReq.date, mgrReq.shift);
-                  // FLEXIBLE burnout rule: warn the manager, allow sending anyway —
-                  // the agent then gets notified and can accept or decline.
-                  if (rv && !window.confirm((rv==="M-after-E" ? `⚠ ${ag.name} works Evening the day before ${mgrReq.date} (ends 01:00). Morning would give only 6h rest.` : `⚠ ${ag.name} works Morning the day after ${mgrReq.date}. Evening ends 01:00 — only 6h rest.`) + `\n\nSend the request anyway? ${ag.name} will see this warning and can accept or decline.`)) return;
-                  setChangeRequests(prev=>[...prev,{
-                    id: Date.now().toString(36)+Math.random().toString(36).slice(2,6),
-                    agentId:ag.id, agentName:ag.name, date:mgrReq.date,
-                    requestedShift:mgrReq.shift, currentShift:cur,
+                  // RANGE: dateEnd optional — blank or equal to date means a single
+                  // day, same as before. When set, one request is created per day
+                  // in the inclusive range, reusing the exact same per-day rest
+                  // check and request shape the rest of the app already expects
+                  // (approval table, agent accept/decline, schedule application) —
+                  // no new "range" concept needed downstream.
+                  const start = new Date(mgrReq.date+"T00:00:00");
+                  const end = mgrReq.dateEnd && mgrReq.dateEnd >= mgrReq.date ? new Date(mgrReq.dateEnd+"T00:00:00") : start;
+                  const rangeDates = [];
+                  for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) {
+                    rangeDates.push(d.toISOString().slice(0,10));
+                  }
+                  // Pre-scan the whole range for rest violations, show ONE combined
+                  // warning instead of a separate popup per day.
+                  const violations = rangeDates.map(dt => ({date:dt, rv:violatesRest(mgrReq.agentId, dt, mgrReq.shift)})).filter(x=>x.rv);
+                  if (violations.length) {
+                    const lines = violations.map(v => `• ${v.date}: ${v.rv==="M-after-E" ? "only 6h rest after an Evening shift the day before" : "only 6h rest before a Morning shift the day after"}`).join("\n");
+                    if (!window.confirm(`⚠ ${violations.length} of ${rangeDates.length} day(s) have a rest-time conflict for ${ag.name}:\n\n${lines}\n\nSend the full request anyway? ${ag.name} will see this and can accept or decline each day.`)) return;
+                  }
+                  setChangeRequests(prev=>[...prev, ...rangeDates.map(dt => ({
+                    id: Date.now().toString(36)+Math.random().toString(36).slice(2,6)+dt,
+                    agentId:ag.id, agentName:ag.name, date:dt,
+                    requestedShift:mgrReq.shift, currentShift:(allAsgn[dt.slice(0,7)]||{})[`${mgrReq.agentId}_${dt}`] || "",
                     reason:"", status:"pending", origin:"manager", requestedBy:loginUser,
                     timestamp:new Date().toISOString()
-                  }]);
-                  setMgrReq({agentId:"",date:"",shift:"M"});
+                  }))]);
+                  setMgrReq({agentId:"",date:"",dateEnd:"",shift:"M"});
                 }} style={{padding:"7px 18px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Send Request</button>
               </div>
               {changeRequests.filter(r=>r.status==="pending" && r.origin==="manager").length>0 && (
