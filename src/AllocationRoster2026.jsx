@@ -281,6 +281,14 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
         });
     }
 
+    // Tracks (agent, brand, platform) triples already assigned today, across
+    // BOTH the M and E passes below — an ME-shift agent appears in both
+    // passes (since they share the pool with whichever is being staffed),
+    // but should cover DIFFERENT brands from each list, not double-book
+    // themselves on the same brand+platform under both an M-slot and an
+    // E-slot for one real 12:00–21:00 workday. Reset per date.
+    const assignedToday = new Set();
+
     ["M","E"].forEach(shift => {
       const shiftPool = shift==="M" ? working.M : working.E;
       const mePool = working.ME;
@@ -310,7 +318,7 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
           // multi-agent staffing is reserved for genuinely busy brands.
           const perShiftChats = realVol / 30 / 2;
           const agentCount = (perShiftChats >= 20 && top3.has(b.id)) ? topBrandAgents : 1;
-          tasks.push({ k: `${b.id}_${d.date}_${shift}_${plat}`, vol, brandId: b.id, agentCount });
+          tasks.push({ k: `${b.id}_${d.date}_${shift}_${plat}`, vol, brandId: b.id, plat, agentCount });
         });
       });
       tasks.sort((a, b) => b.vol - a.vol);
@@ -319,11 +327,17 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
       const load = {};
       allPool.forEach(ag => { load[ag.name] = 0; });
 
-      tasks.forEach(({ k, vol, brandId, agentCount }) => {
+      tasks.forEach(({ k, vol, brandId, plat, agentCount }) => {
         // RULE (ME period, 12:00–21:00): ME-shift agents share the full brand
         // pool with whichever of M/E is being staffed this pass — every
-        // brand, not just high-volume ones as before.
-        const eligible = allPool;
+        // brand, not just high-volume ones as before. But an agent already
+        // assigned this exact brand+platform earlier today (in the other
+        // pass) is excluded first — real cross-coverage of different brands,
+        // not the same brand double-booked under both an M-slot and an
+        // E-slot. Falls back to allowing it only if no one else is eligible,
+        // so a slot is never left empty just to avoid a repeat.
+        const notYetOnThis = allPool.filter(ag => !assignedToday.has(`${ag.name}|${brandId}|${plat}`));
+        const eligible = notYetOnThis.length ? notYetOnThis : allPool;
         if(!eligible.length) return;
 
         // Pick N lightest-loaded agents
@@ -333,6 +347,7 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
           const lightest = tempEligible.reduce((min, ag) => load[ag.name] < load[min.name] ? ag : min, tempEligible[0]);
           assigned.push(lightest.name);
           load[lightest.name] += vol / agentCount; // Split volume load
+          assignedToday.add(`${lightest.name}|${brandId}|${plat}`);
           tempEligible.splice(tempEligible.indexOf(lightest), 1);
         }
         result[k] = assigned;
