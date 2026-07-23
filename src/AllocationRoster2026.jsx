@@ -4305,6 +4305,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     return next;
                   });
                 }} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
+                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}if(!window.confirm(`Clear ALL brand allocations for the ENTIRE month of ${currentMK}?\n\nEvery agent assignment on every day this month (including manual ones like Marker's) will be removed — not just ${selDate.date}.\n\nThis cannot be undone.`))return;safeSetBrandAsgn({});}} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #FCA5A5",background:"transparent",color:isLocked?"#CBD5E1":"#DC2626",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear Month</button>
                 {role==="manager" && (
                   <button onClick={toggleLock} style={{padding:"8px 12px",borderRadius:9,border:`1px solid ${isLocked?"#F59E0B":"#E2E8F0"}`,background:isLocked?"#FEF3C7":"transparent",color:isLocked?"#D97706":"#94A3B8",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
                     {isLocked?"Unlock":"Lock"}
