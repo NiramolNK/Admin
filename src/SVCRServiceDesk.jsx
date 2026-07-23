@@ -477,7 +477,7 @@ export default function SVCRServiceDesk({ role, canEdit }) {
 
       <div style={S.body}>
         <div style={{ display: "flex", gap: 4, marginTop: 14, flexWrap: "wrap" }}>
-          {[["queue", "Inquiry Queue"], ["templates", "Reply Templates"], ["log", "Daily Log"], ...(canEdit ? [["settings", "Settings"]] : [])].map(([id, l]) => (
+          {[["queue", "Inquiry Queue"], ["templates", "Reply Templates"], ["log", "Daily Log"], ["shiftvol", "Shift Volume"], ...(canEdit ? [["settings", "Settings"]] : [])].map(([id, l]) => (
             <button key={id} style={S.tabBtn(pane === id)} onClick={() => setPane(id)}>{l}</button>
           ))}
         </div>
@@ -485,6 +485,7 @@ export default function SVCRServiceDesk({ role, canEdit }) {
           {pane === "queue" && <QueuePane {...ctx} />}
           {pane === "templates" && <TemplatesPane {...ctx} />}
           {pane === "log" && <DailyLogPane {...ctx} />}
+          {pane === "shiftvol" && <ShiftVolumePane {...ctx} />}
           {pane === "settings" && canEdit && <SettingsPane {...ctx} />}
         </div>
       </div>
@@ -991,6 +992,88 @@ function CountList({ title, data }) {
             <span style={{ color: "#475569" }}>{k}</span><span style={{ fontWeight: 700, color: NAVY }}>{v}</span>
           </div>
         ))}
+    </div>
+  );
+}
+
+// ═══════════════════════ SHIFT VOLUME — chat inquiry qty by shift/day/brand ═══════════════════════
+// Shift windows match the NiRM Roster's real definitions exactly:
+//   M  07:00–16:00, ME 12:00–21:00, E 16:00–01:00 (crosses midnight).
+// These genuinely overlap (ME with both M and E) — an inquiry logged at,
+// say, 17:00 counts toward BOTH ME and E, since both shifts are really on
+// duty then. This is shown as-is rather than forcing an artificial single
+// bucket, so columns don't sum to the day's total — that's the real overlap,
+// not a bug.
+const SHIFT_WINDOWS = { M: [7, 16], ME: [12, 21], E: [16, 1] };
+function hourInWindow(hour, [start, end]) {
+  return start <= end ? (hour >= start && hour < end) : (hour >= start || hour < end);
+}
+function shiftsForTime(iso) {
+  const h = new Date(iso).getHours() + new Date(iso).getMinutes() / 60;
+  return Object.entries(SHIFT_WINDOWS).filter(([, win]) => hourInWindow(h, win)).map(([k]) => k);
+}
+
+function ShiftVolumePane({ inquiries, allInquiries, activeBrand, settings }) {
+  const [day, setDay] = useState(toDateStr(new Date()));
+  const source = activeBrand === "ALL" ? allInquiries : inquiries;
+  const dayRows = source.filter((i) => (i.createdAt || "").slice(0, 10) === day);
+
+  const brandList = activeBrand === "ALL"
+    ? Array.from(new Set(dayRows.map((i) => i.brand || "(no brand)"))).sort()
+    : [activeBrand];
+
+  const counts = {}; // counts[brand][shiftKey] = n
+  const totals = { M: 0, ME: 0, E: 0 };
+  brandList.forEach((b) => { counts[b] = { M: 0, ME: 0, E: 0 }; });
+  dayRows.forEach((i) => {
+    const b = activeBrand === "ALL" ? (i.brand || "(no brand)") : activeBrand;
+    if (!counts[b]) counts[b] = { M: 0, ME: 0, E: 0 };
+    shiftsForTime(i.createdAt).forEach((s) => { counts[b][s]++; totals[s]++; });
+  });
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 6 }}>
+        <input type="date" style={S.input} value={day} onChange={(e) => setDay(e.target.value)} />
+        <span style={{ fontSize: 12, color: "#94A3B8" }}>{dayRows.length} inquiries on {day}{activeBrand !== "ALL" ? ` · ${activeBrand}` : " · all brands"}</span>
+      </div>
+      <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 14 }}>
+        Shift windows: M 07:00–16:00 · ME 12:00–21:00 · E 16:00–01:00 — ME overlaps both, so a chat can count toward more than one shift; columns won't sum to the day's total.
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: "2px solid #E2E8F0" }}>
+              <th style={{ textAlign: "left", padding: "8px 10px", color: "#64748B", fontWeight: 700 }}>Brand</th>
+              <th style={{ textAlign: "center", padding: "8px 10px", color: "#1E40AF", fontWeight: 700 }}>M</th>
+              <th style={{ textAlign: "center", padding: "8px 10px", color: "#0F766E", fontWeight: 700 }}>ME</th>
+              <th style={{ textAlign: "center", padding: "8px 10px", color: "#065F46", fontWeight: 700 }}>E</th>
+            </tr>
+          </thead>
+          <tbody>
+            {brandList.length === 0 ? (
+              <tr><td colSpan={4} style={{ textAlign: "center", color: "#94A3B8", padding: "24px 0" }}>No inquiries logged for this day.</td></tr>
+            ) : brandList.map((b) => (
+              <tr key={b} style={{ borderBottom: "1px solid #F1F5F9" }}>
+                <td style={{ padding: "6px 10px", fontWeight: 600, color: "#1E293B" }}>{b}</td>
+                <td style={{ padding: "6px 10px", textAlign: "center" }}>{counts[b]?.M || 0}</td>
+                <td style={{ padding: "6px 10px", textAlign: "center" }}>{counts[b]?.ME || 0}</td>
+                <td style={{ padding: "6px 10px", textAlign: "center" }}>{counts[b]?.E || 0}</td>
+              </tr>
+            ))}
+          </tbody>
+          {brandList.length > 1 && (
+            <tfoot>
+              <tr style={{ borderTop: "2px solid #E2E8F0", fontWeight: 700 }}>
+                <td style={{ padding: "6px 10px" }}>Total</td>
+                <td style={{ padding: "6px 10px", textAlign: "center" }}>{totals.M}</td>
+                <td style={{ padding: "6px 10px", textAlign: "center" }}>{totals.ME}</td>
+                <td style={{ padding: "6px 10px", textAlign: "center" }}>{totals.E}</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
     </div>
   );
 }
