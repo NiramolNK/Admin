@@ -4298,7 +4298,13 @@ export default function AllocationPanel({ isAdmin = true }) {
                   style={{padding:"8px 14px",borderRadius:9,border:"none",background:isLocked?"#CBD5E1":"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit"}}>
                   Auto-Allocate All
                 </button>
-                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}if(!window.confirm("Clear ALL brand allocations for this month?\n\nEvery agent assignment (including manual ones like Marker's) will be removed.\n\nThis cannot be undone."))return;safeSetBrandAsgn({});}} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
+                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}if(!window.confirm(`Clear all brand allocations for ${selDate.date}?\n\nEvery agent assignment on this day (including manual ones like Marker's) will be removed — all other days this month are untouched.\n\nThis cannot be undone.`))return;
+                  safeSetBrandAsgn(prev => {
+                    const next = {};
+                    Object.entries(prev||{}).forEach(([k, v]) => { if (!k.includes(`_${selDate.date}_`)) next[k] = v; });
+                    return next;
+                  });
+                }} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
                 {role==="manager" && (
                   <button onClick={toggleLock} style={{padding:"8px 12px",borderRadius:9,border:`1px solid ${isLocked?"#F59E0B":"#E2E8F0"}`,background:isLocked?"#FEF3C7":"transparent",color:isLocked?"#D97706":"#94A3B8",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
                     {isLocked?"Unlock":"Lock"}
