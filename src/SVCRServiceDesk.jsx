@@ -1149,6 +1149,40 @@ function ListEditor({ title, items, k, placeholder, type = "text", onAdd, onRemo
 function SettingsPane({ settings, setSettings }) {
   const [inp, setInp] = useState({ agent: "", brand: "", holiday: "" });
   const setI = (k, v) => setInp((p) => ({ ...p, [k]: v }));
+  const [rosterCandidates, setRosterCandidates] = useState([]); // brands from Roster with an eligible SVCR platform
+  const [rosterPick, setRosterPick] = useState("");
+
+  // Same auto-seed-all-channels logic used by the free-text "+ Add" below —
+  // shared so the Roster dropdown picker below adds a brand identically.
+  const addBrandWithChannels = (v) => setSettings((s) => ({
+    ...s,
+    brands: Array.from(new Set([...s.brands, v])),
+    channels: {
+      ...s.channels,
+      [v]: { ...CHANNEL_DEFS.reduce((acc, c) => ({ ...acc, [c.key]: (s.channels?.[v]?.[c.key]) || { endpoint: "", accountId: "" } }), {}) },
+    },
+  }));
+
+  // Pull the Roster's real brand list, filtered to only brands that have at
+  // least one of the platforms SVCR actually services — Line MyShop, Amaze,
+  // Brand.com, Call CC. Lets you pick a real, already-existing brand instead
+  // of retyping its name from scratch.
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await window.storage.get("nirm-brands");
+        if (!r || r.value == null) return;
+        const list = typeof r.value === "string" ? JSON.parse(r.value) : r.value;
+        const eligiblePlatforms = ["Line MyShop", "Amaze", "Brand.com", "Call CC"];
+        const candidates = (list || [])
+          .filter((b) => !b.offboarded && b.name && (b.platforms || []).some((p) => eligiblePlatforms.includes(p)))
+          .map((b) => ({ name: b.name.trim(), platforms: (b.platforms || []).filter((p) => eligiblePlatforms.includes(p)) }))
+          .filter((b) => !settings.brands.includes(b.name))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setRosterCandidates(candidates);
+      } catch (e) { console.warn("[SVCR] failed to load Roster brands for picker", e); }
+    })();
+  }, [settings.brands]);
 
   const setChannelField = (brand, key, field, value) => setSettings((s) => ({
     ...s,
@@ -1174,21 +1208,19 @@ function SettingsPane({ settings, setSettings }) {
       <ListEditor title="Agents" items={settings.agents} k="agent" placeholder="Agent name"
         onAdd={(v) => setSettings((s) => ({ ...s, agents: Array.from(new Set([...s.agents, v])) }))}
         onRemove={(v) => setSettings((s) => ({ ...s, agents: s.agents.filter((a) => a !== v) }))} inp={inp} setI={setI} />
+      <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>Add brand from Roster</div>
+        <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 8 }}>Only shows brands with Line MyShop, Amaze, Brand.com, or Call CC — the channels SVCR services.</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <select style={{ ...S.input, flex: 1 }} value={rosterPick} onChange={(e) => setRosterPick(e.target.value)}>
+            <option value="">{rosterCandidates.length ? "Select a brand…" : "No eligible brands found"}</option>
+            {rosterCandidates.map((b) => <option key={b.name} value={b.name}>{b.name} — {b.platforms.join(", ")}</option>)}
+          </select>
+          <button style={S.btn(NAVY)} disabled={!rosterPick} onClick={() => { if (rosterPick) { addBrandWithChannels(rosterPick); setRosterPick(""); } }}>+ Add</button>
+        </div>
+      </div>
       <ListEditor title="Brands / Shops" items={settings.brands} k="brand" placeholder="Brand or shop name"
-        onAdd={(v) => setSettings((s) => ({
-          ...s,
-          brands: Array.from(new Set([...s.brands, v])),
-          // Auto-add all five services for every new brand — TikTok DM,
-          // TikTok Video Comment, LINE OA, Email, Amaze — so they're all
-          // visible in Channel Connections right away instead of needing
-          // to be added one by one per brand.
-          channels: {
-            ...s.channels,
-            [v]: {
-              ...CHANNEL_DEFS.reduce((acc, c) => ({ ...acc, [c.key]: (s.channels?.[v]?.[c.key]) || { endpoint: "", accountId: "" } }), {}),
-            },
-          },
-        }))}
+        onAdd={addBrandWithChannels}
         onRemove={(v) => setSettings((s) => ({ ...s, brands: s.brands.filter((b) => b !== v), activeBrand: s.activeBrand === v ? "ALL" : s.activeBrand }))} inp={inp} setI={setI} />
       <ListEditor title="Public holidays (service closed)" items={settings.holidays} k="holiday" placeholder="YYYY-MM-DD" type="date"
         onAdd={(v) => setSettings((s) => ({ ...s, holidays: Array.from(new Set([...s.holidays, v])).sort() }))}
