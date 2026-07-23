@@ -243,10 +243,6 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
   });
   const sortedBrandIds = brands.map(b=>b.id).sort((a,b) => (brandVol[b]||0) - (brandVol[a]||0));
 
-  // Top 30% = high volume (ME eligible)
-  const highVolCount = Math.max(3, Math.ceil(sortedBrandIds.length * 0.3));
-  const highVolBrands = new Set(sortedBrandIds.slice(0, highVolCount));
-
   // Top 3 brands by volume get multi-agent assignment (2-3 agents)
   const top3 = new Set(sortedBrandIds.slice(0, 3));
 
@@ -324,9 +320,10 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
       allPool.forEach(ag => { load[ag.name] = 0; });
 
       tasks.forEach(({ k, vol, brandId, agentCount }) => {
-        const isHighVol = highVolBrands.has(brandId);
-        // ME agents only eligible for high-volume brands
-        const eligible = isHighVol ? allPool : (shiftPool.length > 0 ? shiftPool : allPool);
+        // RULE (ME period, 12:00–21:00): ME-shift agents share the full brand
+        // pool with whichever of M/E is being staffed this pass — every
+        // brand, not just high-volume ones as before.
+        const eligible = allPool;
         if(!eligible.length) return;
 
         // Pick N lightest-loaded agents
