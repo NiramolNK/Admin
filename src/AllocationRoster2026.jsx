@@ -2750,7 +2750,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   ) : (
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead><tr style={{background:"#F8FAFC"}}>
-                        {["Brand","Warehouse","Platform","KAM","Shift"].map(h=>(
+                        {["Brand","Warehouse","Platform","KAM","Lead","ASSO","Shift"].map(h=>(
                           <th key={h} style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
                         ))}
                       </tr></thead>
@@ -2760,17 +2760,21 @@ export default function AllocationPanel({ isAdmin = true }) {
                             <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{mb.brand}</td>
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:"#F1F5F9",color:"#94A3B8",fontWeight:600}}>{mb.wh||"—"}</span></td>
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:PLATFORM_C[mb.plat]?.bg||"#F1F5F9",color:PLATFORM_C[mb.plat]?.color||"#64748B",fontWeight:700}}>{mb.plat}</span></td>
-                            <td style={{padding:"8px 12px"}}>{(() => {
-                              // PIC from the Knowledge Base Brand PIC Directory (kb-brand-pics),
-                              // matched via normalizeBrandName. Shows KAM (fallback Lead);
-                              // hover reveals every filled role.
+                            {(() => {
+                              // KAM / Lead / ASSO from the Knowledge Base Brand PIC
+                              // Directory (kb-brand-pics), matched via normalizeBrandName.
+                              // Hover any name to see every filled role for the brand.
                               const p = picByBrand.get(normalizeBrandName(mb.brand));
-                              const who = p ? (p.kam || p.lead || "").trim() : "";
-                              if (!who) return <span style={{color:"#CBD5E1",fontSize:10}}>—</span>;
                               const ROLE_L = [["lead","Lead"],["kam","KAM"],["asso","ASSO"],["mc","MC"],["affiliate","Affiliate"],["liveAdmin","Live Admin"],["lam","LAM"],["lamAsso","LAM ASSO"]];
-                              const tip = ROLE_L.map(([k,lbl]) => { const v=(p[k]||"").trim(); return v ? `${lbl}: ${v}` : null; }).filter(Boolean).join("\n");
-                              return <span title={tip} style={{fontSize:11,fontWeight:600,color:"#0F766E",cursor:"help",borderBottom:"1px dotted #99F6E4"}}>{who}{!(p.kam||"").trim() ? <span style={{color:"#94A3B8",fontWeight:500}}> (Lead)</span> : null}</span>;
-                            })()}</td>
+                              const tip = p ? ROLE_L.map(([k,lbl]) => { const v=(p[k]||"").trim(); return v ? `${lbl}: ${v}` : null; }).filter(Boolean).join("\n") : "";
+                              const cell = (k) => {
+                                const v = p ? (p[k]||"").trim() : "";
+                                return <td style={{padding:"8px 12px"}}>{v
+                                  ? <span title={tip} style={{fontSize:11,fontWeight:600,color:"#0F766E",cursor:"help",borderBottom:"1px dotted #99F6E4"}}>{v}</span>
+                                  : <span style={{color:"#CBD5E1",fontSize:10}}>—</span>}</td>;
+                              };
+                              return <>{cell("kam")}{cell("lead")}{cell("asso")}</>;
+                            })()}
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:mb.shiftCode==="M"?"#DBEAFE":mb.shiftCode==="ME"?"#F0FDFA":"#D1FAE5",color:mb.shiftCode==="M"?"#1D4ED8":mb.shiftCode==="ME"?"#0F766E":"#065F46",fontWeight:700}}>{mb.shift}</span></td>
                           </tr>
                         ))}
