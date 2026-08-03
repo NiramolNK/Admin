@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import CSAnalyticsTab from "./CSAnalyticsTab.jsx";
 import SVCRServiceDesk from "./SVCRServiceDesk.jsx";
-import KnowledgeBase from "./KnowledgeBase.jsx";
+import KnowledgeBase, { normalizeBrandName } from "./KnowledgeBase.jsx";
 import { supabase, onStateChange } from "./supabase.js";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -959,6 +959,24 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // ── Storage: flag to avoid writing before initial load completes ──────────
   const [storageLoaded, setStorageLoaded] = useState(false);
+  // Brand PIC directory (Knowledge Base tab, key kb-brand-pics) — read-only
+  // here; powers the PIC column in My Brand Assignments. Failure = empty col.
+  const [kbPics, setKbPics] = useState([]);
+  useEffect(() => {
+    if (!storageLoaded || !window.storage) return;
+    (async () => {
+      try {
+        const r = await window.storage.get("kb-brand-pics");
+        const arr = r && r.value ? (typeof r.value === "string" ? JSON.parse(r.value) : r.value) : [];
+        if (Array.isArray(arr)) setKbPics(arr);
+      } catch (e) { /* PIC column just stays empty */ }
+    })();
+  }, [storageLoaded]);
+  const picByBrand = useMemo(() => {
+    const m = new Map();
+    (kbPics || []).forEach(p => { if (p && p.brand) m.set(normalizeBrandName(p.brand), p); });
+    return m;
+  }, [kbPics]);
   // FIX (data-loss pass 2): non-null when the initial load failed after all
   // retries. Renders a blocking reload screen; autosave stays disabled.
   const [loadError, setLoadError] = useState(null);
@@ -2732,7 +2750,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   ) : (
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead><tr style={{background:"#F8FAFC"}}>
-                        {["Brand","Warehouse","Platform","Shift"].map(h=>(
+                        {["Brand","Warehouse","Platform","PIC","Shift"].map(h=>(
                           <th key={h} style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
                         ))}
                       </tr></thead>
@@ -2742,6 +2760,17 @@ export default function AllocationPanel({ isAdmin = true }) {
                             <td style={{padding:"8px 12px",fontWeight:600,color:"#1A1D2E"}}>{mb.brand}</td>
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:9,padding:"2px 6px",borderRadius:4,background:"#F1F5F9",color:"#94A3B8",fontWeight:600}}>{mb.wh||"—"}</span></td>
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:PLATFORM_C[mb.plat]?.bg||"#F1F5F9",color:PLATFORM_C[mb.plat]?.color||"#64748B",fontWeight:700}}>{mb.plat}</span></td>
+                            <td style={{padding:"8px 12px"}}>{(() => {
+                              // PIC from the Knowledge Base Brand PIC Directory (kb-brand-pics),
+                              // matched via normalizeBrandName. Shows KAM (fallback Lead);
+                              // hover reveals every filled role.
+                              const p = picByBrand.get(normalizeBrandName(mb.brand));
+                              const who = p ? (p.kam || p.lead || "").trim() : "";
+                              if (!who) return <span style={{color:"#CBD5E1",fontSize:10}}>—</span>;
+                              const ROLE_L = [["lead","Lead"],["kam","KAM"],["asso","ASSO"],["mc","MC"],["affiliate","Affiliate"],["liveAdmin","Live Admin"],["lam","LAM"],["lamAsso","LAM ASSO"]];
+                              const tip = ROLE_L.map(([k,lbl]) => { const v=(p[k]||"").trim(); return v ? `${lbl}: ${v}` : null; }).filter(Boolean).join("\n");
+                              return <span title={tip} style={{fontSize:11,fontWeight:600,color:"#0F766E",cursor:"help",borderBottom:"1px dotted #99F6E4"}}>{who}{!(p.kam||"").trim() ? <span style={{color:"#94A3B8",fontWeight:500}}> (Lead)</span> : null}</span>;
+                            })()}</td>
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:mb.shiftCode==="M"?"#DBEAFE":mb.shiftCode==="ME"?"#F0FDFA":"#D1FAE5",color:mb.shiftCode==="M"?"#1D4ED8":mb.shiftCode==="ME"?"#0F766E":"#065F46",fontWeight:700}}>{mb.shift}</span></td>
                           </tr>
                         ))}

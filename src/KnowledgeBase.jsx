@@ -142,7 +142,7 @@ async function loadRosterBrands() {
 // -PFC, -PVH, etc.) so "111SKIN" and "111SKIN-IN" are recognized as the same
 // brand instead of creating a duplicate row every sync. Matches the same
 // normalization used to de-duplicate the live data directly in the database.
-function normalizeBrandName(name) {
+export function normalizeBrandName(name) {
   return (name || "").trim().toLowerCase()
     .replace(/\s*[-–]\s*(in|cmg|amore?|pwb|cpb|pfc|pvh|crea|notax|deca)\s*$/i, "");
 }
