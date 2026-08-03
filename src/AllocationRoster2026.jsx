@@ -2750,7 +2750,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   ) : (
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead><tr style={{background:"#F8FAFC"}}>
-                        {["Brand","Warehouse","Platform","KAM","Lead","ASSO","Shift"].map(h=>(
+                        {["Brand","Warehouse","Platform","Lead","KAM","ASSO","Shift"].map(h=>(
                           <th key={h} style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
                         ))}
                       </tr></thead>
@@ -2773,7 +2773,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                                   ? <span title={tip} style={{fontSize:11,fontWeight:600,color:"#0F766E",cursor:"help",borderBottom:"1px dotted #99F6E4"}}>{v}</span>
                                   : <span style={{color:"#CBD5E1",fontSize:10}}>—</span>}</td>;
                               };
-                              return <>{cell("kam")}{cell("lead")}{cell("asso")}</>;
+                              return <>{cell("lead")}{cell("kam")}{cell("asso")}</>;
                             })()}
                             <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:mb.shiftCode==="M"?"#DBEAFE":mb.shiftCode==="ME"?"#F0FDFA":"#D1FAE5",color:mb.shiftCode==="M"?"#1D4ED8":mb.shiftCode==="ME"?"#0F766E":"#065F46",fontWeight:700}}>{mb.shift}</span></td>
                           </tr>
