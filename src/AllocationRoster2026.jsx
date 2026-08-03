@@ -2750,7 +2750,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   ) : (
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                       <thead><tr style={{background:"#F8FAFC"}}>
-                        {["Brand","Warehouse","Platform","PIC","Shift"].map(h=>(
+                        {["Brand","Warehouse","Platform","KAM","Shift"].map(h=>(
                           <th key={h} style={{padding:"8px 12px",textAlign:"left",borderBottom:"1px solid #F1F5F9",fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase"}}>{h}</th>
                         ))}
                       </tr></thead>
