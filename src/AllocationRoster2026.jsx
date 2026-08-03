@@ -2755,7 +2755,9 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {selectedRosterDate && (()=>{
                   const dSel = dates.find(x=>x.date===selectedRosterDate);
                   const SH_ORDER = {M:0, ME:1, E:2};
-                  const onDuty = agents.filter(a=>a.active && ["M","ME","E"].includes(asgn[`${a.id}_${selectedRosterDate}`]))
+                  // T2 excluded: On Duty is for chat-floor colleagues (T1 / Return / CC) —
+                  // T2 back-office staff don't take brands, so they're noise in this list.
+                  const onDuty = agents.filter(a=>a.active && a.team!=="T2" && ["M","ME","E"].includes(asgn[`${a.id}_${selectedRosterDate}`]))
                     .sort((a,b)=>{const sa=SH_ORDER[asgn[`${a.id}_${selectedRosterDate}`]], sb=SH_ORDER[asgn[`${b.id}_${selectedRosterDate}`]]; return sa!==sb?sa-sb:String(a.id).localeCompare(String(b.id),undefined,{numeric:true});});
                   return (
                     <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",overflow:"hidden",marginTop:16,marginBottom:16}}>
