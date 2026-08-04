@@ -1,0 +1,5 @@
+/* Tailwind utilities only — no @tailwind base on purpose.
+   The Service CRM tab uses utility classes; NiRM's own screens
+   are inline-styled and must not be touched by a global reset. */
+@tailwind components;
+@tailwind utilities;
