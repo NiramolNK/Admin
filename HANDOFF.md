@@ -118,3 +118,25 @@ allocation, payroll (pay period = 24th → 23rd), extra-hours pay, reports.
   ~/day divisor.
 - Suggested: move User Password sheets out of the shared Excel workbook
   (plaintext platform passwords).
+
+## Webchat channel (added 2026-08-03)
+SVCR gains a sixth channel: **Webchat** — a site widget for brand storefronts
+(Shopify-first). Three new pieces, all in this repo:
+
+- `public/widget.js` — embeddable Shadow-DOM chat widget, served by Vercel at
+  `https://nirmroster.vercel.app/widget.js`. One script tag per brand site
+  (embed snippet in the file header). On Shopify it auto-captures shop,
+  pageType, productId, customerId, and live cart into inquiry meta.
+- `supabase/functions/webchat/index.ts` — one edge function speaking both
+  contracts: visitor side (`POST /message`, `GET /poll`) and SVCR's generic
+  channel contract (`GET /messages?account_id=BRAND`, `POST /send`).
+  Deploy: `supabase functions deploy webchat --no-verify-jwt`.
+- `supabase/webchat.sql` — `webchat_messages` table (RLS on, service-role
+  only). Run once in the SQL editor.
+
+SVCRServiceDesk.jsx changes: `webchat` in CHANNEL_DEFS (builtIn), default
+endpoint `{fnBase}/webchat`, header/subtitle mention. Connect per brand in
+SVCR Settings by setting the Webchat **accountId = the widget's data-brand
+key** (endpoint stays blank → default function). Before go-live per brand:
+add the storefront origin to `ALLOWED` in the edge function and swap the
+in-memory rate limiter for a Postgres one.

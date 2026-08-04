@@ -3,7 +3,10 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 // ═══════════════════════════════════════════════════════════════
 // SVCR SERVICE DESK — multi-channel inbox: TikTok video comments,
 // TikTok Brand Account chat (DM), LINE Official Account, Email,
-// and Amaze (Ascend Commerce / CP Group seller platform, Thailand).
+// Amaze (Ascend Commerce / CP Group seller platform, Thailand),
+// and Webchat (site widget → supabase/functions/webchat; accountId
+// in Settings = the widget's data-brand key; widget served from
+// public/widget.js on the app domain).
 // New NiRM function tab. Persists via window.storage shim → kv_state
 // (keys: svcr-*), so kv_guard + kv_snapshots protection applies.
 // Service hours: Mon–Fri 09:00–18:00, excl. public holidays.
@@ -28,6 +31,7 @@ const CHANNEL_DEFS = [
   { key: "line_oa",        label: "LINE OA",        short: "LINE",    kind: "private", chipBg: "#DCFCE7", chipFg: "#166534", hasReplyWindow: false, builtIn: false },
   { key: "email",          label: "Email",          short: "Email",   kind: "private", chipBg: "#FEF9C3", chipFg: "#854D0E", hasReplyWindow: false, builtIn: false },
   { key: "amaze",          label: "Amaze",          short: "Amaze",   kind: "private", chipBg: "#FFE4E6", chipFg: "#9F1239", hasReplyWindow: false, builtIn: false },
+  { key: "webchat",        label: "Webchat",        short: "Web",     kind: "private", chipBg: "#EDEDFC", chipFg: "#4338CA", hasReplyWindow: false, builtIn: true },
 ];
 function getChannelDef(key) { return CHANNEL_DEFS.find((c) => c.key === key) || CHANNEL_DEFS[0]; }
 // Back-compat: inquiries logged before this redesign used plain-string
@@ -148,6 +152,7 @@ function getChannelConn(settings, brand, key) {
 function defaultEndpointFor(settings, key) {
   if (key === "tiktok_comment") return fnUrl(settings, "tiktok-proxy");
   if (key === "tiktok_dm") return fnUrl(settings, "tiktok-messaging");
+  if (key === "webchat") return fnUrl(settings, "webchat");
   return ""; // LINE / Email / Amaze have no built-in function yet
 }
 function resolvedEndpoint(settings, brand, key) {
@@ -441,7 +446,7 @@ export default function SVCRServiceDesk({ role, canEdit }) {
           <div>
             <div style={S.kicker}>CREA · CX Operations</div>
             <div style={S.h1}>SVCR Service Desk</div>
-            <div style={S.sub}>TikTok comments &amp; DM · LINE OA · Email · Amaze · Daily operation log</div>
+            <div style={S.sub}>TikTok comments &amp; DM · LINE OA · Email · Amaze · Webchat · Daily operation log</div>
           </div>
         </div>
 
