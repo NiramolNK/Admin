@@ -13,6 +13,51 @@ import {
   PieChart, Pie, Cell, BarChart, Bar, Legend, AreaChart, Area,
 } from "recharts";
 import * as XLSX from "xlsx";
+import { supabase } from "./supabase.js";
+
+/* ── live-channel wiring (P1: email) ─────────────────────────────
+   Real cases live in Supabase (tickets + messages, fed by the
+   `email` edge function). They merge in front of the demo seeds,
+   refresh every 20s, and replies go out through /email/send.     */
+const FN_BASE = "https://bequrilwgooesolepubv.supabase.co/functions/v1";
+const EMAIL_FROM = "support@crea.asia";            // must be a SendGrid-authenticated sender
+const EMAIL_FROM_NAME = "CREA Customer Care";
+const biText = (s) => ({ en: s ?? "", th: s ?? "" });
+
+function mapDbTicket(t, msgs) {
+  return {
+    id: "TK-E" + t.id, dbId: t.id,
+    catKey: t.category || "inquiry", product: null,
+    subject: t.subject || null,
+    customer: biText(t.customer_name || t.customer_email || "Customer"),
+    phone: t.customer_phone || "", email: t.customer_email || "",
+    order: (t.meta && t.meta.order) || null,
+    channel: t.channel, priority: t.priority, status: t.status,
+    owner: t.owner || null,
+    createdAt: new Date(t.created_at).getTime(),
+    firstResponseMin: t.first_response_at ? Math.max(1, Math.round((new Date(t.first_response_at) - new Date(t.created_at)) / 60000)) : null,
+    resolveMin: t.resolved_at ? Math.max(1, Math.round((new Date(t.resolved_at) - new Date(t.created_at)) / 60000)) : null,
+    csat: t.csat ?? null, reopened: !!t.reopened, tags: [],
+    messages: (msgs || []).map((m) => ({
+      from: m.direction === "in" ? "customer" : m.direction === "note" ? "note" : "agent",
+      at: new Date(m.created_at).getTime(),
+      text: biText(m.body || ""),
+      by: m.author || undefined,
+    })),
+  };
+}
+
+async function fetchRealTickets() {
+  const { data: tks, error } = await supabase.from("tickets").select("*")
+    .in("channel", ["email"]).order("created_at", { ascending: false }).limit(200);
+  if (error || !tks || !tks.length) return [];
+  const ids = tks.map((t) => t.id);
+  const { data: msgs } = await supabase.from("messages").select("*")
+    .in("ticket_id", ids).order("created_at", { ascending: true });
+  const by = {};
+  (msgs || []).forEach((m) => { (by[m.ticket_id] = by[m.ticket_id] || []).push(m); });
+  return tks.map((t) => mapDbTicket(t, by[t.id]));
+}
 
 /* ═══════════════════════ i18n ═══════════════════════ */
 /* Dictionary format:  key: ["English", "ไทย"]  — index 0 = en, 1 = th */
@@ -1126,17 +1171,47 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
 
   const send = () => {
     if (!text.trim() || !tk) return;
+    const msgText = text.trim();
     const at = Date.now();
     setTickets((p) => p.map((x) => {
       if (x.id !== tk.id) return x;
-      const msgs = [...x.messages, { from: isNote ? "note" : "agent", text: text.trim(), at, by: tv(me.n) }];
+      const msgs = [...x.messages, { from: isNote ? "note" : "agent", text: msgText, at, by: tv(me.n) }];
       const first = !isNote && x.firstResponseMin == null ? Math.max(1, Math.round((at - x.createdAt) / MIN)) : x.firstResponseMin;
       return { ...x, messages: msgs, firstResponseMin: first, status: isNote ? x.status : "pending", owner: x.owner || me.id };
     }));
+    // real case → deliver through the channel backend
+    if (tk.dbId) {
+      if (isNote) {
+        supabase.from("messages").insert({ ticket_id: tk.dbId, direction: "note", channel: tk.channel, author: tv(me.n), body: msgText }).then(() => {});
+      } else if (tk.channel === "email") {
+        (async () => {
+          try {
+            const { data: s } = await supabase.auth.getSession();
+            const r = await fetch(`${FN_BASE}/email/send`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n) }),
+            });
+            if (!r.ok) { const j = await r.json().catch(() => ({})); toast("✉ " + (j.error || `email send failed (${r.status})`)); }
+          } catch (e) { toast("✉ email send failed — network"); }
+        })();
+      }
+    }
     setText(""); setIsNote(false);
     toast(isNote ? t("noteSaved") : t("msgSent"));
   };
-  const patch = (p, msg) => { setTickets((q2) => q2.map((x) => x.id === tk.id ? { ...x, ...p } : x)); toast(msg); };
+  const patch = (p, msg) => {
+    setTickets((q2) => q2.map((x) => x.id === tk.id ? { ...x, ...p } : x)); toast(msg);
+    if (tk?.dbId) {
+      const upd = {};
+      if (p.status) { upd.status = p.status;
+        if (p.status === "resolved") upd.resolved_at = new Date().toISOString();
+        if (p.status === "closed") upd.closed_at = new Date().toISOString(); }
+      if ("owner" in p) upd.owner = p.owner;
+      if (p.priority) upd.priority = p.priority;
+      if (Object.keys(upd).length) supabase.from("tickets").update(upd).eq("id", tk.dbId).then(() => {});
+    }
+  };
 
   return (
     <div className="card overflow-hidden flex" style={{ height: "calc(100vh - 132px)" }}>
@@ -2515,6 +2590,24 @@ export default function ServiceCRM() {
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState("dash");
   const [tickets, setTickets] = useState(seedTickets);
+
+  // ── live email cases: merge in front of demo seeds, refresh every 20s ──
+  useEffect(() => {
+    let stop = false;
+    const load = async () => {
+      try {
+        const real = await fetchRealTickets();
+        if (stop || !real.length) return;
+        setTickets((p) => {
+          const demo = p.filter((x) => !x.dbId);
+          return [...real, ...demo].sort((a, b) => b.createdAt - a.createdAt);
+        });
+      } catch (e) { console.warn("[crm] live ticket load failed", e); }
+    };
+    load();
+    const iv = setInterval(load, 20000);
+    return () => { stop = true; clearInterval(iv); };
+  }, []);
   const [users, setUsers] = useState(USERS);
   const [trend] = useState(seedTrend);
   const [kb, setKb] = useState(KB_SEED);
