@@ -20,7 +20,7 @@ import { supabase } from "./supabase.js";
    `email` edge function). They merge in front of the demo seeds,
    refresh every 20s, and replies go out through /email/send.     */
 const FN_BASE = "https://bequrilwgooesolepubv.supabase.co/functions/v1";
-const EMAIL_FROM = "support@crea.asia";            // must be a SendGrid-authenticated sender
+const EMAIL_FROM = "cs.solution@crea.asia";        // SendGrid-verified single sender
 const EMAIL_FROM_NAME = "CREA Customer Care";
 const biText = (s) => ({ en: s ?? "", th: s ?? "" });
 
