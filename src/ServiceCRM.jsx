@@ -52,7 +52,7 @@ function mapDbTicket(t, msgs) {
 
 async function fetchRealTickets() {
   const { data: tks, error } = await supabase.from("tickets").select("*")
-    .in("channel", ["email"]).order("created_at", { ascending: false }).limit(200);
+    .in("channel", ["email", "webchat"]).order("created_at", { ascending: false }).limit(200);
   if (error || !tks || !tks.length) return [];
   const ids = tks.map((t) => t.id);
   const { data: msgs } = await supabase.from("messages").select("*")
@@ -1218,6 +1218,13 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     if (tk.dbId) {
       if (isNote) {
         supabase.from("messages").insert({ ticket_id: tk.dbId, direction: "note", channel: tk.channel, author: tv(me.n), body: msgText }).then(() => {});
+      } else if (tk.channel === "webchat") {
+        // agent reply → messages table; the storefront widget picks it up on its next poll
+        (async () => {
+          const { error } = await supabase.from("messages").insert({ ticket_id: tk.dbId, direction: "out", channel: "webchat", author: tv(me.n), body: msgText });
+          if (error) toast("💬 chat send failed — " + error.message);
+          else supabase.from("tickets").update({ status: "pending" }).eq("id", tk.dbId).then(() => {});
+        })();
       } else if (tk.channel === "email") {
         (async () => {
           try {
