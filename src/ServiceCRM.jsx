@@ -24,6 +24,34 @@ const EMAIL_FROM = "cs.solution@crea.asia";        // SendGrid-verified single s
 const EMAIL_FROM_NAME = "CREA Customer Care";
 const biText = (s) => ({ en: s ?? "", th: s ?? "" });
 const ATT_BUCKET = "ticket-attachments";
+
+/* ── new-message chime (WebAudio, no asset needed) ── */
+let _chimeCtx;
+function playChime() {
+  try {
+    _chimeCtx = _chimeCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (_chimeCtx.state === "suspended") _chimeCtx.resume();
+    const t0 = _chimeCtx.currentTime;
+    [[880, 0], [1318.5, 0.12]].forEach(([f, d]) => {
+      const o = _chimeCtx.createOscillator(), g = _chimeCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + d);
+      g.gain.exponentialRampToValueAtTime(0.18, t0 + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.5);
+      o.connect(g); g.connect(_chimeCtx.destination);
+      o.start(t0 + d); o.stop(t0 + d + 0.55);
+    });
+  } catch (e) { /* audio blocked — badge + toast still show */ }
+}
+
+/* ── native browser notification (shows even when the tab is in background) ── */
+function notifyDesktop(title, body) {
+  try {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    const n = new Notification(title, { body, icon: "/favicon.ico", tag: "crm-inbox" });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch (e) { /* ignore */ }
+}
 const safeAttName = (s) => (s || "file").replace(/[^\w.\-\u0E00-\u0E7F ]+/g, "_").slice(0, 120);
 
 function mapDbTicket(t, msgs) {
@@ -1177,7 +1205,7 @@ function NewTicket({ me, onClose, onSave }) {
 
 /* ═══════════════════════ INBOX ═══════════════════════ */
 
-function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clearFocus, startCall }) {
+function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clearFocus, startCall, unread = {}, markRead = () => {} }) {
   const rows = scope(tickets).filter((x) => OPEN_ST.includes(x.status)).sort((a, b) => sla(a).left - sla(b).left);
   const [sel, setSel] = useState(focus?.id || rows[0]?.id || null);
   const [text, setText] = useState("");
@@ -1189,7 +1217,8 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const endRef = useRef(null);
 
   useEffect(() => { if (focus) { setSel(focus.id); clearFocus(); } }, [focus]);
-  useEffect(() => { setFiles([]); }, [sel]);   // switching cases drops pending attachments
+  useEffect(() => { setFiles([]); if (sel) markRead(sel); }, [sel]);   // switching cases drops pending attachments + clears unread
+  useEffect(() => { if (sel && unread[sel]) markRead(sel); }, [unread]); // new msg lands in the open case → already reading it
   const tk = tickets.find((x) => x.id === sel);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [sel, tk?.messages.length]);
 
@@ -1279,8 +1308,11 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                   <ChanChip k={x.channel} />
                   <span className="ml-auto text-[10.5px]" style={{ color: SLA_C[s.state], fontWeight: 600 }}>{s.label}</span>
                 </div>
-                <div className="font-semibold text-[13px] truncate">{tv(x.customer)}</div>
-                <div className="text-[12px] truncate mt-0.5" style={{ color: "var(--muted)" }}>
+                <div className="flex items-center gap-1.5">
+                  <div className="font-semibold text-[13px] truncate">{tv(x.customer)}</div>
+                  {unread[x.id] > 0 && <span className="ml-auto flex-none rounded-full text-[10px] font-bold grid place-items-center" style={{ minWidth: 17, height: 17, padding: "0 5px", background: "var(--amber)", color: "#313A7E" }}>{unread[x.id]}</span>}
+                </div>
+                <div className="text-[12px] truncate mt-0.5" style={{ color: "var(--muted)", fontWeight: unread[x.id] ? 700 : 400 }}>
                   {last.from === "customer" ? "" : t("youPrefix")}{tv(last.text)}
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5">
@@ -2663,6 +2695,13 @@ export default function ServiceCRM({ user, role }) {
   });
   const [tab, setTab] = useState("dash");
   const [tickets, setTickets] = useState([]);   // real cases only — no demo seeds
+  const [unread, setUnread] = useState({});     // ticketId → # new inbound msgs since last opened
+  const seenInRef = useRef(null);               // ticketId → inbound msg count at last poll (null = first load)
+
+  // ask once for desktop-notification permission (browser remembers the answer)
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
+  }, []);
 
   // ── live email cases: merge in front of demo seeds, refresh every 20s ──
   useEffect(() => {
@@ -2671,6 +2710,23 @@ export default function ServiceCRM({ user, role }) {
       try {
         const real = await fetchRealTickets();
         if (stop || !real.length) return;
+        // ── new inbound message detection → chime + unread badges ──
+        const counts = new Map(real.map((x) => [x.id, x.messages.filter((m) => m.from === "customer").length]));
+        if (seenInRef.current) {
+          const fresh = {}; let hits = 0, latest = null;
+          for (const x of real) {
+            const grew = (counts.get(x.id) || 0) - (seenInRef.current.get(x.id) ?? 0);
+            if (grew > 0) { fresh[x.id] = grew; hits += grew; latest = x; }
+          }
+          if (hits) {
+            setUnread((u) => { const n = { ...u }; for (const k in fresh) n[k] = (n[k] || 0) + fresh[k]; return n; });
+            playChime();
+            const label = hits > 1 ? `${hits} new messages` : `New message from ${tv(latest.customer)}`;
+            toast(`📩 ${label}`);
+            if (document.hidden) notifyDesktop("Service Desk — " + label, hits > 1 ? "Open the inbox to view them." : (subjectOf(latest) || tv(latest.customer)));
+          }
+        }
+        seenInRef.current = counts;
         setTickets((p) => {
           const demo = p.filter((x) => !x.dbId);
           return [...real, ...demo].sort((a, b) => b.createdAt - a.createdAt);
@@ -2711,7 +2767,9 @@ export default function ServiceCRM({ user, role }) {
 
   const scope = (arr) => me?.role === "agent" ? arr.filter((x) => x.owner === me.id) : arr;
   const alerts = me ? scope(tickets).filter((x) => OPEN_ST.includes(x.status) && ["breach", "risk"].includes(sla(x).state)) : [];
-  const openTicket = (x) => { setFocus(x); setTab("inbox"); };
+  const markRead = (id) => setUnread((u) => { if (!u[id]) return u; const n = { ...u }; delete n[id]; return n; });
+  const unreadTotal = Object.values(unread).reduce((a, b) => a + b, 0);
+  const openTicket = (x) => { setFocus(x); setTab("inbox"); markRead(x.id); };
 
   /* ── ACD: pick the next agent for a waiting call ── */
   const pickAgent = (tried, pres) => {
@@ -2873,7 +2931,8 @@ export default function ServiceCRM({ user, role }) {
         {nav.map((n) => (
           <button key={n.k} className={`nav-i ${tab === n.k ? "on" : ""}`} style={{ width: "auto", flex: "none", padding: "8px 12px", gap: 8, whiteSpace: "nowrap" }} onClick={() => setTab(n.k)}>
             <n.ic size={16} className="flex-none" />{t(n.key)}
-            {n.k === "inbox" && myOpen > 0 && <span className="pill" style={{ background: "rgba(255,255,255,.2)", color: "#fff", padding: "1px 7px" }}>{myOpen}</span>}
+            {n.k === "inbox" && unreadTotal > 0 && <span className="pill" style={{ background: "var(--amber)", color: "#313A7E", padding: "1px 7px", fontWeight: 700 }}>{unreadTotal}</span>}
+            {n.k === "inbox" && unreadTotal === 0 && myOpen > 0 && <span className="pill" style={{ background: "rgba(255,255,255,.2)", color: "#fff", padding: "1px 7px" }}>{myOpen}</span>}
             {n.k === "calls" && (queue.length + callbacks.length) > 0 && <span className="pill" style={{ background: queue.length ? "var(--amber)" : "var(--red)", color: queue.length ? "#313A7E" : "#fff", padding: "1px 7px" }}>{queue.length + callbacks.length}</span>}
           </button>
         ))}
@@ -2938,7 +2997,7 @@ export default function ServiceCRM({ user, role }) {
 
         <main className="p-6 flex-1" style={{ paddingBottom: playRec && !call ? 130 : 24 }}>
           {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} />}
-          {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} />}
+          {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} unread={unread} markRead={markRead} />}
           {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} />}
           {tab === "calls"     && <CallsView tickets={scope(tickets)} allTickets={tickets} calls={calls} queue={queue} callbacks={callbacks} setCallbacks={setCallbacks} presence={presence} setPresence={setPresence} me={me} sip={sip} routing={routing} startCall={startCall} pullCall={pullCall} onPlay={setPlayRec} toast={toast} />}
           {tab === "customers" && <Customers tickets={tickets} open={openTicket} />}
