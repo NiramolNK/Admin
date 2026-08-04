@@ -21,8 +21,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 // ═══════════════════════════════════════════════════════════════
 
 const NAVY = "#313A7E";
-const PURPLE = "#7300E6";
-const TEAL = "#00B894";
+const PURPLE = "#7A3E9C";
+const TEAL = "#12A150";
 
 // ── channel registry ──
 const CHANNEL_DEFS = [
@@ -256,24 +256,25 @@ function replyWindow(i, now) {
 }
 
 // ── styles ──
+const SHADOW = "0 1px 2px rgba(49,58,126,.07), 0 8px 24px -12px rgba(49,58,126,.18)";
 const S = {
-  page: { fontFamily: "'Galano Grotesque','Segoe UI',sans-serif", background: "#F1F5F9", minHeight: "100%", padding: 0 },
-  header: { background: `linear-gradient(100deg, ${NAVY} 0%, #23295C 60%, ${PURPLE} 130%)`, color: "#fff", padding: "20px 24px 16px" },
-  kicker: { fontSize: 11, letterSpacing: 2, textTransform: "uppercase", opacity: 0.7, fontWeight: 600 },
-  h1: { fontSize: 20, fontWeight: 700, margin: "2px 0 0" },
-  sub: { fontSize: 12, opacity: 0.8, marginTop: 4 },
-  pill: (on) => ({ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 999, border: "none", cursor: "pointer", background: on ? "#fff" : "rgba(255,255,255,0.15)", color: on ? PURPLE : "#fff" }),
-  kpi: { background: "rgba(255,255,255,0.1)", borderRadius: 8, padding: "8px 12px", minWidth: 110 },
+  page: { fontFamily: "'Galano Grotesque','IBM Plex Sans','IBM Plex Sans Thai','Segoe UI',sans-serif", background: "#F5F3FA", minHeight: "100%", padding: 0, color: "#0F1B2D" },
+  header: { background: "#fff", color: "#0F1B2D", padding: "20px 24px 16px", borderBottom: "1px solid #E5E4F1" },
+  kicker: { fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: PURPLE, fontWeight: 700 },
+  h1: { fontSize: 20, fontWeight: 800, margin: "2px 0 0", color: "#0F1B2D" },
+  sub: { fontSize: 12, color: "#64748B", marginTop: 4 },
+  pill: (on) => ({ fontSize: 12, fontWeight: 600, padding: "6px 12px", borderRadius: 999, cursor: "pointer", border: "1px solid " + (on ? "#E0D3EE" : "#E5E4F1"), background: on ? "#F3EBF9" : "#fff", color: on ? NAVY : "#64748B" }),
+  kpi: { background: "#F1EFF7", borderRadius: 10, padding: "8px 12px", minWidth: 110 },
   body: { maxWidth: 1650, margin: "0 auto", padding: "0 20px 40px" },
-  tabBtn: (on) => ({ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: "8px 8px 0 0", border: "1px solid " + (on ? "#CBD5E1" : "transparent"), borderBottom: "none", cursor: "pointer", background: on ? "#fff" : "rgba(148,163,184,0.15)", color: on ? "#0F172A" : "#64748B" }),
-  card: { background: "#fff", border: "1px solid #CBD5E1", borderRadius: "0 12px 12px 12px", padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.04)" },
-  input: { border: "1px solid #CBD5E1", borderRadius: 8, padding: "6px 10px", fontSize: 13, fontFamily: "inherit", background: "#fff", color: "#1E293B", outline: "none" },
+  tabBtn: (on) => ({ padding: "8px 16px", fontSize: 13, fontWeight: 600, borderRadius: 9, border: "1px solid " + (on ? "#E0D3EE" : "transparent"), cursor: "pointer", background: on ? "#F3EBF9" : "transparent", color: on ? NAVY : "#64748B" }),
+  card: { background: "#fff", border: "1px solid #E5E4F1", borderRadius: 14, padding: 16, boxShadow: SHADOW },
+  input: { border: "1px solid #E5E4F1", borderRadius: 9, padding: "8px 11px", fontSize: 13, fontFamily: "inherit", background: "#fff", color: "#0F1B2D", outline: "none" },
   label: { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, fontWeight: 600, color: "#64748B" },
-  btn: (bg) => ({ background: bg, color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }),
-  btnGhost: { background: "#fff", color: "#475569", border: "1px solid #CBD5E1", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" },
+  btn: (bg) => ({ background: bg, color: "#fff", border: "none", borderRadius: 9, padding: "9px 15px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }),
+  btnGhost: { background: "#fff", color: "#0F1B2D", border: "1px solid #E5E4F1", borderRadius: 9, padding: "9px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" },
   chip: (bg, fg) => ({ background: bg, color: fg, padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }),
-  panel: { border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, background: "#F8FAFC", marginBottom: 14 },
-  dot: (on) => ({ width: 8, height: 8, borderRadius: 999, background: on ? "#34D399" : "#CBD5E1", display: "inline-block", marginRight: 6 }),
+  panel: { border: "1px solid #E5E4F1", borderRadius: 12, padding: 12, background: "#FAF9FD", marginBottom: 14 },
+  dot: (on) => ({ width: 8, height: 8, borderRadius: 999, background: on ? TEAL : "#D9D7E8", display: "inline-block", marginRight: 6 }),
 };
 
 const Field = ({ label, children, style }) => (<label style={{ ...S.label, ...style }}>{label}{children}</label>);
@@ -432,7 +433,7 @@ export default function SVCRServiceDesk({ role, canEdit }) {
     URL.revokeObjectURL(a.href);
   };
 
-  if (!loaded) return <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300, color: "#94A3B8", fontSize: 13 }}>Loading SVCR workspace…</div>;
+  if (!loaded) return <div style={{ ...S.page, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300, color: "#8B8FB0", fontSize: 13 }}>Loading SVCR workspace…</div>;
 
   const connectedChannels = CHANNEL_DEFS.filter((c) => isChannelConnected(settings, activeBrand, c.key));
   const ctx = { settings, setSettings, templates, setTemplates, inquiries: scoped, allInquiries: inquiries, notes, setNotes,
@@ -456,13 +457,13 @@ export default function SVCRServiceDesk({ role, canEdit }) {
           {settings.brands.map((b) => (
             <button key={b} style={S.pill(activeBrand === b)} onClick={() => setActiveBrand(b)}>{b}</button>
           ))}
-          {canEdit && <button style={{ ...S.pill(false), background: "transparent", border: "1px solid rgba(255,255,255,0.35)", opacity: 0.8 }} onClick={() => setPane("settings")}>+ Add brand</button>}
+          {canEdit && <button style={{ ...S.pill(false), borderStyle: "dashed", color: PURPLE }} onClick={() => setPane("settings")}>+ Add brand</button>}
         </div>
 
         {activeBrand !== "ALL" && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10, alignItems: "center" }}>
             {CHANNEL_DEFS.map((c) => (
-              <span key={c.key} style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", display: "flex", alignItems: "center" }}>
+              <span key={c.key} style={{ fontSize: 11, color: "#64748B", display: "flex", alignItems: "center" }}>
                 <span style={S.dot(isChannelConnected(settings, activeBrand, c.key))} />{c.short}
               </span>
             ))}
@@ -473,15 +474,15 @@ export default function SVCRServiceDesk({ role, canEdit }) {
           {[["Today's inquiries", stats.today], ["Pending queue", stats.pending], ["Replied today", stats.repliedToday],
             ["Avg response", fmtMins(stats.avg)], [`SLA breach (>${fmtMins(settings.slaTarget)})`, stats.breaches]].map(([l, v], i) => (
             <div key={i} style={S.kpi}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: String(l).startsWith("SLA") && v > 0 ? "#FCA5A5" : "#fff" }}>{v}</div>
-              <div style={{ fontSize: 11, opacity: 0.75 }}>{l}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: String(l).startsWith("SLA") && v > 0 ? "#DC3545" : "#0F1B2D" }}>{v}</div>
+              <div style={{ fontSize: 11, color: "#64748B" }}>{l}</div>
             </div>
           ))}
         </div>
       </div>
 
       <div style={S.body}>
-        <div style={{ display: "flex", gap: 4, marginTop: 14, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 4, marginTop: 14, marginBottom: 10, flexWrap: "wrap" }}>
           {[["queue", "Inquiry Queue"], ["templates", "Reply Templates"], ["log", "Daily Log"], ["shiftvol", "Shift Volume"], ...(canEdit ? [["settings", "Settings"]] : [])].map(([id, l]) => (
             <button key={id} style={S.tabBtn(pane === id)} onClick={() => setPane(id)}>{l}</button>
           ))}
@@ -494,7 +495,7 @@ export default function SVCRServiceDesk({ role, canEdit }) {
           {pane === "settings" && canEdit && <SettingsPane {...ctx} />}
         </div>
       </div>
-      {toast && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: "#0F172A", color: "#fff", fontSize: 13, padding: "8px 18px", borderRadius: 999, zIndex: 9999 }}>{toast}</div>}
+      {toast && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: NAVY, color: "#fff", fontSize: 13, padding: "9px 18px", borderRadius: 999, zIndex: 9999, boxShadow: SHADOW }}>{toast}</div>}
     </div>
   );
 }
@@ -582,7 +583,7 @@ function QueuePane(ctx) {
               </select>
             </Field>
             <Field label={activeBrand !== "ALL" ? "Brand (workspace)" : "Brand / Shop"}>
-              <input style={{ ...S.input, ...(activeBrand !== "ALL" ? { background: "#F1F5F9", color: "#64748B" } : {}) }} value={form.brand} readOnly={activeBrand !== "ALL"} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="brand / shop name" />
+              <input style={{ ...S.input, ...(activeBrand !== "ALL" ? { background: "#F1EFF7", color: "#64748B" } : {}) }} value={form.brand} readOnly={activeBrand !== "ALL"} onChange={(e) => setForm({ ...form, brand: e.target.value })} placeholder="brand / shop name" />
             </Field>
             <Field label="Customer handle / ref"><input style={S.input} value={form.ref} onChange={(e) => setForm({ ...form, ref: e.target.value })} placeholder="@user, name, or email" /></Field>
             <Field label="Inquiry type"><select style={S.input} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>{TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
@@ -593,7 +594,7 @@ function QueuePane(ctx) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
             <button style={S.btn(TEAL)} onClick={submit}>Save &amp; add next</button>
-            <span style={{ fontSize: 11, color: "#94A3B8" }}>Channel / brand / type / agent stay set — press Enter in the message field to keep logging fast.</span>
+            <span style={{ fontSize: 11, color: "#8B8FB0" }}>Channel / brand / type / agent stay set — press Enter in the message field to keep logging fast.</span>
           </div>
         </div>
       )}
@@ -611,7 +612,7 @@ function QueuePane(ctx) {
               </select>
             </Field>
             <Field label={activeBrand !== "ALL" ? "Brand (workspace)" : "Brand / Shop"}>
-              <input style={{ ...S.input, ...(activeBrand !== "ALL" ? { background: "#F1F5F9", color: "#64748B" } : {}) }} value={form.brand} readOnly={activeBrand !== "ALL"} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+              <input style={{ ...S.input, ...(activeBrand !== "ALL" ? { background: "#F1EFF7", color: "#64748B" } : {}) }} value={form.brand} readOnly={activeBrand !== "ALL"} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
             </Field>
             <Field label="Inquiry type"><select style={S.input} value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>{TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
             <Field label="Agent"><select style={S.input} value={form.agent} onChange={(e) => setForm({ ...form, agent: e.target.value })}><option value=""></option>{settings.agents.map((a) => <option key={a}>{a}</option>)}</select></Field>
@@ -624,25 +625,25 @@ function QueuePane(ctx) {
           />
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
             <button style={S.btn(PURPLE)} onClick={submitBulk} disabled={!bulkRows.length}>Log {bulkRows.length || ""} inquir{bulkRows.length === 1 ? "y" : "ies"}</button>
-            {bulkRows.length > 0 && <span style={{ fontSize: 11, color: "#94A3B8" }}>{bulkRows.filter((r) => r.ref).length} handle{bulkRows.filter((r) => r.ref).length === 1 ? "" : "s"} auto-detected</span>}
+            {bulkRows.length > 0 && <span style={{ fontSize: 11, color: "#8B8FB0" }}>{bulkRows.filter((r) => r.ref).length} handle{bulkRows.filter((r) => r.ref).length === 1 ? "" : "s"} auto-detected</span>}
           </div>
         </div>
       )}
 
       {/* ── inbox: ticket list · conversation · details ── */}
-      <div style={{ display: "flex", border: "1px solid #E2E8F0", borderRadius: 12, overflow: "hidden", minHeight: 480 }}>
-        <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid #E2E8F0", overflowY: "auto", maxHeight: 640, background: "#fff" }}>
+      <div style={{ display: "flex", border: "1px solid #E5E4F1", borderRadius: 12, overflow: "hidden", minHeight: 480 }}>
+        <div style={{ width: 280, flexShrink: 0, borderRight: "1px solid #E5E4F1", overflowY: "auto", maxHeight: 640, background: "#fff" }}>
           {filtered.length === 0
-            ? <div style={{ textAlign: "center", color: "#94A3B8", fontSize: 12, padding: "30px 12px" }}>No inquiries here. Log the first one, paste a batch, or ⟳ Sync once a channel is connected.</div>
+            ? <div style={{ textAlign: "center", color: "#8B8FB0", fontSize: 12, padding: "30px 12px" }}>No inquiries here. Log the first one, paste a batch, or ⟳ Sync once a channel is connected.</div>
             : filtered.map((i) => <TicketRow key={i.id} i={i} now={now} settings={settings} selected={i.id === selectedId} onClick={() => setSelectedId(i.id)} />)}
         </div>
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "#F8FAFC" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "#F5F3FA" }}>
           {selected
             ? <ConversationPane i={selected} ctx={ctx} />
-            : <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#94A3B8", fontSize: 13 }}>Select a ticket to view the conversation.</div>}
+            : <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#8B8FB0", fontSize: 13 }}>Select a ticket to view the conversation.</div>}
         </div>
         {selected && (
-          <div style={{ width: 260, flexShrink: 0, borderLeft: "1px solid #E2E8F0", padding: 14, overflowY: "auto", maxHeight: 640, background: "#fff" }}>
+          <div style={{ width: 260, flexShrink: 0, borderLeft: "1px solid #E5E4F1", padding: 14, overflowY: "auto", maxHeight: 640, background: "#fff" }}>
             <DetailsSidebar i={selected} ctx={ctx} />
           </div>
         )}
@@ -661,7 +662,7 @@ function TicketRow({ i, now, settings, selected, onClick }) {
 
   return (
     <div onClick={onClick} style={{
-      padding: "10px 12px", cursor: "pointer", borderBottom: "1px solid #F1F5F9", borderLeft: "3px solid " + (selected ? PURPLE : "transparent"),
+      padding: "10px 12px", cursor: "pointer", borderBottom: "1px solid #F1EFF7", borderLeft: "3px solid " + (selected ? PURPLE : "transparent"),
       background: selected ? "#F5F3FF" : breach ? "#FFF1F2" : "#fff",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -670,8 +671,8 @@ function TicketRow({ i, now, settings, selected, onClick }) {
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#1E293B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.ref || i.brand || "Unknown"}</span>
-            <span style={{ fontSize: 10, color: "#94A3B8", flexShrink: 0 }}>{fmtDT(i.createdAt)}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#0F1B2D", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.ref || i.brand || "Unknown"}</span>
+            <span style={{ fontSize: 10, color: "#8B8FB0", flexShrink: 0 }}>{fmtDT(i.createdAt)}</span>
           </div>
           <div style={{ fontSize: 12, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.message}</div>
         </div>
@@ -693,8 +694,8 @@ function ConversationPane({ i, ctx }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 480 }}>
-      <div style={{ padding: "10px 14px", borderBottom: "1px solid #E2E8F0", background: "#fff", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 14, fontWeight: 700, color: "#1E293B" }}>{i.ref || "Customer"}</span>
+      <div style={{ padding: "10px 14px", borderBottom: "1px solid #E5E4F1", background: "#fff", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: "#0F1B2D" }}>{i.ref || "Customer"}</span>
         <span style={S.chip(def.chipBg, def.chipFg)}>{def.label}</span>
         {i.brand && <span style={{ fontSize: 12, color: "#64748B" }}>{i.brand}</span>}
         <div style={{ flex: 1 }} />
@@ -720,7 +721,7 @@ function ChatThread({ i }) {
     ? [{ id: "legacy-reply", ts: i.repliedAt || i.createdAt, author: "agent", text: i.replyNotes }] : [];
   const thread = [...history, ...legacyReply].sort((a, b) => new Date(a.ts) - new Date(b.ts));
 
-  if (thread.length === 0) return <div style={{ fontSize: 12, color: "#94A3B8" }}>No messages logged yet.</div>;
+  if (thread.length === 0) return <div style={{ fontSize: 12, color: "#8B8FB0" }}>No messages logged yet.</div>;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {thread.map((h) => (
@@ -735,8 +736,8 @@ function ChatThread({ i }) {
             <div style={{
               maxWidth: "72%", borderRadius: 12, padding: "8px 12px", fontSize: 13, whiteSpace: "pre-wrap",
               background: h.author === "agent" ? PURPLE : "#fff",
-              color: h.author === "agent" ? "#fff" : "#1E293B",
-              border: h.author === "agent" ? "none" : "1px solid #E2E8F0",
+              color: h.author === "agent" ? "#fff" : "#0F1B2D",
+              border: h.author === "agent" ? "none" : "1px solid #E5E4F1",
             }}>
               <div style={{ fontSize: 10, fontWeight: 700, opacity: 0.75, marginBottom: 2, textTransform: "uppercase" }}>
                 {h.author === "agent" ? "Agent" : "Customer"} · {fmtDT(h.ts)}
@@ -763,7 +764,7 @@ function ChatComposer({ i, ctx }) {
   };
 
   return (
-    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: 12, borderTop: "1px solid #E2E8F0", background: "#fff" }}>
+    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: 12, borderTop: "1px solid #E5E4F1", background: "#fff" }}>
       <select style={{ ...S.input, width: 118 }} value={author} onChange={(e) => setAuthor(e.target.value)} title="Log type">
         <option value="agent">Reply (Agent)</option>
         <option value="customer">Note (Customer)</option>
@@ -801,7 +802,7 @@ function DetailsSidebar({ i, ctx }) {
 
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>Details</div>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#8B8FB0", marginBottom: 8 }}>Details</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <Field label="Status"><div style={{ marginTop: 2 }}><span style={S.chip(st.bg, st.fg)}>{i.status}</span></div></Field>
         <Field label="Agent">
@@ -826,9 +827,9 @@ function DetailsSidebar({ i, ctx }) {
         {canEdit && <button style={{ ...S.btnGhost, color: "#E11D48", borderColor: "#FCA5A5" }} onClick={() => window.confirm("Delete this inquiry?") && removeInquiry(i.id)}>Delete</button>}
       </div>
 
-      <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #F1F5F9" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 6 }}>Log for report</div>
-        <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 6 }}>
+      <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid #F1EFF7" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#8B8FB0", marginBottom: 6 }}>Log for report</div>
+        <div style={{ fontSize: 11, color: "#8B8FB0", marginBottom: 6 }}>
           Adds a note to today's Daily Log shift notes for {activeBrand === "ALL" ? "all brands" : activeBrand}.
         </div>
         <textarea style={{ ...S.input, minHeight: 50, resize: "vertical", width: "100%" }} value={noteDraft} onChange={(e) => setNoteDraft(e.target.value)} placeholder="e.g. Escalated to warehouse team" />
@@ -892,7 +893,7 @@ function AIDraft({ i, ctx, win }) {
     <div style={{ borderRadius: 12, padding: 12, background: "linear-gradient(120deg,#F6F1FF,#F0FBF8)", border: "1px solid #E4DAF6" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: PURPLE }}>✨ AI reply draft</span>
-        {!aiReady && <span style={{ fontSize: 11, color: "#94A3B8" }}>configure Endpoints in Settings to enable</span>}
+        {!aiReady && <span style={{ fontSize: 11, color: "#8B8FB0" }}>configure Endpoints in Settings to enable</span>}
         {aiReady && <>
           <input style={{ ...S.input, flex: 1, minWidth: 160, fontSize: 12 }} value={instruction} onChange={(e) => setInstruction(e.target.value)}
             placeholder="Optional instruction, e.g. 'offer voucher [CODE]' or 'firmer tone'" onKeyDown={(e) => e.key === "Enter" && !loading && generate()} />
@@ -906,20 +907,20 @@ function AIDraft({ i, ctx, win }) {
       {variants && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 8, marginTop: 10 }}>
           {variants.map((v, idx) => (
-            <div key={idx} style={{ background: "#fff", border: "1px solid #E2E8F0", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column" }}>
+            <div key={idx} style={{ background: "#fff", border: "1px solid #E5E4F1", borderRadius: 10, padding: 10, display: "flex", flexDirection: "column" }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: NAVY, marginBottom: 4 }}>{v.style}</div>
               <div style={{ fontSize: 13, color: "#334155", whiteSpace: "pre-wrap", flex: 1 }}>{v.text}</div>
               <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
                 <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: TEAL, padding: 0 }} onClick={() => copy(v.text)}>Copy</button>
                 <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: PURPLE, padding: 0 }} onClick={() => useAsReply(v.text)}>Use as notes</button>
-                {canSend && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#0F172A", padding: 0 }} disabled={sending} onClick={() => sendViaChannel(v.text)}>{sending ? "Sending…" : `Send on ${def.short} ↗`}</button>}
+                {canSend && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#0F1B2D", padding: 0 }} disabled={sending} onClick={() => sendViaChannel(v.text)}>{sending ? "Sending…" : `Send on ${def.short} ↗`}</button>}
               </div>
             </div>
           ))}
         </div>
       )}
       {variants && (
-        <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: "#8B8FB0", marginTop: 8 }}>
           Drafts follow the {i.brand && settings.tones?.[i.brand] ? `${i.brand} tone profile` : "default tone"} — review before sending. Fill any [PLACEHOLDER] with real data.
           {win && !win.expired && ` Reply window closes ${win.deadline.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}.`}
           {win && win.expired && " Reply window expired — API send disabled; contact must message again first."}
@@ -964,19 +965,19 @@ function TemplatesPane({ templates, setTemplates, settings, activeBrand, showToa
         <select style={S.input} value={fBrand} onChange={(e) => setFBrand(e.target.value)}>
           <option>All</option><option>General</option>{opts.map((b) => <option key={b}>{b}</option>)}
         </select>
-        <span style={{ fontSize: 12, color: "#94A3B8" }}>{shown.length} templates</span>
+        <span style={{ fontSize: 12, color: "#8B8FB0" }}>{shown.length} templates</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 8 }}>
         {shown.map((t) => (
-          <div key={t.id} style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12 }}>
+          <div key={t.id} style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#1E293B" }}>{t.label}</span>
-              <span style={t.brand ? S.chip("#EDE9FE", "#5B21B6") : S.chip("#F1F5F9", "#64748B")}>{t.brand || "General"}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#0F1B2D" }}>{t.label}</span>
+              <span style={t.brand ? S.chip("#EDE9FE", "#5B21B6") : S.chip("#F1EFF7", "#64748B")}>{t.brand || "General"}</span>
               <div style={{ flex: 1 }} />
               <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: TEAL }} onClick={() => copy(t.text)}>Copy</button>
-              {canEdit && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94A3B8" }} onClick={() => setTemplates((p) => p.filter((x) => x.id !== t.id))}>✕</button>}
+              {canEdit && <button style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#8B8FB0" }} onClick={() => setTemplates((p) => p.filter((x) => x.id !== t.id))}>✕</button>}
             </div>
-            <div style={{ fontSize: 13, color: "#475569", whiteSpace: "pre-wrap" }}>{t.text}</div>
+            <div style={{ fontSize: 13, color: "#5D6188", whiteSpace: "pre-wrap" }}>{t.text}</div>
           </div>
         ))}
       </div>
@@ -989,12 +990,12 @@ function TemplatesPane({ templates, setTemplates, settings, activeBrand, showToa
 // reason as ListEditor above — keeps a stable component identity across renders.
 function CountList({ title, data }) {
   return (
-    <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, flex: 1, minWidth: 180 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>{title}</div>
-      {Object.keys(data).length === 0 ? <div style={{ fontSize: 12, color: "#94A3B8" }}>—</div> :
+    <div style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12, flex: 1, minWidth: 180 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#8B8FB0", marginBottom: 8 }}>{title}</div>
+      {Object.keys(data).length === 0 ? <div style={{ fontSize: 12, color: "#8B8FB0" }}>—</div> :
         Object.entries(data).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
           <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "2px 0" }}>
-            <span style={{ color: "#475569" }}>{k}</span><span style={{ fontWeight: 700, color: NAVY }}>{v}</span>
+            <span style={{ color: "#5D6188" }}>{k}</span><span style={{ fontWeight: 700, color: NAVY }}>{v}</span>
           </div>
         ))}
     </div>
@@ -1040,15 +1041,15 @@ function ShiftVolumePane({ inquiries, allInquiries, activeBrand, settings }) {
     <div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 6 }}>
         <input type="date" style={S.input} value={day} onChange={(e) => setDay(e.target.value)} />
-        <span style={{ fontSize: 12, color: "#94A3B8" }}>{dayRows.length} inquiries on {day}{activeBrand !== "ALL" ? ` · ${activeBrand}` : " · all brands"}</span>
+        <span style={{ fontSize: 12, color: "#8B8FB0" }}>{dayRows.length} inquiries on {day}{activeBrand !== "ALL" ? ` · ${activeBrand}` : " · all brands"}</span>
       </div>
-      <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 14 }}>
+      <div style={{ fontSize: 11, color: "#8B8FB0", marginBottom: 14 }}>
         Shift windows: M 07:00–16:00 · ME 12:00–21:00 · E 16:00–01:00 — ME overlaps both, so a chat can count toward more than one shift; columns won't sum to the day's total.
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
-            <tr style={{ borderBottom: "2px solid #E2E8F0" }}>
+            <tr style={{ borderBottom: "2px solid #E5E4F1" }}>
               <th style={{ textAlign: "left", padding: "8px 10px", color: "#64748B", fontWeight: 700 }}>Brand</th>
               <th style={{ textAlign: "center", padding: "8px 10px", color: "#1E40AF", fontWeight: 700 }}>M</th>
               <th style={{ textAlign: "center", padding: "8px 10px", color: "#0F766E", fontWeight: 700 }}>ME</th>
@@ -1057,10 +1058,10 @@ function ShiftVolumePane({ inquiries, allInquiries, activeBrand, settings }) {
           </thead>
           <tbody>
             {brandList.length === 0 ? (
-              <tr><td colSpan={4} style={{ textAlign: "center", color: "#94A3B8", padding: "24px 0" }}>No inquiries logged for this day.</td></tr>
+              <tr><td colSpan={4} style={{ textAlign: "center", color: "#8B8FB0", padding: "24px 0" }}>No inquiries logged for this day.</td></tr>
             ) : brandList.map((b) => (
-              <tr key={b} style={{ borderBottom: "1px solid #F1F5F9" }}>
-                <td style={{ padding: "6px 10px", fontWeight: 600, color: "#1E293B" }}>{b}</td>
+              <tr key={b} style={{ borderBottom: "1px solid #F1EFF7" }}>
+                <td style={{ padding: "6px 10px", fontWeight: 600, color: "#0F1B2D" }}>{b}</td>
                 <td style={{ padding: "6px 10px", textAlign: "center" }}>{counts[b]?.M || 0}</td>
                 <td style={{ padding: "6px 10px", textAlign: "center" }}>{counts[b]?.ME || 0}</td>
                 <td style={{ padding: "6px 10px", textAlign: "center" }}>{counts[b]?.E || 0}</td>
@@ -1069,7 +1070,7 @@ function ShiftVolumePane({ inquiries, allInquiries, activeBrand, settings }) {
           </tbody>
           {brandList.length > 1 && (
             <tfoot>
-              <tr style={{ borderTop: "2px solid #E2E8F0", fontWeight: 700 }}>
+              <tr style={{ borderTop: "2px solid #E5E4F1", fontWeight: 700 }}>
                 <td style={{ padding: "6px 10px" }}>Total</td>
                 <td style={{ padding: "6px 10px", textAlign: "center" }}>{totals.M}</td>
                 <td style={{ padding: "6px 10px", textAlign: "center" }}>{totals.ME}</td>
@@ -1100,7 +1101,7 @@ function DailyLogPane({ inquiries, activeBrand, notes, setNotes, settings, expor
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", marginBottom: 14 }}>
         <input type="date" style={S.input} value={day} onChange={(e) => setDay(e.target.value)} />
         <button style={S.btnGhost} onClick={() => exportCSV(rows, `SVCR_daily_${activeBrand === "ALL" ? "all" : activeBrand.replace(/\s+/g, "-")}_${day}.csv`)} disabled={!rows.length}>Export day CSV</button>
-        <span style={{ fontSize: 12, color: "#94A3B8" }}>{rows.length} inquiries on {day}{activeBrand !== "ALL" ? ` · ${activeBrand}` : " · all brands"}</span>
+        <span style={{ fontSize: 12, color: "#8B8FB0" }}>{rows.length} inquiries on {day}{activeBrand !== "ALL" ? ` · ${activeBrand}` : " · all brands"}</span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
         {[["Received", rows.length], ["Replied/Closed", replied.length], ["Escalated", escalated.length], ["Avg response", fmtMins(avg)]].map(([l, v], idx) => (
@@ -1132,8 +1133,8 @@ function DailyLogPane({ inquiries, activeBrand, notes, setNotes, settings, expor
 // keeps the same component identity across renders so typing works normally.
 function ListEditor({ title, items, k, placeholder, type = "text", onAdd, onRemove, inp, setI }) {
   return (
-    <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>{title}</div>
+    <div style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#8B8FB0", marginBottom: 8 }}>{title}</div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <input type={type} style={{ ...S.input, flex: 1 }} value={inp[k]} placeholder={placeholder} onChange={(e) => setI(k, e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && inp[k].trim()) { onAdd(inp[k].trim()); setI(k, ""); } }} />
@@ -1141,11 +1142,11 @@ function ListEditor({ title, items, k, placeholder, type = "text", onAdd, onRemo
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
         {items.map((it) => (
-          <span key={it} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#F1F5F9", color: "#334155", fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999 }}>
-            {it}<button style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8" }} onClick={() => onRemove(it)}>✕</button>
+          <span key={it} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#F1EFF7", color: "#334155", fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 999 }}>
+            {it}<button style={{ background: "none", border: "none", cursor: "pointer", color: "#8B8FB0" }} onClick={() => onRemove(it)}>✕</button>
           </span>
         ))}
-        {items.length === 0 && <span style={{ fontSize: 12, color: "#94A3B8" }}>None yet</span>}
+        {items.length === 0 && <span style={{ fontSize: 12, color: "#8B8FB0" }}>None yet</span>}
       </div>
     </div>
   );
@@ -1213,9 +1214,9 @@ function SettingsPane({ settings, setSettings }) {
       <ListEditor title="Agents" items={settings.agents} k="agent" placeholder="Agent name"
         onAdd={(v) => setSettings((s) => ({ ...s, agents: Array.from(new Set([...s.agents, v])) }))}
         onRemove={(v) => setSettings((s) => ({ ...s, agents: s.agents.filter((a) => a !== v) }))} inp={inp} setI={setI} />
-      <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>Add brand from Roster</div>
-        <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 8 }}>Only shows brands with Line MyShop, Amaze, Brand.com, or Call CC — the channels SVCR services.</div>
+      <div style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#8B8FB0", marginBottom: 8 }}>Add brand from Roster</div>
+        <div style={{ fontSize: 11, color: "#8B8FB0", marginBottom: 8 }}>Only shows brands with Line MyShop, Amaze, Brand.com, or Call CC — the channels SVCR services.</div>
         <div style={{ display: "flex", gap: 8 }}>
           <select style={{ ...S.input, flex: 1 }} value={rosterPick} onChange={(e) => setRosterPick(e.target.value)}>
             <option value="">{rosterCandidates.length ? "Select a brand…" : "No eligible brands found"}</option>
@@ -1230,17 +1231,17 @@ function SettingsPane({ settings, setSettings }) {
       <ListEditor title="Public holidays (service closed)" items={settings.holidays} k="holiday" placeholder="YYYY-MM-DD" type="date"
         onAdd={(v) => setSettings((s) => ({ ...s, holidays: Array.from(new Set([...s.holidays, v])).sort() }))}
         onRemove={(v) => setSettings((s) => ({ ...s, holidays: s.holidays.filter((h) => h !== v) }))} inp={inp} setI={setI} />
-      <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", marginBottom: 8 }}>SLA target — first reply (business minutes)</div>
+      <div style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#8B8FB0", marginBottom: 8 }}>SLA target — first reply (business minutes)</div>
         <input type="number" min="5" step="5" style={{ ...S.input, width: 110 }} value={settings.slaTarget}
           onChange={(e) => setSettings((s) => ({ ...s, slaTarget: Math.max(5, Number(e.target.value) || 60) }))} />
-        <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: "#8B8FB0", marginTop: 8 }}>
           Response times count only Mon–Fri 09:00–18:00, skipping weekends and listed public holidays. Fri 17:50 → Mon 09:15 = 25 business minutes.
         </div>
       </div>
 
-      <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, gridColumn: "1 / -1" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#0F172A", marginBottom: 8 }}>⟳ Functions base URL</div>
+      <div style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12, gridColumn: "1 / -1" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#0F1B2D", marginBottom: 8 }}>⟳ Functions base URL</div>
         <Field label="Supabase Edge Functions base (used for TikTok defaults + AI drafting)">
           <input style={S.input} value={settings.fnBase || ""} placeholder="https://bequrilwgooesolepubv.supabase.co/functions/v1"
             onChange={(e) => setSettings((s) => ({ ...s, fnBase: e.target.value.trim() }))} />
@@ -1250,15 +1251,15 @@ function SettingsPane({ settings, setSettings }) {
         </Field>
       </div>
 
-      <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, gridColumn: "1 / -1" }}>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#0F172A", marginBottom: 4 }}>⟳ Channel Connections</div>
-        <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 10 }}>
+      <div style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12, gridColumn: "1 / -1" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#0F1B2D", marginBottom: 4 }}>⟳ Channel Connections</div>
+        <div style={{ fontSize: 11, color: "#8B8FB0", marginBottom: 10 }}>
           One row per channel per brand. Endpoint blank on TikTok channels uses the built-in functions above. Access tokens live server-side in the edge functions — never in this app.
         </div>
-        {settings.brands.length === 0 ? <div style={{ fontSize: 12, color: "#94A3B8" }}>Add a brand above first.</div> : (
+        {settings.brands.length === 0 ? <div style={{ fontSize: 12, color: "#8B8FB0" }}>Add a brand above first.</div> : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {settings.brands.map((b) => (
-              <div key={b} style={{ border: "1px solid #F1F5F9", borderRadius: 10, padding: 10 }}>
+              <div key={b} style={{ border: "1px solid #F1EFF7", borderRadius: 10, padding: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: NAVY, marginBottom: 8 }}>{b}</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {CHANNEL_DEFS.map((c) => {
@@ -1279,12 +1280,12 @@ function SettingsPane({ settings, setSettings }) {
             ))}
           </div>
         )}
-        <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 10, display: "flex", flexDirection: "column", gap: 2 }}>
+        <div style={{ fontSize: 11, color: "#8B8FB0", marginTop: 10, display: "flex", flexDirection: "column", gap: 2 }}>
           {CHANNEL_DEFS.map((c) => <span key={c.key}><b>{c.label}:</b> {CHANNEL_HINTS[c.key]}</span>)}
         </div>
       </div>
 
-      <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, padding: 12, gridColumn: "1 / -1" }}>
+      <div style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12, gridColumn: "1 / -1" }}>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: PURPLE, marginBottom: 8 }}>✨ AI reply settings</div>
         <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: 10 }}>
           <Field label="Reply language">
@@ -1298,8 +1299,8 @@ function SettingsPane({ settings, setSettings }) {
             <textarea style={{ ...S.input, minHeight: 56, resize: "vertical" }} value={settings.defaultTone || ""} onChange={(e) => setSettings((s) => ({ ...s, defaultTone: e.target.value }))} />
           </Field>
         </div>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#94A3B8", margin: "12px 0 8px" }}>Per-brand tone profiles</div>
-        {settings.brands.length === 0 ? <div style={{ fontSize: 12, color: "#94A3B8" }}>Add brands first — each brand can get its own tone guideline for AI drafts.</div> : (
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#8B8FB0", margin: "12px 0 8px" }}>Per-brand tone profiles</div>
+        {settings.brands.length === 0 ? <div style={{ fontSize: 12, color: "#8B8FB0" }}>Add brands first — each brand can get its own tone guideline for AI drafts.</div> : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {settings.brands.map((b) => (
               <Field key={b} label={b}>
