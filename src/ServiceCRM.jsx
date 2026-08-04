@@ -653,6 +653,26 @@ function seedTickets() {
   return out.sort((a, b) => b.createdAt - a.createdAt);
 }
 
+function computeTrend(tickets) {
+  // real 14-day volume from actual cases (replaces the demo seedTrend)
+  const out = [];
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000);
+    const day0 = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const day1 = day0 + 86400000;
+    const opened = tickets.filter((x) => x.createdAt >= day0 && x.createdAt < day1);
+    const closed = tickets.filter((x) => ["resolved", "closed"].includes(x.status) && x.resolveMin != null
+      && (x.createdAt + x.resolveMin * MIN) >= day0 && (x.createdAt + x.resolveMin * MIN) < day1);
+    const rated = closed.filter((x) => x.csat);
+    out.push({
+      day: `${d.getDate()}/${d.getMonth() + 1}`,
+      opened: opened.length, closed: closed.length,
+      csat: rated.length ? +(rated.reduce((s, x) => s + x.csat, 0) / rated.length).toFixed(2) : null,
+    });
+  }
+  return out;
+}
+
 function seedTrend() {
   const out = [];
   for (let i = 13; i >= 0; i--) {
@@ -2596,7 +2616,7 @@ export default function ServiceCRM({ user, role }) {
     return known ? { ...known, role: crmRole } : { id: "nirm-" + display.toLowerCase(), n: { en: display, th: display }, role: crmRole, team: "cx", email: user || "", active: true };
   });
   const [tab, setTab] = useState("dash");
-  const [tickets, setTickets] = useState(seedTickets);
+  const [tickets, setTickets] = useState([]);   // real cases only — no demo seeds
 
   // ── live email cases: merge in front of demo seeds, refresh every 20s ──
   useEffect(() => {
@@ -2616,7 +2636,7 @@ export default function ServiceCRM({ user, role }) {
     return () => { stop = true; clearInterval(iv); };
   }, []);
   const [users, setUsers] = useState(USERS);
-  const [trend] = useState(seedTrend);
+  const trend = useMemo(() => computeTrend(tickets), [tickets]);   // real volumes, not demo
   const [kb, setKb] = useState(KB_SEED);
   const [canned, setCanned] = useState(CANNED_SEED);
   const [toasts, setToasts] = useState([]);
