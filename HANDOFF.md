@@ -140,3 +140,91 @@ SVCR Settings by setting the Webchat **accountId = the widget's data-brand
 key** (endpoint stays blank → default function). Before go-live per brand:
 add the storefront origin to `ALLOWED` in the edge function and swap the
 in-memory rate limiter for a Postgres one.
+
+
+---
+
+# SERVICE CRM — SESSION HANDOFF (2026-08-04, evening)
+
+## Goal
+Service CRM tab inside NiRM (src/ServiceCRM.jsx, ~2,960 lines, from the
+service-crm-i18n prototype) as the real omnichannel CS desk: email + Shopify
+webchat live now, phone later. SVCR Desk tab was REMOVED from NiRM
+(src/SVCRServiceDesk.jsx still on disk, unimported).
+
+## Current Progress (all LIVE unless noted)
+- **Service CRM tab**: horizontal top nav (navy bar), SSO from NiRM session
+  (manager→admin, fulltime→supervisor, else agent; internal Login removed),
+  demo seeds removed — real cases only, 14-day trend computed from real data.
+  NiRM header shows "Service Desk / 3 channels connected" on the crm tab.
+- **Data**: `tickets` + `messages` tables (RLS: authenticated all; anon none),
+  `stamp_first_response` trigger, storage bucket `ticket-attachments`
+  (private; authenticated read/insert). CRM polls every 20s, merges real
+  tickets, persists replies/notes/status/owner/priority.
+- **Email channel (SendGrid)**: edge fn `email` v5 — inbound parse w/
+  3-tier threading + auto-reopen + attachments→storage; /send = threaded
+  reply via SendGrid + attachments (client uploads to storage, fn base64s).
+  Secrets set: SENDGRID_API_KEY, EMAIL_WEBHOOK_TOKEN
+  (= w0afghoj26e3dbrus9xknvpz1yi75ml4q8ct). Verified single sender / CRM
+  EMAIL_FROM = cs.solution@crea.asia. Round trip tested on prod incl.
+  attachment download via signed URL. NOTE: real inbound mail does NOT flow
+  yet (no MX/Parse) — see Next Steps.
+- **Webchat channel (Shopify)**: edge fn `webchat` v2 rewritten onto
+  tickets/messages (POST /message creates/threads case by session, auto-
+  reopen; GET /poll returns agent replies). Widget public/widget.js unchanged
+  and live at nirmroster.vercel.app/widget.js. CRM sends webchat replies by
+  direct insert into messages. Round trip tested (ticket 5). CORS map in fn
+  still {"default":["*"]} — tighten per storefront at go-live.
+- **Attachments**: paperclip real on email cases (≤10 files, 10MB each,
+  chips + remove, files-only send allowed); bubbles show 📎 chips → signed
+  URL. Webchat = no attachments yet (widget has no upload UI).
+
+## What Worked
+- File transfer sandbox→PC: present_files → April downloads → verify SHA256
+  → copy from Downloads. (Supabase-table relay unnecessary; avoid.)
+- Simulating SendGrid inbound with curl.exe -F from April's machine = full
+  pipeline tests without DNS. PS5.1: JSON bodies via -d "@file" (quoting),
+  text fields via -F "field=<file" for unicode.
+- Outlook COM bridge is a DEAD END: April uses NEW Outlook (olk.exe), no COM.
+  Script left at C:\Users\April\NiRM-tools\sync-cs-mail.ps1 (unused).
+- Device-code flow (client 14d82eec-204b-4c2f-b7e8-296a70dab67e, scope
+  Mail.Read.Shared offline_access) reaches consent but tenant REQUIRES ADMIN
+  APPROVAL — request auto-submitted to IT 2026-08-04, expires Sep 3.
+- Claude's Microsoft 365 connector HAS delegate access to shared mailboxes
+  cs.solution@ / (presumably) nestlepro.cs@, enfa.cs@ — can bridge specific
+  emails into the CRM manually anytime (fetch via connector → curl inbound).
+
+## What Didn't Work / gotchas
+- PS5.1 mangles non-ASCII .ps1 written as UTF8-no-BOM — keep scripts ASCII.
+- Set-Content -Encoding failed oddly; use [IO.File]::WriteAllText.
+- Exchange COM: m.To/CC give DISPLAY NAMES not SMTP.
+- Old SPA bundle cached in April's tab caused "attachments off in demo" —
+  always: close tab/hard refresh after deploy; verify deployed bundle by
+  fetching /assets/index-*.js and string-matching.
+- edit_block "Path validation timeout" → retry same call works.
+
+## Next Steps
+1. **Email auto-sync (blocked on IT, two ways in — either works):**
+   a) IT approves the pending "Microsoft Graph Command Line Tools" consent
+      request → rerun device-code flow (fresh code), capture refresh_token,
+      store as edge-fn secrets, deploy `graph-mail-sync` scheduled fn (pg_cron
+      or cron invoke) polling THREE mailboxes → tickets: cs.solution@crea.asia
+      (brand CREA CS), nestlepro.cs@crea.asia (Nestlé Pro), enfa.cs@crea.asia
+      (Enfa). Keep SendGrid for outbound (or move to Graph sendMail later).
+   b) OR IT does app registration (Application perms Mail.ReadWrite+Mail.Send,
+      admin consent, ApplicationAccessPolicy to the 3 mailboxes) — cleaner.
+2. Until then: bridge real emails on request via M365 connector → inbound fn.
+3. First Shopify storefront go-live: add widget script tag (data-brand,
+   data-host=…/functions/v1/webchat), then set that brand's origin in the
+   webchat fn ALLOWED map + add brand→accountId if needed.
+4. Optional polish: brand chip in CRM ticket rows (brand mapped but not
+   displayed); "Offline · 1001" demo phone status in top bar (telephony
+   phase); Customers view for webchat visitors (currently name-only).
+5. Telephony phase gated on ClickNext/Yalecom vendor answers; kit in
+   /mnt/user-data/outputs/p1/telephony/ (sandbox), questions sent.
+
+## Key IDs
+Supabase bequrilwgooesolepubv · fn base
+https://bequrilwgooesolepubv.supabase.co/functions/v1 · tickets 3=Somchai
+(email demo), 4=Veer real test, 5=webchat test · SendGrid free trial ends
+Oct 3 (drops to 100/day).
