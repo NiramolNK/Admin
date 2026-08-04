@@ -6149,7 +6149,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         ══════════════════════════════════════════ */}
         {allocTab==="crm" && (
           <div style={{margin:"-24px -28px"}}>
-            <ServiceCRM />
+            <ServiceCRM user={loginUser} role={role} />
           </div>
         )}
 

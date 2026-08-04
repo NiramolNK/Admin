@@ -2582,12 +2582,19 @@ const NAV = [
   { k: "settings",  key: "navSettings",  ic: Settings,        roles: ["admin", "manager"] },
 ];
 
-export default function ServiceCRM() {
+export default function ServiceCRM({ user, role }) {
   const [lang, setLangState] = useState("en");
   LANG.cur = lang;                       // keep module helpers in sync before children render
   const setLang = (l) => { LANG.cur = l; setLangState(l); };
 
-  const [me, setMe] = useState(null);
+  // NiRM session is the login — no second sign-in inside the tab.
+  // NiRM role → CRM role: manager→admin (full control), T2→supervisor, else agent.
+  const [me, setMe] = useState(() => {
+    const crmRole = role === "manager" ? "admin" : role === "fulltime" ? "manager" : "agent";
+    const display = (user || "User").replace(/@.*/, "");
+    const known = USERS.find((u) => tv(u.n).toLowerCase().startsWith(display.toLowerCase()));
+    return known ? { ...known, role: crmRole } : { id: "nirm-" + display.toLowerCase(), n: { en: display, th: display }, role: crmRole, team: "cx", email: user || "", active: true };
+  });
   const [tab, setTab] = useState("dash");
   const [tickets, setTickets] = useState(seedTickets);
 
@@ -2779,7 +2786,7 @@ export default function ServiceCRM() {
     toast(t("callSaved", secs > 0 ? mmss(secs) : tv(OUT[outcome].n)));
   };
 
-  if (!me) return <Login onLogin={(u) => { setMe(u); setTab("dash"); }} lang={lang} setLang={setLang} />;
+  // login handled by NiRM — CRM always has a session (me is never null)
 
   const nav = NAV.filter((n) => n.roles.includes(me.role));
   const title = t(nav.find((n) => n.k === tab)?.key || "navDash");
@@ -2863,7 +2870,6 @@ export default function ServiceCRM() {
                 <div className="text-[13px] font-semibold leading-tight">{tv(me.n)}</div>
                 <div className="text-[11px]" style={{ color: "var(--muted)" }}>{roleFull}</div>
               </div>
-              <button className="btn btn-g" style={{ padding: "9px 11px" }} onClick={() => { setMe(null); setPlayRec(null); }} aria-label={t("logout")}><LogOut size={16} /></button>
             </div>
           </div>
         </header>
