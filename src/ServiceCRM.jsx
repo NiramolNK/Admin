@@ -23,6 +23,8 @@ const FN_BASE = "https://bequrilwgooesolepubv.supabase.co/functions/v1";
 const EMAIL_FROM = "cs.solution@crea.asia";        // SendGrid-verified single sender
 const EMAIL_FROM_NAME = "CREA Customer Care";
 const biText = (s) => ({ en: s ?? "", th: s ?? "" });
+const ATT_BUCKET = "ticket-attachments";
+const safeAttName = (s) => (s || "file").replace(/[^\w.\-\u0E00-\u0E7F ]+/g, "_").slice(0, 120);
 
 function mapDbTicket(t, msgs) {
   return {
@@ -43,6 +45,7 @@ function mapDbTicket(t, msgs) {
       at: new Date(m.created_at).getTime(),
       text: biText(m.body || ""),
       by: m.author || undefined,
+      att: (m.meta && m.meta.attachments) || undefined,
     })),
   };
 }
@@ -1178,24 +1181,36 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const rows = scope(tickets).filter((x) => OPEN_ST.includes(x.status)).sort((a, b) => sla(a).left - sla(b).left);
   const [sel, setSel] = useState(focus?.id || rows[0]?.id || null);
   const [text, setText] = useState("");
+  const [files, setFiles] = useState([]);          // pending attachments (real email cases)
+  const fileRef = useRef(null);
   const [isNote, setIsNote] = useState(false);
   const [showCanned, setShowCanned] = useState(false);
   const [q, setQ] = useState("");
   const endRef = useRef(null);
 
   useEffect(() => { if (focus) { setSel(focus.id); clearFocus(); } }, [focus]);
+  useEffect(() => { setFiles([]); }, [sel]);   // switching cases drops pending attachments
   const tk = tickets.find((x) => x.id === sel);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [sel, tk?.messages.length]);
 
   const list = rows.filter((x) => !q.trim() || `${subjectOf(x)} ${tv(x.customer)} ${x.id}`.toLowerCase().includes(q.toLowerCase()));
 
+  const openAtt = async (a) => {
+    if (!a.path) return;
+    const { data } = await supabase.storage.from(ATT_BUCKET).createSignedUrl(a.path, 3600);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+  };
+
   const send = () => {
-    if (!text.trim() || !tk) return;
-    const msgText = text.trim();
+    if ((!text.trim() && !files.length) || !tk) return;
+    const msgText = text.trim() || "(attachment)";
     const at = Date.now();
+    const canAttach = tk.dbId && tk.channel === "email" && !isNote;
+    const atts = canAttach ? files.map((f) => ({ name: f.name, path: `${tk.dbId}/out-${at}/${safeAttName(f.name)}`, size: f.size, type: f.type || "" })) : [];
+    const fileObjs = canAttach ? [...files] : [];
     setTickets((p) => p.map((x) => {
       if (x.id !== tk.id) return x;
-      const msgs = [...x.messages, { from: isNote ? "note" : "agent", text: msgText, at, by: tv(me.n) }];
+      const msgs = [...x.messages, { from: isNote ? "note" : "agent", text: msgText, at, by: tv(me.n), ...(atts.length ? { att: atts } : {}) }];
       const first = !isNote && x.firstResponseMin == null ? Math.max(1, Math.round((at - x.createdAt) / MIN)) : x.firstResponseMin;
       return { ...x, messages: msgs, firstResponseMin: first, status: isNote ? x.status : "pending", owner: x.owner || me.id };
     }));
@@ -1206,18 +1221,22 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
       } else if (tk.channel === "email") {
         (async () => {
           try {
+            for (let i = 0; i < fileObjs.length; i++) {
+              const up = await supabase.storage.from(ATT_BUCKET).upload(atts[i].path, fileObjs[i], { contentType: atts[i].type || "application/octet-stream", upsert: true });
+              if (up.error) { toast("✉ attachment upload failed: " + atts[i].name); return; }
+            }
             const { data: s } = await supabase.auth.getSession();
             const r = await fetch(`${FN_BASE}/email/send`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n) }),
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), attachments: atts }),
             });
             if (!r.ok) { const j = await r.json().catch(() => ({})); toast("✉ " + (j.error || `email send failed (${r.status})`)); }
           } catch (e) { toast("✉ email send failed — network"); }
         })();
       }
     }
-    setText(""); setIsNote(false);
+    setText(""); setIsNote(false); setFiles([]);
     toast(isNote ? t("noteSaved") : t("msgSent"));
   };
   const patch = (p, msg) => {
@@ -1292,6 +1311,15 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                       {m.from === "note" && <div className="flex items-center gap-1.5 text-[11px] font-bold mb-1"><StickyNote size={11} />{t("noteBanner")}</div>}
                       {m.from === "call" && <div className="flex items-center gap-1.5 text-[11px] font-bold mb-1"><PhoneCall size={11} />{t("navCalls")}</div>}
                       {tv(m.text)}
+                      {m.att && m.att.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {m.att.map((a, j) => (
+                            <button key={j} onClick={() => openAtt(a)} className="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg" style={{ background: "rgba(127,127,127,.14)", cursor: "pointer" }}>
+                              <Paperclip size={10} />{a.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <div className="text-[10.5px] mt-1 px-1" style={{ color: "var(--muted)", textAlign: m.from === "agent" ? "right" : "left" }}>
                       {m.from === "customer" ? tv(tk.customer) : m.by || t("supportTeam")} · {clock(m.at)}
@@ -1324,15 +1352,26 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                 <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5 }} onClick={() => setShowCanned(!showCanned)}><Zap size={13} />{t("cannedBtn")}</button>
                 <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5, borderColor: isNote ? "var(--amber)" : "var(--line)", background: isNote ? "var(--amber-bg)" : "#fff", color: isNote ? "var(--amber)" : "var(--ink)" }}
                         onClick={() => setIsNote(!isNote)}><StickyNote size={13} />{isNote ? t("noteBtnOn") : t("noteBtn")}</button>
-                <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5 }} onClick={() => toast(t("attachOff"), "error")}><Paperclip size={13} /></button>
+                <input ref={fileRef} type="file" multiple style={{ display: "none" }} onChange={(e) => { setFiles((p) => [...p, ...Array.from(e.target.files || [])].slice(0, 10)); e.target.value = ""; }} />
+                <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5 }} onClick={() => { if (tk?.dbId && tk.channel === "email" && !isNote) fileRef.current?.click(); else toast(t("attachOff"), "error"); }}><Paperclip size={13} />{files.length > 0 && <span className="ml-1 font-bold">{files.length}</span>}</button>
               </div>
+              {files.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {files.map((f, i) => (
+                    <span key={i} className="flex items-center gap-1.5 text-[11.5px] px-2 py-1 rounded-lg" style={{ background: "var(--sky)", color: "var(--blue)", fontWeight: 600 }}>
+                      <Paperclip size={10} />{f.name} <span style={{ opacity: .6 }}>({Math.max(1, Math.round(f.size / 1024))} KB)</span>
+                      <button onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} style={{ display: "flex" }}><X size={11} /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <textarea className="fld" rows={3} value={text} onChange={(e) => setText(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}
                         placeholder={isNote ? t("notePh") : t("replyPh", tv(tk.customer), tv(CH[tk.channel].n))}
                         style={{ background: isNote ? "#FFFBF2" : "#fff" }} />
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>{t("ctrlEnter")}</span>
-                <button className="btn btn-p ml-auto" disabled={!text.trim()} onClick={send}>
+                <button className="btn btn-p ml-auto" disabled={!text.trim() && !files.length} onClick={send}>
                   {isNote ? <><StickyNote size={15} />{t("saveNote")}</> : <><Send size={15} />{t("sendBtn")}</>}
                 </button>
               </div>
