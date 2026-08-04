@@ -2417,9 +2417,9 @@ export default function AllocationPanel({ isAdmin = true }) {
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div>
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
-                {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":"Report"}
+                {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
               </div>
-              <div style={{fontSize:11,color:"#94A3B8",marginTop:1}}>{dateLabel} · {active.length} agents</div>
+              <div style={{fontSize:11,color:"#94A3B8",marginTop:1}}>{allocTab==="crm" ? "3 channels connected" : `${dateLabel} · ${active.length} agents`}</div>
             </div>
           </div>
 

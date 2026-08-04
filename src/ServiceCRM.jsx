@@ -2794,41 +2794,37 @@ export default function ServiceCRM({ user, role }) {
   const myOpen = scope(tickets).filter((x) => OPEN_ST.includes(x.status)).length;
 
   return (
-    <div className={`svc ${lang}`} style={{ display: "flex" }} lang={lang}>
+    <div className={`svc ${lang}`} lang={lang}>
       <style>{CSS}</style>
 
-      <aside className="flex-none flex flex-col" style={{ width: 236, background: "var(--navy)", position: "sticky", top: 0, height: "100vh" }}>
-        <div className="px-5 py-5 flex items-center gap-2.5">
-          <div className="rounded-lg grid place-items-center flex-none" style={{ width: 34, height: 34, background: "var(--blue)" }}><Inbox size={17} color="#fff" /></div>
-          <div>
-            <div className="text-[14.5px] font-bold text-white leading-tight">{t("brand")}</div>
-            <div className="text-[10.5px]" style={{ color: "#9AA3D6" }}>{t("chansConnected", Object.values(chans).filter(Boolean).length)}</div>
-          </div>
+      {/* horizontal top bar (was a left sidebar) — NiRM already owns the left rail */}
+      <div className="flex items-center gap-1.5 px-4 py-2" style={{ background: "var(--navy)", position: "sticky", top: 0, zIndex: 40, overflowX: "auto" }}>
+        <div className="rounded-lg grid place-items-center flex-none" style={{ width: 30, height: 30, background: "var(--blue)" }}><Inbox size={15} color="#fff" /></div>
+        <div className="flex-none mr-3">
+          <div className="text-[13px] font-bold text-white leading-tight">{t("brand")}</div>
+          <div className="text-[10px] whitespace-nowrap" style={{ color: "#9AA3D6" }}>{t("chansConnected", Object.values(chans).filter(Boolean).length)}</div>
         </div>
-        <nav className="px-3 space-y-1 flex-1">
-          {nav.map((n) => (
-            <button key={n.k} className={`nav-i ${tab === n.k ? "on" : ""}`} onClick={() => setTab(n.k)}>
-              <n.ic size={17} className="flex-none" />{t(n.key)}
-              {n.k === "inbox" && myOpen > 0 && <span className="ml-auto pill" style={{ background: "rgba(255,255,255,.2)", color: "#fff", padding: "1px 7px" }}>{myOpen}</span>}
-              {n.k === "calls" && (queue.length + callbacks.length) > 0 && <span className="ml-auto pill" style={{ background: queue.length ? "var(--amber)" : "var(--red)", color: queue.length ? "#313A7E" : "#fff", padding: "1px 7px" }}>{queue.length + callbacks.length}</span>}
-            </button>
-          ))}
-        </nav>
-        <div className="p-3 m-3 rounded-xl" style={{ background: "rgba(255,255,255,.07)" }}>
-          <div className="flex items-center gap-2 text-[11.5px]" style={{ color: "#9AA3D6" }}>
+        {nav.map((n) => (
+          <button key={n.k} className={`nav-i ${tab === n.k ? "on" : ""}`} style={{ width: "auto", flex: "none", padding: "8px 12px", gap: 8, whiteSpace: "nowrap" }} onClick={() => setTab(n.k)}>
+            <n.ic size={16} className="flex-none" />{t(n.key)}
+            {n.k === "inbox" && myOpen > 0 && <span className="pill" style={{ background: "rgba(255,255,255,.2)", color: "#fff", padding: "1px 7px" }}>{myOpen}</span>}
+            {n.k === "calls" && (queue.length + callbacks.length) > 0 && <span className="pill" style={{ background: queue.length ? "var(--amber)" : "var(--red)", color: queue.length ? "#313A7E" : "#fff", padding: "1px 7px" }}>{queue.length + callbacks.length}</span>}
+          </button>
+        ))}
+        <div className="ml-auto flex-none flex items-center gap-4 text-[11px] pl-4" style={{ color: "#9AA3D6" }}>
+          <span className="flex items-center gap-1.5 whitespace-nowrap">
             <span className="dot" style={{ background: alerts.length ? "#FBBF24" : "#34D399" }} />
             {alerts.length ? t("slaRisk", alerts.length) : t("allWithin")}
-          </div>
-          <div className="text-[12.5px] text-white font-semibold mt-1">{t("yourOpen", myOpen)}</div>
-          <div className="flex items-center gap-2 text-[11.5px] mt-2 pt-2" style={{ color: "#9AA3D6", borderTop: "1px solid rgba(255,255,255,.1)" }}>
+          </span>
+          <span className="flex items-center gap-1.5 whitespace-nowrap">
             <span className="dot" style={{ background: sip.connected ? PRESENCE[presence[me.id]?.status || "offline"].c : "#F87171" }} />
             {sip.connected ? `${t(PRESENCE[presence[me.id]?.status || "offline"].k)} · ${sip.ext}` : t("lineDown")}
-          </div>
+          </span>
         </div>
-      </aside>
+      </div>
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="flex items-center gap-4 px-6 py-3.5 bg-white border-b sticky top-0 z-30" style={{ borderColor: "var(--line)" }}>
+        <header className="flex items-center gap-4 px-6 py-3.5 bg-white border-b sticky z-30" style={{ borderColor: "var(--line)", top: 46 }}>
           <div>
             <h1 className="text-[18px] font-bold leading-tight">{title}</h1>
             <p className="text-[12px]" style={{ color: "var(--muted)" }}>
