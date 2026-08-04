@@ -440,16 +440,47 @@ export default function SVCRServiceDesk({ role, canEdit }) {
     now, activeBrand, canEdit, updateInquiry, removeInquiry, addInquiry, addHistoryEntry, showToast, exportCSV,
     syncChannel, syncAllChannels, connectedChannels, todayStr };
 
+  const NAV = [["queue", "Inquiry Queue"], ["templates", "Reply Templates"], ["log", "Daily Log"], ["shiftvol", "Shift Volume"], ...(canEdit ? [["settings", "Settings"]] : [])];
+  const paneLabel = (NAV.find(([id]) => id === pane) || NAV[0])[1];
+  const navItem = (on) => ({ display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", padding: "10px 13px", borderRadius: 10, fontSize: 13.5, fontWeight: on ? 600 : 500, color: on ? "#fff" : "#C3C9EE", background: on ? PURPLE : "transparent", border: "none", cursor: "pointer", boxShadow: on ? "0 4px 14px -4px rgba(122,62,156,.65)" : "none" });
+
   return (
-    <div style={S.page}>
-      <div style={S.header}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
+    <div style={{ ...S.page, display: "flex", alignItems: "stretch" }}>
+      <aside style={{ width: 226, flexShrink: 0, background: NAVY, display: "flex", flexDirection: "column", position: "sticky", top: 0, alignSelf: "flex-start", minHeight: "100vh" }}>
+        <div style={{ padding: "18px 18px 14px", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 34, height: 34, flexShrink: 0, borderRadius: 10, background: PURPLE, display: "grid", placeItems: "center" }}>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"><path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.9-.9L3 20l1-4.9a8.4 8.4 0 1 1 17-3.6z"/></svg>
+          </div>
           <div>
-            <div style={S.kicker}>CREA · CX Operations</div>
-            <div style={S.h1}>SVCR Service Desk</div>
-            <div style={S.sub}>TikTok comments &amp; DM · LINE OA · Email · Amaze · Webchat · Daily operation log</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", lineHeight: 1.2 }}>SVCR Service Desk</div>
+            <div style={{ fontSize: 10.5, color: "#9AA3D6" }}>{activeBrand === "ALL" ? `${settings.brands.length} brands` : `${connectedChannels.length} channels connected`}</div>
           </div>
         </div>
+        <nav style={{ padding: "0 12px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
+          {NAV.map(([id, l]) => (
+            <button key={id} style={navItem(pane === id)} onClick={() => setPane(id)}>
+              {l}
+              {id === "queue" && stats.pending > 0 && <span style={{ marginLeft: "auto", background: "rgba(255,255,255,.2)", color: "#fff", borderRadius: 999, padding: "1px 8px", fontSize: 11, fontWeight: 700 }}>{stats.pending}</span>}
+            </button>
+          ))}
+        </nav>
+        <div style={{ margin: 12, padding: 12, borderRadius: 12, background: "rgba(255,255,255,.07)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: "#9AA3D6" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: stats.breaches ? "#FBBF24" : "#34D399", flexShrink: 0 }} />
+            {stats.breaches ? `${stats.breaches} case${stats.breaches > 1 ? "s" : ""} over SLA` : "All within SLA"}
+          </div>
+          <div style={{ fontSize: 12.5, color: "#fff", fontWeight: 600, marginTop: 4 }}>{stats.pending} pending case{stats.pending === 1 ? "" : "s"}</div>
+        </div>
+      </aside>
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={S.header}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
+            <div>
+              <div style={S.h1}>{paneLabel}</div>
+              <div style={S.sub}>{now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
+            </div>
+          </div>
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 14, alignItems: "center" }}>
           <span style={{ ...S.kicker, marginRight: 4 }}>Brand</span>
@@ -479,20 +510,16 @@ export default function SVCRServiceDesk({ role, canEdit }) {
             </div>
           ))}
         </div>
-      </div>
-
-      <div style={S.body}>
-        <div style={{ display: "flex", gap: 4, marginTop: 14, marginBottom: 10, flexWrap: "wrap" }}>
-          {[["queue", "Inquiry Queue"], ["templates", "Reply Templates"], ["log", "Daily Log"], ["shiftvol", "Shift Volume"], ...(canEdit ? [["settings", "Settings"]] : [])].map(([id, l]) => (
-            <button key={id} style={S.tabBtn(pane === id)} onClick={() => setPane(id)}>{l}</button>
-          ))}
         </div>
-        <div style={S.card}>
-          {pane === "queue" && <QueuePane {...ctx} />}
-          {pane === "templates" && <TemplatesPane {...ctx} />}
-          {pane === "log" && <DailyLogPane {...ctx} />}
-          {pane === "shiftvol" && <ShiftVolumePane {...ctx} />}
-          {pane === "settings" && canEdit && <SettingsPane {...ctx} />}
+
+        <div style={S.body}>
+          <div style={{ ...S.card, marginTop: 16 }}>
+            {pane === "queue" && <QueuePane {...ctx} />}
+            {pane === "templates" && <TemplatesPane {...ctx} />}
+            {pane === "log" && <DailyLogPane {...ctx} />}
+            {pane === "shiftvol" && <ShiftVolumePane {...ctx} />}
+            {pane === "settings" && canEdit && <SettingsPane {...ctx} />}
+          </div>
         </div>
       </div>
       {toast && <div style={{ position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)", background: NAVY, color: "#fff", fontSize: 13, padding: "9px 18px", borderRadius: 999, zIndex: 9999, boxShadow: SHADOW }}>{toast}</div>}
@@ -652,34 +679,34 @@ function QueuePane(ctx) {
   );
 }
 
-// ── ticket list row (left pane) ──
+// ── ticket list row (left pane) — service-crm inbox row anatomy ──
 function TicketRow({ i, now, settings, selected, onClick }) {
   const def = getChannelDef(i.channel);
   const isPending = ["New", "In Progress", "Escalated"].includes(i.status);
   const age = isPending ? businessMinutes(new Date(i.createdAt), now, settings.holidays) : null;
   const breach = isPending && age > settings.slaTarget;
+  const replied = ["Replied", "Closed"].includes(i.status);
+  const repliedLate = replied && i.repliedAt && businessMinutes(new Date(i.createdAt), new Date(i.repliedAt), settings.holidays) > settings.slaTarget;
+  const slaLabel = breach ? `${fmtMins(age - settings.slaTarget)} over SLA`
+    : isPending ? `${fmtMins(Math.max(0, settings.slaTarget - age))} left`
+    : replied ? (repliedLate ? "Replied late" : "Replied in time") : "";
+  const slaColor = breach ? "#DC3545" : isPending ? (age > settings.slaTarget * 0.7 ? "#E8940C" : "#12A150") : repliedLate ? "#E86A8B" : "#12A150";
   const st = STATUS_STYLE[i.status] || STATUS_STYLE.New;
 
   return (
     <div onClick={onClick} style={{
-      padding: "10px 12px", cursor: "pointer", borderBottom: "1px solid #F1EFF7", borderLeft: "3px solid " + (selected ? PURPLE : "transparent"),
-      background: selected ? "#F5F3FF" : breach ? "#FFF1F2" : "#fff",
+      padding: "11px 13px", cursor: "pointer", borderBottom: "1px solid #F1EFF7", borderLeft: "3px solid " + (selected ? PURPLE : "transparent"),
+      background: selected ? "#F3EBF9" : "#fff",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ width: 26, height: 26, borderRadius: 999, background: def.chipBg, color: def.chipFg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>
-          {def.short.slice(0, 2).toUpperCase()}
-        </span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#0F1B2D", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.ref || i.brand || "Unknown"}</span>
-            <span style={{ fontSize: 10, color: "#8B8FB0", flexShrink: 0 }}>{fmtDT(i.createdAt)}</span>
-          </div>
-          <div style={{ fontSize: 12, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.message}</div>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <span style={S.chip(def.chipBg, def.chipFg)}>{def.short}</span>
+        {slaLabel && <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 600, color: slaColor, flexShrink: 0 }}>{slaLabel}</span>}
       </div>
-      <div style={{ display: "flex", gap: 6, marginTop: 6, marginLeft: 34, alignItems: "center" }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#0F1B2D", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.ref || i.brand || "Unknown"}</div>
+      <div style={{ fontSize: 12, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>{i.message}</div>
+      <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
         <span style={S.chip(st.bg, st.fg)}>{i.status}</span>
-        {breach && <span style={{ fontSize: 10, fontWeight: 700, color: "#E11D48" }}>⏱ SLA</span>}
+        <span style={{ fontSize: 10.5, color: "#8B8FB0" }}>{i.brand} · {fmtDT(i.createdAt)}</span>
       </div>
     </div>
   );
