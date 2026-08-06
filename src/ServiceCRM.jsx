@@ -68,6 +68,12 @@ function mapDbTicket(t, msgs) {
     firstResponseMin: t.first_response_at ? Math.max(1, Math.round((new Date(t.first_response_at) - new Date(t.created_at)) / 60000)) : null,
     resolveMin: t.resolved_at ? Math.max(1, Math.round((new Date(t.resolved_at) - new Date(t.created_at)) / 60000)) : null,
     csat: t.csat ?? null, reopened: !!t.reopened, tags: [],
+    // which support address the customer emailed (from the first inbound message)
+    emailTo: (() => {
+      const m = (msgs || []).find((x) => x.direction === "in" && x.meta && x.meta.to);
+      const to = m?.meta?.to || "";
+      return (to.match(/<([^>]+)>/)?.[1] ?? to).trim().toLowerCase() || null;
+    })(),
     messages: (msgs || []).map((m) => ({
       from: m.direction === "in" ? "customer" : m.direction === "note" ? "note" : "agent",
       at: new Date(m.created_at).getTime(),
@@ -1265,7 +1271,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             const r = await fetch(`${FN_BASE}/email/send`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), attachments: atts }),
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: (tk.emailTo && !tk.emailTo.includes("@parse.")) ? tk.emailTo : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), attachments: atts }),
             });
             if (!r.ok) { const j = await r.json().catch(() => ({})); toast("✉ " + (j.error || `email send failed (${r.status})`)); }
           } catch (e) { toast("✉ email send failed — network"); }
@@ -1306,6 +1312,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
               <button key={x.id} className={`conv ${sel === x.id ? "on" : ""}`} onClick={() => setSel(x.id)}>
                 <div className="flex items-center gap-2 mb-1">
                   <ChanChip k={x.channel} />
+                  {x.emailTo && <span className="text-[10.5px] truncate" style={{ color: "var(--muted)", maxWidth: 140 }} title={`Sent to ${x.emailTo}`}>→ {x.emailTo}</span>}
                   <span className="ml-auto text-[10.5px]" style={{ color: SLA_C[s.state], fontWeight: 600 }}>{s.label}</span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -1331,7 +1338,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             <div className="px-5 py-3 bg-white border-b flex items-center gap-3" style={{ borderColor: "var(--line)" }}>
               <div className="min-w-0">
                 <div className="font-bold text-[14.5px] truncate">{subjectOf(tk)}</div>
-                <div className="text-[11.5px]" style={{ color: "var(--muted)" }}>{tk.id} · {tv(tk.customer)} · {t("receivedAgo", ago(tk.createdAt))}</div>
+                <div className="text-[11.5px]" style={{ color: "var(--muted)" }}>{tk.id} · {tv(tk.customer)} · {t("receivedAgo", ago(tk.createdAt))}{tk.emailTo ? <> · <span title="Mailbox this email was sent to">✉ {tk.emailTo}</span></> : null}</div>
               </div>
               <div className="ml-auto flex items-center gap-2">
                 <SlaChip t={tk} />
