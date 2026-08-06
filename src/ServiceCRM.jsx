@@ -245,6 +245,7 @@ const D = {
   ctrlEnter: ["Press Ctrl + Enter to send", "กด Ctrl + Enter เพื่อส่ง"],
   sendBtn: ["Send reply", "ส่งข้อความ"], saveNote: ["Save note", "บันทึกโน้ต"],
   attachOff: ["Attachments are off in this demo", "แนบไฟล์ยังไม่เปิดใช้งานในเดโม"],
+  attTooBig: ["Some files were skipped — max 10 MB per file for email", "บางไฟล์ถูกข้าม — อีเมลแนบได้สูงสุด 10 MB ต่อไฟล์"],
   callBack: ["Call back", "โทรกลับ"], calling: ["Calling %s", "กำลังต่อสายหา %s"],
   copied: ["Number copied", "คัดลอกเบอร์แล้ว"], copiedText: ["Copied to clipboard", "คัดลอกเนื้อหาแล้ว"],
   firstReplyIn: ["First reply in", "ตอบครั้งแรกใน"],
@@ -1313,7 +1314,8 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     if (!data?.signedUrl) return;
     const isImg = /^image\//i.test(a.type || "") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(a.name || "");
     const isPdf = /pdf/i.test(a.type || "") || /\.pdf$/i.test(a.name || "");
-    if (isImg || isPdf) setPreview({ url: data.signedUrl, name: a.name, kind: isImg ? "img" : "pdf" });
+    const isVid = /^video\//i.test(a.type || "") || /\.(mp4|webm|mov|m4v)$/i.test(a.name || "");
+    if (isImg || isPdf || isVid) setPreview({ url: data.signedUrl, name: a.name, kind: isImg ? "img" : isPdf ? "pdf" : "vid" });
     else window.open(data.signedUrl, "_blank"); // other file types → download
   };
 
@@ -1475,7 +1477,12 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                 <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5 }} onClick={() => setShowCanned(!showCanned)}><Zap size={13} />{t("cannedBtn")}</button>
                 <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5, borderColor: isNote ? "var(--amber)" : "var(--line)", background: isNote ? "var(--amber-bg)" : "#fff", color: isNote ? "var(--amber)" : "var(--ink)" }}
                         onClick={() => setIsNote(!isNote)}><StickyNote size={13} />{isNote ? t("noteBtnOn") : t("noteBtn")}</button>
-                <input ref={fileRef} type="file" multiple style={{ display: "none" }} onChange={(e) => { setFiles((p) => [...p, ...Array.from(e.target.files || [])].slice(0, 10)); e.target.value = ""; }} />
+                <input ref={fileRef} type="file" multiple style={{ display: "none" }} onChange={(e) => {
+                  const picked = Array.from(e.target.files || []);
+                  const ok = picked.filter((f) => f.size <= 10 * 1024 * 1024);
+                  if (ok.length < picked.length) toast("✉ " + t("attTooBig"), "error");
+                  setFiles((p) => [...p, ...ok].slice(0, 10)); e.target.value = "";
+                }} />
                 <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5 }} onClick={() => { if (tk?.dbId && tk.channel === "email" && !isNote) fileRef.current?.click(); else toast(t("attachOff"), "error"); }}><Paperclip size={13} />{files.length > 0 && <span className="ml-1 font-bold">{files.length}</span>}</button>
               </div>
               {files.length > 0 && (
@@ -1574,6 +1581,8 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
           </div>
           {preview.kind === "img"
             ? <img src={preview.url} alt={preview.name} onClick={(e) => e.stopPropagation()} style={{ maxWidth: "92vw", maxHeight: "82vh", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,.5)", background: "#fff" }} />
+            : preview.kind === "vid"
+            ? <video src={preview.url} controls autoPlay onClick={(e) => e.stopPropagation()} style={{ maxWidth: "92vw", maxHeight: "82vh", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,.5)", background: "#000" }} />
             : <iframe title={preview.name} src={preview.url} onClick={(e) => e.stopPropagation()} style={{ width: "min(920px, 92vw)", height: "82vh", border: "none", borderRadius: 12, background: "#fff" }} />}
         </div>
       )}
