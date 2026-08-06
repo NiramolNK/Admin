@@ -246,6 +246,9 @@ const D = {
   firstReplyIn: ["First reply in", "ตอบครั้งแรกใน"],
   custHistory: ["This customer's history", "ประวัติเคสของลูกค้ารายนี้"],
   caseActions: ["Case actions", "การจัดการเคส"],
+  delCase: ["Delete case", "ลบเคส"],
+  delConfirm: ["Delete case %s permanently? All messages and history will be removed. This cannot be undone.", "ลบเคส %s ถาวร? ข้อความและประวัติทั้งหมดจะถูกลบ ไม่สามารถกู้คืนได้"],
+  delDone: ["Case deleted", "ลบเคสแล้ว"],
   escalate: ["Escalate to another team", "ส่งต่อทีมอื่น"],
   waitCust: ["Waiting on customer", "รอลูกค้าตอบกลับ"],
   resolveClose: ["Resolve and close", "แก้ไขเสร็จ ปิดเคส"],
@@ -1483,6 +1486,20 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                 <button className="btn btn-g w-full justify-start" onClick={() => patch({ status: "escalated", priority: "high" }, t("escalated"))}><ArrowUpRight size={14} />{t("escalate")}</button>
                 <button className="btn btn-g w-full justify-start" onClick={() => patch({ status: "pending" }, t("pendingSet"))}><Clock size={14} />{t("waitCust")}</button>
                 <button className="btn btn-d w-full justify-start" onClick={() => patch({ status: "resolved", resolveMin: Math.round((Date.now() - tk.createdAt) / MIN) }, t("resolvedMsg"))}><CheckCircle2 size={14} />{t("resolveClose")}</button>
+                {me.role === "admin" && (
+                  <button className="btn btn-g w-full justify-start" style={{ color: "var(--red)" }}
+                    onClick={async () => {
+                      if (!window.confirm(t("delConfirm", tk.id))) return;
+                      if (tk.dbId) {
+                        await supabase.from("messages").delete().eq("ticket_id", tk.dbId);
+                        const { error } = await supabase.from("tickets").delete().eq("id", tk.dbId);
+                        if (error) { toast("🗑 " + error.message); return; }
+                      }
+                      setTickets((p) => p.filter((x) => x.id !== tk.id));
+                      setSel(null);
+                      toast(t("delDone"));
+                    }}><X size={14} />{t("delCase")}</button>
+                )}
               </div>
             </div>
           </div>
