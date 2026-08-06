@@ -214,6 +214,10 @@ const D = {
   fName: ["Customer name", "ชื่อลูกค้า"], fPhone: ["Contact number", "เบอร์ติดต่อ"],
   fOrder: ["Order number", "เลขที่คำสั่งซื้อ"], fChanIn: ["Channel it came in on", "ช่องทางที่ติดต่อเข้ามา"],
   fCat: ["Request type", "ประเภทเรื่อง"], fPri: ["Priority", "ความเร่งด่วน"],
+  fCustEmail: ["Customer email", "อีเมลลูกค้า"], fFromBox: ["Send from mailbox", "ส่งจากอีเมล"],
+  errCustEmail: ["Enter a valid customer email address", "กรอกอีเมลลูกค้าให้ถูกต้อง"],
+  errSubjReq: ["Subject is required for an email case", "ต้องระบุหัวข้ออีเมล"],
+  createSend: ["Create & send email", "สร้างเคสและส่งอีเมล"],
   fSubject: ["Subject", "หัวเรื่อง"], fSubjectPh: ["Leave blank and we'll write one", "เว้นว่างไว้ ระบบจะตั้งให้อัตโนมัติ"],
   fDetail: ["What the customer said", "รายละเอียดที่ลูกค้าแจ้ง"],
   fDetailPh: ["Capture it in the customer's own words as much as possible", "สรุปสิ่งที่ลูกค้าบอก ตามคำพูดของลูกค้าให้มากที่สุด"],
@@ -1187,13 +1191,49 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
   );
 }
 
+const OUTBOUND_MAILBOXES = ["cs.solution@crea.asia", "enfa.cs@crea.asia", "nestlepro.cs@crea.asia"];
+
 function NewTicket({ me, onClose, onSave }) {
-  const [f, setF] = useState({ customer: "", phone: "", order: "", channel: "line", catKey: CAT_KEYS[0], priority: "normal", subject: "", detail: "" });
+  const [f, setF] = useState({ customer: "", phone: "", order: "", channel: "line", catKey: CAT_KEYS[0], priority: "normal", subject: "", detail: "", email: "", fromBox: OUTBOUND_MAILBOXES[0] });
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
   const set = (k, v) => { setF((p) => ({ ...p, [k]: v })); setErr(""); };
-  const submit = () => {
+  const submit = async () => {
     if (!f.customer.trim()) return setErr(t("errName"));
     if (!f.detail.trim()) return setErr(t("errDetail"));
+    // ── outbound-first EMAIL case: create a real DB case and actually send the email ──
+    if (f.channel === "email") {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) return setErr(t("errCustEmail"));
+      if (!f.subject.trim()) return setErr(t("errSubjReq"));
+      setBusy(true);
+      try {
+        const { data: tkRow, error } = await supabase.from("tickets").insert({
+          brand: "CREA", channel: "email",
+          customer_name: f.customer.trim(), customer_email: f.email.trim().toLowerCase(),
+          subject: f.subject.trim(),
+          ...(f.order ? { meta: { order: f.order } } : {}),
+        }).select("id").single();
+        if (error) { setBusy(false); return setErr(error.message); }
+        const { data: s } = await supabase.auth.getSession();
+        const r = await fetch(`${FN_BASE}/email/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
+          body: JSON.stringify({ ticketId: tkRow.id, body: f.detail, fromAddress: f.fromBox, fromName: EMAIL_FROM_NAME, agentName: tv(me.n) }),
+        });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); setBusy(false); return setErr("✉ " + (j.error || `send failed (${r.status})`)); }
+        onSave({
+          id: "TK-E" + tkRow.id, dbId: tkRow.id,
+          subject: { en: f.subject.trim(), th: f.subject.trim() },
+          catKey: f.catKey, product: null,
+          customer: { en: f.customer, th: f.customer }, phone: f.phone || "-", email: f.email.trim(), order: f.order || null,
+          channel: "email", priority: f.priority, status: "pending", emailTo: f.fromBox,
+          owner: me.id, createdAt: Date.now(),
+          firstResponseMin: null, resolveMin: null, csat: null, reopened: false, tags: [],
+          messages: [{ from: "agent", text: biText(f.detail), at: Date.now(), by: tv(me.n) }],
+        });
+      } catch (e) { setBusy(false); return setErr("✉ network error"); }
+      return;
+    }
     const sub = f.subject.trim();
     onSave({
       id: "TK-" + Date.now().toString().slice(-4),
@@ -1214,6 +1254,13 @@ function NewTicket({ me, onClose, onSave }) {
         <div><label className="lbl">{t("fOrder")}</label><input className="fld" value={f.order} onChange={(e) => set("order", e.target.value)} placeholder="SO240123" /></div>
         <div><label className="lbl">{t("fChanIn")}</label>
           <select className="fld" value={f.channel} onChange={(e) => set("channel", e.target.value)}>{CH_KEYS.map((k) => <option key={k} value={k}>{tv(CH[k].n)}</option>)}</select></div>
+        {f.channel === "email" && (
+          <>
+            <div><label className="lbl">{t("fCustEmail")} *</label><input className="fld" type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="customer@example.com" /></div>
+            <div><label className="lbl">{t("fFromBox")}</label>
+              <select className="fld" value={f.fromBox} onChange={(e) => set("fromBox", e.target.value)}>{OUTBOUND_MAILBOXES.map((m) => <option key={m} value={m}>{m}</option>)}</select></div>
+          </>
+        )}
         <div><label className="lbl">{t("fCat")}</label>
           <select className="fld" value={f.catKey} onChange={(e) => set("catKey", e.target.value)}>{CAT_KEYS.map((k) => <option key={k} value={k}>{tv(CAT[k])}</option>)}</select></div>
         <div><label className="lbl">{t("fPri")}</label>
@@ -1227,7 +1274,7 @@ function NewTicket({ me, onClose, onSave }) {
       {err && <p className="text-[12.5px] mt-3 font-medium" style={{ color: "var(--red)" }}>{err}</p>}
       <div className="flex gap-2 justify-end mt-6">
         <button className="btn btn-g" onClick={onClose}>{t("cancel")}</button>
-        <button className="btn btn-p" onClick={submit}><Save size={15} />{t("create")}</button>
+        <button className="btn btn-p" disabled={busy} onClick={submit}>{f.channel === "email" ? <Send size={15} /> : <Save size={15} />}{busy ? "…" : f.channel === "email" ? t("createSend") : t("create")}</button>
       </div>
     </Modal>
   );
