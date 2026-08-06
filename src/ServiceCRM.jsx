@@ -1297,14 +1297,24 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   useEffect(() => { setFiles([]); if (sel) markRead(sel); }, [sel]);   // switching cases drops pending attachments + clears unread
   useEffect(() => { if (sel && unread[sel]) markRead(sel); }, [unread]); // new msg lands in the open case → already reading it
   const tk = tickets.find((x) => x.id === sel);
-  useEffect(() => { endRef.current?.scrollIntoView({ block: "end" }); }, [sel, tk?.messages.length]);
+  // scroll ONLY the thread pane to the newest message — scrollIntoView scrolls
+  // the whole page (the "jumping" bug), so set scrollTop on the pane directly
+  useEffect(() => {
+    const pane = endRef.current?.parentElement;
+    if (pane) pane.scrollTop = pane.scrollHeight;
+  }, [sel, tk?.messages.length]);
 
   const list = rows.filter((x) => !q.trim() || `${subjectOf(x)} ${tv(x.customer)} ${x.id}`.toLowerCase().includes(q.toLowerCase()));
 
+  const [preview, setPreview] = useState(null); // { url, name, kind: "img" | "pdf" }
   const openAtt = async (a) => {
     if (!a.path) return;
     const { data } = await supabase.storage.from(ATT_BUCKET).createSignedUrl(a.path, 3600);
-    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+    if (!data?.signedUrl) return;
+    const isImg = /^image\//i.test(a.type || "") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(a.name || "");
+    const isPdf = /pdf/i.test(a.type || "") || /\.pdf$/i.test(a.name || "");
+    if (isImg || isPdf) setPreview({ url: data.signedUrl, name: a.name, kind: isImg ? "img" : "pdf" });
+    else window.open(data.signedUrl, "_blank"); // other file types → download
   };
 
   const send = () => {
@@ -1551,6 +1561,21 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             </div>
           </div>
         </>
+      )}
+
+      {/* ── in-app attachment viewer (images + PDFs) ── */}
+      {preview && (
+        <div onClick={() => setPreview(null)}
+             style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(20,16,45,.78)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div className="flex items-center gap-3 mb-3" onClick={(e) => e.stopPropagation()}>
+            <span className="text-white text-[13px] font-semibold truncate" style={{ maxWidth: 480 }}>{preview.name}</span>
+            <a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-g" style={{ padding: "5px 12px", fontSize: 12 }}><Download size={13} />Download</a>
+            <button className="btn btn-g" style={{ padding: "5px 12px", fontSize: 12 }} onClick={() => setPreview(null)}><X size={13} />Close</button>
+          </div>
+          {preview.kind === "img"
+            ? <img src={preview.url} alt={preview.name} onClick={(e) => e.stopPropagation()} style={{ maxWidth: "92vw", maxHeight: "82vh", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,.5)", background: "#fff" }} />
+            : <iframe title={preview.name} src={preview.url} onClick={(e) => e.stopPropagation()} style={{ width: "min(920px, 92vw)", height: "82vh", border: "none", borderRadius: 12, background: "#fff" }} />}
+        </div>
       )}
     </div>
   );
@@ -2799,10 +2824,12 @@ export default function ServiceCRM({ user, role }) {
         const real = await fetchRealTickets();
         if (stop || !real.length) return;
         // ── new inbound message detection → chime + unread badges ──
-        const counts = new Map(real.map((x) => [x.id, x.messages.filter((m) => m.from === "customer").length]));
+        // only OPEN cases count toward chime/badges — auto-closed robot mail stays silent
+        const openReal = real.filter((x) => !["resolved", "closed"].includes(x.status));
+        const counts = new Map(openReal.map((x) => [x.id, x.messages.filter((m) => m.from === "customer").length]));
         if (seenInRef.current) {
           const fresh = {}; let hits = 0, latest = null;
-          for (const x of real) {
+          for (const x of openReal) {
             const grew = (counts.get(x.id) || 0) - (seenInRef.current.get(x.id) ?? 0);
             if (grew > 0) { fresh[x.id] = grew; hits += grew; latest = x; }
           }
