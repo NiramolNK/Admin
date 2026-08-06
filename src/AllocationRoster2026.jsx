@@ -51,6 +51,22 @@ const ALLOC_DAYS    = [{code:"Mon",wd:1},{code:"Tue",wd:2},{code:"Wed",wd:3},{co
 const ALLOC_WK      = [1,2,3,4,5];
 const ALLOC_ALL     = [1,2,3,4,5,6,0];
 const ALLOC_SHIFT_C = {M:{bg:"#DBEAFE",color:"#1D4ED8",label:"M"},ME:{bg:"#F0FDFA",color:"#0F766E",label:"ME"},E:{bg:"#D1FAE5",color:"#065F46",label:"E"},Off:{bg:"#FEE2E2",color:"#B91C1C",label:"Off"},TOIL:{bg:"#FEF3C7",color:"#92400E",label:"TOIL"},OT:{bg:"#FCE7F3",color:"#9D174D",label:"OT"}};
+/* ── duplicate-accounts guard ──
+   User accounts must be email-based (Supabase auth). Legacy name-only
+   accounts ("Boo", "Mint", …) from the old login created duplicate rows in
+   the People list. Drop any non-email username and dedupe by email. */
+const sanitizeAccounts = (list) => {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  return list.filter((u) => {
+    const uname = (u?.username || "").trim().toLowerCase();
+    if (!uname.includes("@")) return false;
+    if (seen.has(uname)) return false;
+    seen.add(uname);
+    return true;
+  });
+};
+
 const ALLOC_TEAM_C  = {T2:{color:"#1D4ED8",bg:"#DBEAFE"},T1:{color:"#0F766E",bg:"#F0FDFA"},Return:{color:"#B91C1C",bg:"#FEE2E2"},CC:{color:"#7C3AED",bg:"#F3E8FF"}};
 const ALLOC_AGENTS_INIT = [
   {id:"A01",name:"Markhom", team:"T2",    active:true,shifts:["M"],        days:[...ALLOC_WK],  costDay:766, rule:""},
@@ -1304,7 +1320,10 @@ export default function AllocationPanel({ isAdmin = true }) {
             }
           }
           if (d.role && ROLES[d.role]) { setRole(d.role); setLoggedIn(true); }
-          if (d.userAccounts?.length) setUserAccounts(d.userAccounts);
+          // FIX (duplicate-accounts cleanup): legacy name-only accounts (username
+          // without "@", from the pre-Supabase login) were removed from storage.
+          // Filter them on every load so a stale tab can't re-introduce them.
+          if (d.userAccounts?.length) setUserAccounts(sanitizeAccounts(d.userAccounts));
 
           // FIX (data-loss bug #3 from senior-dev review):
           // Stash a snapshot of what we just loaded so the save-shrink guard
@@ -1444,7 +1463,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         globalFlags:    setGlobalFlags,
         changeRequests: setChangeRequests,
         userProfiles:   setUserProfiles,
-        userAccounts:   setUserAccounts,
+        userAccounts:   (v) => setUserAccounts(sanitizeAccounts(v)),
         fulltimeSalary: setFulltimeSalary,
         // Intentionally NOT synced from foreign tabs (parity with old
         // behaviour): role and prefs are session-scoped — another tab's
