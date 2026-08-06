@@ -25,6 +25,27 @@ const EMAIL_FROM_NAME = "CREA Customer Care";
 const biText = (s) => ({ en: s ?? "", th: s ?? "" });
 const ATT_BUCKET = "ticket-attachments";
 
+/* ── attachment renderer: images show inline as thumbnails, other files as chips ── */
+function AttThumb({ a, onOpen }) {
+  const [url, setUrl] = useState(null);
+  const isImg = /^image\//i.test(a.type || "") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(a.name || "");
+  useEffect(() => {
+    let live = true;
+    if (isImg && a.path) supabase.storage.from(ATT_BUCKET).createSignedUrl(a.path, 3600)
+      .then(({ data }) => { if (live && data?.signedUrl) setUrl(data.signedUrl); }).catch(() => {});
+    return () => { live = false; };
+  }, [a.path]);
+  if (isImg && url) return (
+    <img src={url} alt={a.name} title={a.name} onClick={onOpen} loading="lazy"
+         style={{ maxWidth: 240, maxHeight: 180, borderRadius: 10, cursor: "pointer", display: "block", border: "1px solid rgba(127,127,127,.25)" }} />
+  );
+  return (
+    <button onClick={onOpen} className="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg" style={{ background: "rgba(127,127,127,.14)", cursor: "pointer" }}>
+      <Paperclip size={10} />{a.name}
+    </button>
+  );
+}
+
 /* ── new-message chime (WebAudio, no asset needed) ── */
 let _chimeCtx;
 function playChime() {
@@ -1359,11 +1380,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                       {tv(m.text)}
                       {m.att && m.att.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
-                          {m.att.map((a, j) => (
-                            <button key={j} onClick={() => openAtt(a)} className="flex items-center gap-1.5 text-[11px] font-semibold px-2 py-1 rounded-lg" style={{ background: "rgba(127,127,127,.14)", cursor: "pointer" }}>
-                              <Paperclip size={10} />{a.name}
-                            </button>
-                          ))}
+                          {m.att.map((a, j) => <AttThumb key={j} a={a} onOpen={() => openAtt(a)} />)}
                         </div>
                       )}
                     </div>
