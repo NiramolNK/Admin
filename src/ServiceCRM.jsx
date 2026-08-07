@@ -432,9 +432,14 @@ function mapDbTicket(t, msgs) {
     // threads list a dozen colleagues in To/Cc, so we can't just take the first
     // address — scan the whole line for a known mailbox instead.
     emailTo: (() => {
-      const m = (msgs || []).find((x) => x.direction === "in" && x.meta && x.meta.to);
+      const m = (msgs || []).find((x) => x.direction === "in" && x.meta && (x.meta.ourBox || x.meta.to));
+      // the edge function records the resolved shop mailbox on new mail
+      if (m?.meta?.ourBox) return String(m.meta.ourBox).toLowerCase();
+      // older messages: find the first @crea.asia address that isn't a colleague
       const line = `${m?.meta?.to || ""} , ${m?.meta?.cc || ""}`.toLowerCase();
-      const hit = SUPPORT_MAILBOXES.find((box) => line.includes(box));
+      const hit = (line.match(/[a-z0-9._%+-]+@crea\.asia/g) || [])
+        .map((a) => a.replace(/\+[^@]*@/, "@"))
+        .find((a) => !/^[a-z]+\.[a-z]{1,2}@/.test(a) || ["cs.solution@crea.asia", "enfa.cs@crea.asia", "nestlepro.cs@crea.asia"].includes(a));
       if (hit) return hit;
       const to = m?.meta?.to || "";
       return (to.match(/<([^>]+)>/)?.[1] ?? to).trim().toLowerCase() || null;
@@ -3450,14 +3455,13 @@ function SignatureSettings({ me, toast }) {
       )}
 
       {/* preview per mailbox — brand line changes with the client */}
-      <label className="lbl mt-4">{t("sigPreviewAs", box.split("@")[0])}</label>
-      <div className="flex gap-1 p-1 rounded-lg mb-2" style={{ background: "#F1F5F9" }}>
-        {OUTBOUND_MAILBOXES.map((m) => (
-          <button key={m} onClick={() => setBox(m)} className="px-3 py-1.5 rounded-md text-[12px] font-semibold flex-1 truncate"
-                  style={{ background: box === m ? "#fff" : "transparent", color: box === m ? "var(--blue)" : "var(--muted)",
-                           boxShadow: box === m ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{m.split("@")[0]}</button>
+      {/* preview against any of the brand mailboxes — the brand line follows it */}
+      <label className="lbl mt-4">{t("sigPreviewAs", cfg.brandByMailbox?.[box] || box.split("@")[0])}</label>
+      <select className="fld mb-2" value={box} onChange={(e) => setBox(e.target.value)}>
+        {Object.keys(cfg.brandByMailbox || {}).sort().map((m) => (
+          <option key={m} value={m}>{(cfg.brandByMailbox[m] || m.split("@")[0])} — {m}</option>
         ))}
-      </div>
+      </select>
       <pre className="px-3 py-2.5 rounded-lg whitespace-pre-wrap"
            style={{ background: "var(--slate-bg)", color: "var(--ink)", fontFamily: "inherit", fontSize: 12.5 }}>{preview}</pre>
 
