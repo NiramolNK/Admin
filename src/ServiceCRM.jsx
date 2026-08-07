@@ -1686,7 +1686,8 @@ function NewTicket({ me, onClose, onSave }) {
         const r = await fetch(`${FN_BASE}/email/send`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-          body: JSON.stringify({ ticketId: tkRow.id, body: f.detail, fromAddress: f.fromBox, fromName: EMAIL_FROM_NAME, agentName: tv(me.n) }),
+          // agentKey → the sender's own signature, same as a reply
+          body: JSON.stringify({ ticketId: tkRow.id, body: f.detail, fromAddress: f.fromBox, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase() }),
         });
         if (!r.ok) { const j = await r.json().catch(() => ({})); setBusy(false); return setErr("✉ " + (j.error || `send failed (${r.status})`)); }
         onSave({
