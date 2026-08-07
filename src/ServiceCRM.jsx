@@ -73,6 +73,219 @@ function notifyDesktop(title, body) {
     n.onclick = () => { window.focus(); n.close(); };
   } catch (e) { /* ignore */ }
 }
+
+/* ══════════ 3CX telephony bridge ══════════
+   The `telephony` edge function receives call events from 3CX and stores them in
+   public.call_events. The CRM polls that table every 3s and pops the incoming-call
+   card. Until the 3CX PRO licence is active you can drive it with the
+   "Simulate incoming call" button in the Calls tab. */
+const TEL_BASE = FN_BASE + "/telephony";
+const TEL_TOKEN = "nirm3cx_7fk2p9qzx4m8vc1ade6b";
+
+/* 0922634562 / +66922634562 / 66-92-263-4562 all compare equal */
+const phoneKey = (v) => {
+  if (!v) return "";
+  let n = String(v).replace(/[^0-9+]/g, "").replace(/^\+/, "");
+  if (n.startsWith("66") && n.length >= 11) n = "0" + n.slice(2);
+  return n;
+};
+
+/* soft two-tone ring, repeats while the card is up */
+function ringTone() {
+  try {
+    _chimeCtx = _chimeCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = _chimeCtx.currentTime;
+    [0, 0.42].forEach((d) => {
+      const o = _chimeCtx.createOscillator(), g = _chimeCtx.createGain();
+      o.type = "sine"; o.frequency.value = 620;
+      g.gain.setValueAtTime(0.0001, t0 + d);
+      g.gain.exponentialRampToValueAtTime(0.16, t0 + d + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.34);
+      o.connect(g); g.connect(_chimeCtx.destination);
+      o.start(t0 + d); o.stop(t0 + d + 0.36);
+    });
+  } catch (e) { /* autoplay blocked — the card still shows */ }
+}
+
+/* ══════════ collision prevention ══════════
+   Every agent with a case open heartbeats into public.case_viewers every 10s and
+   flips to "typing" while the reply box has text. Rows self-expire after 45s, so
+   a closed laptop clears itself. Returns the OTHER people in this case. */
+function useCaseViewers(ticketKey, me, typing) {
+  const [others, setOthers] = useState([]);
+
+  useEffect(() => {
+    if (!ticketKey || !me) return;
+    let dead = false;
+
+    const beat = async () => {
+      if (dead) return;
+      try {
+        await supabase.rpc("touch_case_viewer", {
+          p_ticket: String(ticketKey), p_agent: String(me.id),
+          p_name: tv(me.n), p_action: typing ? "typing" : "viewing",
+        });
+      } catch (e) { /* offline — next beat retries */ }
+    };
+    const read = async () => {
+      if (dead) return;
+      try {
+        const cutoff = new Date(Date.now() - 45000).toISOString();
+        const { data } = await supabase.from("case_viewers")
+          .select("*").eq("ticket_key", String(ticketKey)).gte("updated_at", cutoff);
+        if (!dead) setOthers((data || []).filter((v) => String(v.agent_id) !== String(me.id)));
+      } catch (e) { /* ignore */ }
+    };
+
+    beat(); read();
+    const bIv = setInterval(beat, 10000);
+    const rIv = setInterval(read, 5000);
+
+    // live push so the banner appears the moment someone else opens the case
+    const ch = supabase.channel(`viewers:${ticketKey}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "case_viewers", filter: `ticket_key=eq.${ticketKey}` }, read)
+      .subscribe();
+
+    const leave = () => { supabase.rpc("clear_case_viewer", { p_ticket: String(ticketKey), p_agent: String(me.id) }); };
+    window.addEventListener("beforeunload", leave);
+
+    return () => {
+      dead = true;
+      clearInterval(bIv); clearInterval(rIv);
+      window.removeEventListener("beforeunload", leave);
+      supabase.removeChannel(ch);
+      leave();
+    };
+  }, [ticketKey, me && me.id, typing]);
+
+  return others;
+}
+
+/* Supervisor live monitor — every agent currently inside a case, pushed live. */
+function LiveMonitor({ tickets, open }) {
+  const [rows, setRows] = useState([]);
+  useEffect(() => {
+    let dead = false;
+    const read = async () => {
+      if (dead) return;
+      try {
+        const cutoff = new Date(Date.now() - 45000).toISOString();
+        const { data } = await supabase.from("case_viewers")
+          .select("*").gte("updated_at", cutoff).order("updated_at", { ascending: false });
+        if (!dead) setRows(data || []);
+      } catch (e) { /* ignore */ }
+    };
+    read();
+    const iv = setInterval(read, 5000);
+    const ch = supabase.channel("live-monitor")
+      .on("postgres_changes", { event: "*", schema: "public", table: "case_viewers" }, read)
+      .subscribe();
+    return () => { dead = true; clearInterval(iv); supabase.removeChannel(ch); };
+  }, []);
+
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: "var(--line)" }}>
+        <div>
+          <h3 className="font-bold text-[15px]">{t("liveNow")}</h3>
+          <p className="text-[12px] mt-0.5" style={{ color: "var(--muted)" }}>{t("liveSub")}</p>
+        </div>
+        <span className="pill" style={{ background: "var(--green-bg)", color: "var(--green)" }}>
+          <span className="dot live" style={{ background: "var(--green)" }} />{t("liveOn")}
+        </span>
+      </div>
+      {rows.length === 0
+        ? <p className="text-[13px] text-center py-7" style={{ color: "var(--muted)" }}>{t("liveNobody")}</p>
+        : (
+          <div className="max-h-64 overflow-auto scroll">
+            {rows.map((r) => {
+              const tk = tickets.find((x) => x.id === r.ticket_key);
+              const typing = r.action === "typing";
+              return (
+                <button key={r.ticket_key + r.agent_id} onClick={() => tk && open(tk)}
+                        className="w-full text-left px-5 py-3 border-b hover:bg-slate-50 flex items-center gap-3" style={{ borderColor: "var(--line)" }}>
+                  <span className="rounded-full grid place-items-center flex-none font-bold text-[11px]"
+                        style={{ width: 28, height: 28, background: typing ? "var(--red-bg)" : "var(--sky)", color: typing ? "var(--red)" : "var(--blue)" }}>
+                    {(r.agent_name || "?").charAt(0)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold truncate">{r.agent_name || r.agent_id}</span>
+                    <span className="block text-[11.5px] truncate" style={{ color: "var(--muted)" }}>
+                      {r.ticket_key}{tk ? ` — ${subjectOf(tk)}` : ""}
+                    </span>
+                  </span>
+                  <span className="pill flex-none" style={{ background: typing ? "var(--red-bg)" : "var(--slate-bg)", color: typing ? "var(--red)" : "var(--muted)" }}>
+                    {typing ? t("colTyping", "").replace("%s", "").trim() || "typing" : "viewing"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+    </div>
+  );
+}
+
+/* amber strip above the reply box — who else is in here right now */
+function CollisionBar({ others }) {
+  if (!others.length) return null;
+  const typer = others.find((o) => o.action === "typing");
+  const msg = typer ? t("colTyping", typer.agent_name || "—")
+    : others.length === 1 ? t("colViewing", others[0].agent_name || "—")
+    : t("colBoth", others.length);
+  return (
+    <div className="flex items-center gap-2 px-4 py-2 text-[12.5px] font-semibold"
+         style={{ background: typer ? "var(--red-bg)" : "var(--amber-bg)", color: typer ? "var(--red)" : "var(--amber)", borderTop: "1px solid var(--line)" }}>
+      <span className="dot" style={{ background: "currentColor" }} />
+      {msg}
+    </div>
+  );
+}
+
+/* Incoming-call screen-pop. Mirrors the 3CX client card but adds the CRM context
+   3CX can't know: who the caller is and what they already have open with us. */
+function IncomingCall({ ev, match, onAnswer, onDecline }) {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    ringTone();
+    const tick = setInterval(() => setSecs((s) => s + 1), 1000);
+    const ring = setInterval(ringTone, 3000);
+    return () => { clearInterval(tick); clearInterval(ring); };
+  }, [ev.id]);
+
+  const name = match.customer ? tv(match.customer) : (ev.caller_name || t("incUnknown"));
+  return (
+    <div className="fixed z-[95]" style={{ right: 22, bottom: 22, width: 340 }}>
+      <div className="card overflow-hidden" style={{ borderColor: "var(--blue)", boxShadow: "0 18px 48px -12px rgba(15,23,42,.45)" }}>
+        <div className="px-4 py-3 flex items-center gap-3" style={{ background: "var(--navy)" }}>
+          <span className="rounded-full grid place-items-center flex-none ringing" style={{ width: 38, height: 38, background: "rgba(255,255,255,.16)" }}>
+            <Phone size={17} color="#fff" />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[13px] font-bold text-white leading-tight">{t("incCall")}</div>
+            <div className="text-[11px]" style={{ color: "#99F6E4" }}>{t("incVia", ev.to_number || "—")} · {mmss(secs)}</div>
+          </div>
+        </div>
+
+        <div className="px-4 py-3.5">
+          <div className="text-[15px] font-bold truncate">{name}</div>
+          <div className="text-[12.5px] mt-0.5" style={{ color: "var(--muted)" }}>{ev.from_number || "—"}</div>
+          <div className="text-[12px] mt-2 pill" style={{ background: match.open.length ? "var(--amber-bg)" : "var(--sky)", color: match.open.length ? "var(--amber)" : "var(--blue)" }}>
+            {match.open.length ? t("incHasCase", match.open.length) : t("incNewCust")}
+          </div>
+          {match.open.slice(0, 2).map((x) => (
+            <p key={x.id} className="text-[11.5px] mt-1.5 truncate" style={{ color: "var(--muted)" }}>• {x.id} — {subjectOf(x)}</p>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 px-4 pb-4">
+          <button className="btn btn-d justify-center" onClick={onAnswer}><Phone size={15} />{t("incAnswer")}</button>
+          <button className="btn justify-center" style={{ background: "var(--red)", color: "#fff" }} onClick={onDecline}><X size={15} />{t("incDecline")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 const safeAttName = (s) => (s || "file").replace(/[^\w.\-\u0E00-\u0E7F ]+/g, "_").slice(0, 120);
 
 function mapDbTicket(t, msgs) {
@@ -306,6 +519,29 @@ const D = {
   cCount: ["Cases", "จำนวนเคส"], cShare: ["Share", "สัดส่วน"], cAvgRes: ["Avg time to close", "เวลาปิดเฉลี่ย"],
   reportExported: ["Report exported to Excel", "ส่งออกรายงานเป็นไฟล์ Excel แล้ว"],
   casesExported: ["Exported %s cases to Excel", "ส่งออก %s เคสเป็นไฟล์ Excel แล้ว"],
+  /* collision prevention + live monitor */
+  colViewing: ["%s is viewing this case", "%s กำลังดูเคสนี้อยู่"],
+  colTyping: ["%s is replying now", "%s กำลังพิมพ์ตอบอยู่"],
+  colBoth: ["%s others are in this case", "มีอีก %s คนอยู่ในเคสนี้"],
+  colWarnTitle: ["Someone else is replying", "มีคนอื่นกำลังตอบอยู่"],
+  colWarnBody: ["%s is typing a reply to this case. Send anyway?", "%s กำลังพิมพ์ตอบเคสนี้อยู่ ต้องการส่งเลยหรือไม่?"],
+  colSendAnyway: ["Send anyway", "ยืนยันส่ง"],
+  liveNow: ["Live now", "กำลังทำงานอยู่"],
+  liveNobody: ["No one is in a case right now", "ยังไม่มีใครเปิดเคสอยู่"],
+  liveSub: ["Who is in which case, updated live", "ใครอยู่เคสไหน อัปเดตแบบเรียลไทม์"],
+  liveOn: ["Live", "เรียลไทม์"],
+  /* incoming call screen-pop (3CX) */
+  incCall: ["Incoming call", "สายเรียกเข้า"],
+  incAnswer: ["Answer", "รับสาย"],
+  incDecline: ["Decline", "ปฏิเสธ"],
+  incUnknown: ["Unknown caller", "ไม่ทราบผู้โทร"],
+  incNewCust: ["New customer — no case yet", "ลูกค้าใหม่ — ยังไม่มีเคส"],
+  incHasCase: ["%s open case(s)", "มีเคสค้าง %s เคส"],
+  incVia: ["via 3CX · to %s", "ผ่าน 3CX · เข้า %s"],
+  incAnswered: ["Call answered — case opened", "รับสายแล้ว — เปิดเคสให้แล้ว"],
+  incDeclined: ["Call declined", "ปฏิเสธสายแล้ว"],
+  simCall: ["Simulate incoming call", "ทดสอบสายเรียกเข้า"],
+  simSent: ["Test call sent — ringing shortly", "ส่งสายทดสอบแล้ว — จะดังในอีกสักครู่"],
   demoData: ["Demo data", "ข้อมูลตัวอย่าง"],
   last30: ["last 30 days", "30 วันล่าสุด"],
   byChannel2: ["Breakdown by channel", "สรุปตามช่องทาง"],
@@ -980,7 +1216,7 @@ function Login({ onLogin, lang, setLang }) {
 
 /* ═══════════════════════ DASHBOARD ═══════════════════════ */
 
-function Dashboard({ tickets, trend, scope, go, open }) {
+function Dashboard({ tickets, trend, scope, go, open, me }) {
   const rows = scope(tickets);
   const todayIn = rows.filter((x) => x.createdAt >= days0());
   const backlog = rows.filter((x) => OPEN_ST.includes(x.status));
@@ -1077,6 +1313,8 @@ function Dashboard({ tickets, trend, scope, go, open }) {
           </div>
         </div>
       </div>
+
+      {me && ["admin", "manager"].includes(me.role) && <LiveMonitor tickets={tickets} open={open} />}
 
       <div className="grid gap-4" style={{ gridTemplateColumns: "1.55fr 1fr" }}>
       <div className="card overflow-hidden">
@@ -1364,6 +1602,10 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
 
   const list = rows.filter((x) => !q.trim() || `${subjectOf(x)} ${tv(x.customer)} ${x.id}`.toLowerCase().includes(q.toLowerCase()));
 
+  /* collision prevention — who else has this case open, and are they typing? */
+  const others = useCaseViewers(sel, me, text.trim().length > 0);
+  const otherTyping = others.find((o) => o.action === "typing");
+
   const [preview, setPreview] = useState(null); // { url, name, kind: "img" | "pdf" }
   const openAtt = async (a) => {
     if (!a.path) return;
@@ -1376,8 +1618,12 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     else window.open(data.signedUrl, "_blank"); // other file types → download
   };
 
-  const send = () => {
+  const [collide, setCollide] = useState(null);   // { name } — confirm before double-replying
+
+  const send = (force) => {
     if ((!text.trim() && !files.length) || !tk) return;
+    // someone else is mid-reply on this same case — make the agent confirm
+    if (!force && !isNote && otherTyping) { setCollide({ name: otherTyping.agent_name || "—" }); return; }
     const msgText = text.trim() || "(attachment)";
     const at = Date.now();
     const canAttach = tk.dbId && tk.channel === "email" && !isNote;
@@ -1512,6 +1758,8 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
               <div ref={endRef} />
             </div>
 
+            <CollisionBar others={others} />
+
             <div className="border-t p-3" style={{ borderColor: isNote ? "#EAD9A6" : "var(--line)", background: isNote ? "var(--amber-bg)" : "#fff", transition: "background .15s" }}>
               {showCanned && (
                 <div className="card mb-2 overflow-hidden">
@@ -1625,6 +1873,24 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             </div>
           </div>
         </>
+      )}
+
+      {/* ── collision confirm: two agents replying to the same case ── */}
+      {collide && (
+        <div className="ovl" onClick={() => setCollide(null)}>
+          <div className="sheet p-6" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2.5 mb-2">
+              <AlertTriangle size={19} style={{ color: "var(--red)" }} />
+              <b className="text-[16px]">{t("colWarnTitle")}</b>
+            </div>
+            <p className="text-[13.5px]" style={{ color: "var(--muted)" }}>{t("colWarnBody", collide.name)}</p>
+            <div className="flex gap-2 mt-5">
+              <button className="btn btn-g flex-1 justify-center" onClick={() => setCollide(null)}>{t("cancel")}</button>
+              <button className="btn flex-1 justify-center" style={{ background: "var(--red)", color: "#fff" }}
+                      onClick={() => { setCollide(null); send(true); }}>{t("colSendAnyway")}</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── in-app attachment viewer (images + PDFs) ── */}
@@ -2041,7 +2307,7 @@ function CallConsole({ call, tickets, onSave, onClose, onTimeout, ringFor = 20, 
   );
 }
 
-function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks, presence, setPresence, me, sip, routing, startCall, pullCall, onPlay, toast }) {
+function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks, presence, setPresence, me, sip, routing, startCall, pullCall, onPlay, toast, simulateCall }) {
   const [num, setNum] = useState("");
   const [, tick] = useState(0);
   useEffect(() => { const x = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(x); }, []);
@@ -2079,6 +2345,12 @@ function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks,
     toast(t("statusSet", t(PRESENCE[st].k)));
   };
 
+  const SimBtn = () => (
+    <button className="btn btn-g w-full justify-center mt-2" style={{ borderStyle: "dashed" }} onClick={simulateCall}>
+      <Phone size={14} />{t("simCall")}
+    </button>
+  );
+
   return (
     <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 336px" }}>
       <div className="space-y-4" style={{ alignSelf: "start", order: 2 }}>
@@ -2098,6 +2370,7 @@ function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks,
               </button>
             ))}
           </div>
+          <SimBtn />
           {["oncall", "ringing"].includes(mine.status) && (
             <p className="text-[11.5px] mt-2.5 flex items-center gap-1.5" style={{ color: PRESENCE[mine.status].c }}>
               <span className="dot" style={{ background: PRESENCE[mine.status].c }} />{t(PRESENCE[mine.status].k)}
@@ -2966,8 +3239,14 @@ export default function ServiceCRM({ user, role }) {
       } catch (e) { console.warn("[crm] live ticket load failed", e); }
     };
     load();
+    // Realtime push: a new message or ticket reloads within ~1s instead of waiting
+    // for the poll. The 20s interval stays as a safety net if the socket drops.
+    const ch = supabase.channel("crm-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tickets" }, load)
+      .subscribe();
     const iv = setInterval(load, 20000);
-    return () => { stop = true; clearInterval(iv); };
+    return () => { stop = true; clearInterval(iv); supabase.removeChannel(ch); };
   }, []);
   const [users, setUsers] = useState(USERS);
   const trend = useMemo(() => computeTrend(tickets), [tickets]);   // real volumes, not demo
@@ -3078,6 +3357,76 @@ export default function ServiceCRM({ user, role }) {
     return () => clearInterval(x);
   }, [me, presence, routing, maxWait, tickets]);
 
+  /* ── 3CX incoming-call screen-pop ──────────────────────────────────────────
+     Polls call_events for a ringing leg. Real calls arrive here once 3CX PRO is
+     licensed and its webhook points at /telephony/3cx; until then the Simulate
+     button in the Calls tab feeds the same table. */
+  const [incoming, setIncoming] = useState(null);
+  const seenCallRef = useRef(new Set());
+  useEffect(() => {
+    let stop = false;
+    const poll = async () => {
+      if (stop || incoming) return;
+      try {
+        const since = new Date(Date.now() - 60000).toISOString();
+        const { data } = await supabase.from("call_events")
+          .select("*").eq("status", "ringing").eq("direction", "inbound")
+          .gte("created_at", since).order("id", { ascending: false }).limit(1);
+        const ev = data && data[0];
+        if (!ev || seenCallRef.current.has(ev.id)) return;
+        seenCallRef.current.add(ev.id);
+        setIncoming(ev);
+        notifyDesktop(t("incCall"), `${ev.caller_name || ev.from_number || ""}`);
+      } catch (e) { /* offline — try again next tick */ }
+    };
+    poll();
+    const iv = setInterval(poll, 3000);
+    return () => { stop = true; clearInterval(iv); };
+  }, [incoming]);
+
+  const answerIncoming = async () => {
+    const ev = incoming;
+    setIncoming(null);
+    if (!ev) return;
+    const key = phoneKey(ev.from_number);
+    const hit = tickets.find((x) => phoneKey(x.phone) === key && OPEN_ST.includes(x.status));
+    supabase.from("call_events").update({ status: "answered" }).eq("id", ev.id).then(() => {}, () => {});
+    if (hit) { openTicket(hit); }
+    else {
+      // brand-new caller — drop them straight into a phone case
+      const fresh = {
+        id: "TK-C" + String(Date.now()).slice(-6),
+        catKey: "inquiry", product: null,
+        customer: biText(ev.caller_name || ev.from_number || "Caller"),
+        phone: ev.from_number || "", email: "", order: null,
+        channel: "phone", priority: "normal", status: "open", owner: me.id,
+        createdAt: Date.now(), firstResponseMin: 0, resolveMin: null,
+        csat: null, reopened: false, tags: [], messages: [],
+      };
+      setTickets((p) => [fresh, ...p]);
+      openTicket(fresh);
+    }
+    setPresence((p) => ({ ...p, [me.id]: { ...p[me.id], status: "oncall", since: Date.now() } }));
+    toast(t("incAnswered"));
+  };
+
+  const declineIncoming = () => {
+    const ev = incoming;
+    setIncoming(null);
+    if (ev) supabase.from("call_events").update({ status: "missed" }).eq("id", ev.id).then(() => {}, () => {});
+    toast(t("incDeclined"), "error");
+  };
+
+  const simulateCall = async () => {
+    try {
+      await fetch(`${TEL_BASE}/simulate?token=${TEL_TOKEN}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from: "0922634562" }),
+      });
+      toast(t("simSent"));
+    } catch (e) { toast(String(e.message || e), "error"); }
+  };
+
   const startCall = (payload) => {
     if (!sip.connected) return toast(t("sipOff"), "error");
     if (payload.dir === "in") {                                       // inbound always goes through the queue
@@ -3177,10 +3526,10 @@ export default function ServiceCRM({ user, role }) {
 
       <div className="flex-1 min-w-0 flex flex-col">
         <main className="p-6 flex-1" style={{ paddingBottom: playRec && !call ? 130 : 24 }}>
-          {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} />}
+          {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} me={me} />}
           {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} unread={unread} markRead={markRead} />}
           {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} />}
-          {tab === "calls"     && <CallsView tickets={scope(tickets)} allTickets={tickets} calls={calls} queue={queue} callbacks={callbacks} setCallbacks={setCallbacks} presence={presence} setPresence={setPresence} me={me} sip={sip} routing={routing} startCall={startCall} pullCall={pullCall} onPlay={setPlayRec} toast={toast} />}
+          {tab === "calls"     && <CallsView tickets={scope(tickets)} allTickets={tickets} calls={calls} queue={queue} callbacks={callbacks} setCallbacks={setCallbacks} presence={presence} setPresence={setPresence} me={me} sip={sip} routing={routing} startCall={startCall} pullCall={pullCall} onPlay={setPlayRec} toast={toast} simulateCall={simulateCall} />}
           {tab === "customers" && <Customers tickets={tickets} open={openTicket} />}
           {tab === "kb"        && <Knowledge kb={kb} setKb={setKb} canned={canned} setCanned={setCanned} me={me} toast={toast} />}
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
@@ -3188,6 +3537,19 @@ export default function ServiceCRM({ user, role }) {
           {tab === "settings"  && <SettingsView chans={chans} setChans={setChans} notif={notif} setNotif={setNotif} assign={assign} setAssign={setAssign} sip={sip} setSip={setSip} routing={routing} setRouting={setRouting} ringFor={ringFor} setRingFor={setRingFor} maxWait={maxWait} setMaxWait={setMaxWait} toast={toast} />}
         </main>
       </div>
+
+      {incoming && !call && (
+        <IncomingCall
+          ev={incoming}
+          match={(() => {
+            const k = phoneKey(incoming.from_number);
+            const mine = tickets.filter((x) => phoneKey(x.phone) === k);
+            return { customer: mine[0]?.customer || null, open: mine.filter((x) => OPEN_ST.includes(x.status)) };
+          })()}
+          onAnswer={answerIncoming}
+          onDecline={declineIncoming}
+        />
+      )}
 
       {playRec && !call && <RecPlayer rec={playRec} onClose={() => setPlayRec(null)} />}
       {call && <CallConsole call={call} tickets={tickets} onSave={endCall} onTimeout={passOn} ringFor={ringFor} toast={toast}
