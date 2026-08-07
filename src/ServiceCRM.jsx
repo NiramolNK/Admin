@@ -161,6 +161,129 @@ function useCaseViewers(ticketKey, me, typing) {
   return others;
 }
 
+/* ══════════ Twilio softphone ══════════
+   Real calls, no PBX. The `twilio` edge function issues the access token and
+   serves the TwiML; this hook owns the browser Device. The SDK is imported
+   lazily so NiRM still builds and runs normally when Twilio isn't set up. */
+const TW_BASE = FN_BASE + "/twilio";
+
+function useSoftphone(toast) {
+  const [state, setState] = useState("off");     // off | connecting | ready | oncall | error
+  const [conn, setConn] = useState(null);        // active Twilio Call
+  const [muted, setMuted] = useState(false);
+  const [problem, setProblem] = useState("");
+  const devRef = useRef(null);
+
+  const goOnline = async () => {
+    if (devRef.current) return;
+    setState("connecting"); setProblem("");
+    try {
+      const health = await fetch(`${TW_BASE}/health`).then((r) => r.json());
+      if (!health.ready) { setState("error"); setProblem(t("sfNotSetup")); return; }
+
+      // mic permission first — the SDK fails opaquely without it
+      try { await navigator.mediaDevices.getUserMedia({ audio: true }); }
+      catch { setState("error"); setProblem(t("sfMicNeeded")); return; }
+
+      const { data: s } = await supabase.auth.getSession();
+      const r = await fetch(`${TW_BASE}/token`, {
+        headers: { Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
+      });
+      const j = await r.json();
+      if (!r.ok || !j.token) { setState("error"); setProblem(j.error || "token failed"); return; }
+
+      const { Device } = await import("@twilio/voice-sdk");
+      const dev = new Device(j.token, { codecPreferences: ["opus", "pcmu"], logLevel: "error" });
+
+      dev.on("registered", () => setState("ready"));
+      dev.on("error", (e) => { setState("error"); setProblem(e?.message || "device error"); });
+      dev.on("incoming", (call) => {
+        // the screen-pop card drives accept/reject, so just hold the call here
+        setConn(call);
+        call.on("disconnect", () => { setConn(null); setState("ready"); setMuted(false); });
+        call.on("cancel", () => { setConn(null); setState("ready"); });
+        call.on("accept", () => setState("oncall"));
+      });
+      dev.on("tokenWillExpire", async () => {
+        const { data: s2 } = await supabase.auth.getSession();
+        const rr = await fetch(`${TW_BASE}/token`, { headers: { Authorization: `Bearer ${s2?.session?.access_token ?? ""}` } });
+        const jj = await rr.json();
+        if (jj.token) dev.updateToken(jj.token);
+      });
+
+      await dev.register();
+      devRef.current = dev;
+    } catch (e) {
+      setState("error"); setProblem(String(e?.message || e));
+    }
+  };
+
+  const goOffline = () => {
+    try { devRef.current?.destroy(); } catch (e) { /* already gone */ }
+    devRef.current = null; setConn(null); setMuted(false); setState("off");
+  };
+
+  const accept = () => { conn?.accept(); setState("oncall"); };
+  const reject = () => { try { conn?.reject(); } catch (e) { /* ignore */ } setConn(null); setState("ready"); };
+  const hangup = () => { try { conn ? conn.disconnect() : devRef.current?.disconnectAll(); } catch (e) { /* ignore */ } };
+  const toggleMute = () => { if (!conn) return; const m = !muted; conn.mute(m); setMuted(m); };
+
+  const dial = async (number) => {
+    if (!devRef.current) { toast(t("sfOff"), "error"); return; }
+    try {
+      const call = await devRef.current.connect({ params: { To: number } });
+      setConn(call); setState("oncall");
+      call.on("disconnect", () => { setConn(null); setState("ready"); setMuted(false); });
+      toast(t("sfDialing", number));
+    } catch (e) { toast(String(e?.message || e), "error"); }
+  };
+
+  useEffect(() => () => { try { devRef.current?.destroy(); } catch (e) { /* unmount */ } }, []);
+
+  return { state, problem, conn, muted, goOnline, goOffline, accept, reject, hangup, toggleMute, dial };
+}
+
+/* Bottom-left status pill + in-call controls */
+function SoftphoneBar({ sf }) {
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    if (sf.state !== "oncall") { setSecs(0); return; }
+    const iv = setInterval(() => setSecs((s) => s + 1), 1000);
+    return () => clearInterval(iv);
+  }, [sf.state]);
+
+  const tint = sf.state === "oncall" ? "var(--green)" : sf.state === "ready" ? "var(--blue)"
+    : sf.state === "error" ? "var(--red)" : "var(--muted)";
+  const label = sf.state === "oncall" ? `${t("sfOnCall")} · ${mmss(secs)}`
+    : sf.state === "ready" ? t("sfReady")
+    : sf.state === "connecting" ? t("sfConnecting")
+    : sf.state === "error" ? (sf.problem || t("sfOff")) : t("sfOff");
+
+  return (
+    <div className="fixed z-[70]" style={{ left: 18, bottom: 18 }}>
+      <div className="card flex items-center gap-2.5 px-3 py-2.5" style={{ maxWidth: 330 }}>
+        <span className="dot" style={{ background: tint }} />
+        <span className="text-[12.5px] font-semibold truncate" style={{ color: tint }}>{label}</span>
+        {sf.state === "oncall" ? (
+          <>
+            <button className="btn btn-g" style={{ padding: "4px 9px", fontSize: 12 }} onClick={sf.toggleMute}>
+              {sf.muted ? t("sfUnmute") : t("sfMute")}
+            </button>
+            <button className="btn" style={{ padding: "4px 9px", fontSize: 12, background: "var(--red)", color: "#fff" }} onClick={sf.hangup}>
+              {t("sfHangup")}
+            </button>
+          </>
+        ) : (
+          <button className="btn btn-g ml-1" style={{ padding: "4px 10px", fontSize: 12 }}
+                  onClick={sf.state === "off" || sf.state === "error" ? sf.goOnline : sf.goOffline}>
+            {sf.state === "off" || sf.state === "error" ? t("sfStart") : t("sfStop")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* Supervisor live monitor — every agent currently inside a case, pushed live. */
 function LiveMonitor({ tickets, open }) {
   const [rows, setRows] = useState([]);
@@ -519,6 +642,22 @@ const D = {
   cCount: ["Cases", "จำนวนเคส"], cShare: ["Share", "สัดส่วน"], cAvgRes: ["Avg time to close", "เวลาปิดเฉลี่ย"],
   reportExported: ["Report exported to Excel", "ส่งออกรายงานเป็นไฟล์ Excel แล้ว"],
   casesExported: ["Exported %s cases to Excel", "ส่งออก %s เคสเป็นไฟล์ Excel แล้ว"],
+  /* Twilio softphone */
+  sfTitle: ["Softphone", "โทรศัพท์ในระบบ"],
+  sfReady: ["Ready for calls", "พร้อมรับสาย"],
+  sfOff: ["Softphone off", "ปิดอยู่"],
+  sfConnecting: ["Connecting…", "กำลังเชื่อมต่อ…"],
+  sfNotSetup: ["Twilio not configured yet", "ยังไม่ได้ตั้งค่า Twilio"],
+  sfStart: ["Go online", "เปิดรับสาย"],
+  sfStop: ["Go offline", "ปิดรับสาย"],
+  sfMicNeeded: ["Allow microphone access to take calls", "อนุญาตใช้ไมโครโฟนเพื่อรับสาย"],
+  sfOnCall: ["On call", "กำลังสนทนา"],
+  sfMute: ["Mute", "ปิดไมค์"],
+  sfUnmute: ["Unmute", "เปิดไมค์"],
+  sfHangup: ["Hang up", "วางสาย"],
+  sfCallEnded: ["Call ended · %s", "จบสาย · %s"],
+  sfDialing: ["Calling %s…", "กำลังโทรหา %s…"],
+  sfCallBtn: ["Call", "โทร"],
   /* reply all */
   replyAllOn: ["Reply all", "ตอบกลับทุกคน"],
   replyAllTo: ["To", "ถึง"],
@@ -2359,7 +2498,7 @@ function CallConsole({ call, tickets, onSave, onClose, onTimeout, ringFor = 20, 
   );
 }
 
-function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks, presence, setPresence, me, sip, routing, startCall, pullCall, onPlay, toast, simulateCall }) {
+function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks, presence, setPresence, me, sip, routing, startCall, pullCall, onPlay, toast, simulateCall, sf }) {
   const [num, setNum] = useState("");
   const [, tick] = useState(0);
   useEffect(() => { const x = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(x); }, []);
@@ -2398,9 +2537,16 @@ function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks,
   };
 
   const SimBtn = () => (
-    <button className="btn btn-g w-full justify-center mt-2" style={{ borderStyle: "dashed" }} onClick={simulateCall}>
-      <Phone size={14} />{t("simCall")}
-    </button>
+    <>
+      {/* real outbound through the Twilio softphone */}
+      <button className="btn btn-d w-full justify-center mt-3" disabled={!num.trim() || sf?.state !== "ready"}
+              onClick={() => sf.dial(num.trim())}>
+        <Phone size={14} />{t("sfCallBtn")}{num.trim() ? ` ${num.trim()}` : ""}
+      </button>
+      <button className="btn btn-g w-full justify-center mt-2" style={{ borderStyle: "dashed" }} onClick={simulateCall}>
+        <Phone size={14} />{t("simCall")}
+      </button>
+    </>
   );
 
   return (
@@ -3409,10 +3555,12 @@ export default function ServiceCRM({ user, role }) {
     return () => clearInterval(x);
   }, [me, presence, routing, maxWait, tickets]);
 
-  /* ── 3CX incoming-call screen-pop ──────────────────────────────────────────
-     Polls call_events for a ringing leg. Real calls arrive here once 3CX PRO is
-     licensed and its webhook points at /telephony/3cx; until then the Simulate
-     button in the Calls tab feeds the same table. */
+  /* ── incoming-call screen-pop ──────────────────────────────────────────────
+     Polls call_events for a ringing leg. Real calls arrive from Twilio (the
+     /twilio/voice TwiML writes the row as the phone rings); the Simulate button
+     in the Calls tab feeds the same table for demos. Answering picks up the
+     live Twilio call if the softphone is online. */
+  const sf = useSoftphone(toast);
   const [incoming, setIncoming] = useState(null);
   const seenCallRef = useRef(new Set());
   useEffect(() => {
@@ -3442,6 +3590,7 @@ export default function ServiceCRM({ user, role }) {
     if (!ev) return;
     const key = phoneKey(ev.from_number);
     const hit = tickets.find((x) => phoneKey(x.phone) === key && OPEN_ST.includes(x.status));
+    if (sf.conn) sf.accept();          // pick up the real Twilio leg
     supabase.from("call_events").update({ status: "answered" }).eq("id", ev.id).then(() => {}, () => {});
     if (hit) { openTicket(hit); }
     else {
@@ -3465,6 +3614,7 @@ export default function ServiceCRM({ user, role }) {
   const declineIncoming = () => {
     const ev = incoming;
     setIncoming(null);
+    if (sf.conn) sf.reject();
     if (ev) supabase.from("call_events").update({ status: "missed" }).eq("id", ev.id).then(() => {}, () => {});
     toast(t("incDeclined"), "error");
   };
@@ -3581,7 +3731,7 @@ export default function ServiceCRM({ user, role }) {
           {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} me={me} />}
           {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} unread={unread} markRead={markRead} />}
           {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} />}
-          {tab === "calls"     && <CallsView tickets={scope(tickets)} allTickets={tickets} calls={calls} queue={queue} callbacks={callbacks} setCallbacks={setCallbacks} presence={presence} setPresence={setPresence} me={me} sip={sip} routing={routing} startCall={startCall} pullCall={pullCall} onPlay={setPlayRec} toast={toast} simulateCall={simulateCall} />}
+          {tab === "calls"     && <CallsView tickets={scope(tickets)} allTickets={tickets} calls={calls} queue={queue} callbacks={callbacks} setCallbacks={setCallbacks} presence={presence} setPresence={setPresence} me={me} sip={sip} routing={routing} startCall={startCall} pullCall={pullCall} onPlay={setPlayRec} toast={toast} simulateCall={simulateCall} sf={sf} />}
           {tab === "customers" && <Customers tickets={tickets} open={openTicket} />}
           {tab === "kb"        && <Knowledge kb={kb} setKb={setKb} canned={canned} setCanned={setCanned} me={me} toast={toast} />}
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
@@ -3589,6 +3739,8 @@ export default function ServiceCRM({ user, role }) {
           {tab === "settings"  && <SettingsView chans={chans} setChans={setChans} notif={notif} setNotif={setNotif} assign={assign} setAssign={setAssign} sip={sip} setSip={setSip} routing={routing} setRouting={setRouting} ringFor={ringFor} setRingFor={setRingFor} maxWait={maxWait} setMaxWait={setMaxWait} toast={toast} />}
         </main>
       </div>
+
+      <SoftphoneBar sf={sf} />
 
       {incoming && !call && (
         <IncomingCall
