@@ -306,6 +306,8 @@ const D = {
   cCount: ["Cases", "จำนวนเคส"], cShare: ["Share", "สัดส่วน"], cAvgRes: ["Avg time to close", "เวลาปิดเฉลี่ย"],
   reportExported: ["Report exported to Excel", "ส่งออกรายงานเป็นไฟล์ Excel แล้ว"],
   casesExported: ["Exported %s cases to Excel", "ส่งออก %s เคสเป็นไฟล์ Excel แล้ว"],
+  demoData: ["Demo data", "ข้อมูลตัวอย่าง"],
+  demoDataNote: ["Showing sample data for demo — real cases are not affected", "กำลังแสดงข้อมูลตัวอย่างสำหรับเดโม — ไม่กระทบเคสจริง"],
 
   /* users */
   usersTitle: ["People in your organisation", "ผู้ใช้งานในองค์กร"],
@@ -2377,8 +2379,15 @@ function RecPlayer({ rec, onClose }) {
 
 /* ═══════════════════════ REPORTS ═══════════════════════ */
 
-function Reports({ tickets, trend, toast }) {
+function Reports({ tickets: realTickets, trend: realTrend, toast }) {
   const [period, setPeriod] = useState("daily");
+  const [demo, setDemo] = useState(realTickets.length < 20);
+  const [demoSet] = useState(() => {
+    const tk = seedTickets();
+    return { tickets: tk, trend: computeTrend(tk) };
+  });
+  const tickets = demo ? demoSet.tickets : realTickets;
+  const trend = demo ? demoSet.trend : realTrend;
 
   const perf = AGENTS.map((a) => {
     const ts = tickets.filter((x) => x.owner === a.id);
@@ -2414,7 +2423,7 @@ function Reports({ tickets, trend, toast }) {
     }))), "Agents");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(catRep.map((c) => ({ [t("cCategory")]: c.name, [t("cCount")]: c.n, [t("cAvgRes")]: c.avg ?? "" }))), "Categories");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(trend), "Daily");
-    XLSX.writeFile(wb, `cs-report-${period}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `cs-report-${demo ? "demo-" : ""}${period}-${new Date().toISOString().slice(0, 10)}.xlsx`);
     toast(t("reportExported"));
   };
 
@@ -2431,14 +2440,23 @@ function Reports({ tickets, trend, toast }) {
           ))}
         </div>
         <span className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("rangeIs", period === "daily" ? t("last14") : t("thisMonth"))}</span>
-        <button className="btn btn-p ml-auto" onClick={exportX}><Download size={15} />{t("exportExcel")}</button>
+        <label className="flex items-center gap-2 ml-auto cursor-pointer select-none text-[12.5px] font-semibold" style={{ color: demo ? "var(--amber)" : "var(--muted)" }}>
+          <input type="checkbox" checked={demo} onChange={(e) => setDemo(e.target.checked)} style={{ accentColor: "var(--amber)" }} />
+          {t("demoData")}
+        </label>
+        <button className="btn btn-p" onClick={exportX}><Download size={15} />{t("exportExcel")}</button>
       </div>
+      {demo && (
+        <div className="text-[12.5px] px-4 py-2.5 rounded-xl flex items-center gap-2" style={{ background: "var(--amber-bg)", color: "var(--amber)", fontWeight: 600 }}>
+          ⚠ {t("demoDataNote")}
+        </div>
+      )}
 
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(205px,1fr))" }}>
         <Kpi icon={Ticket} label={t("rTotal")} value={fmt(tickets.length)} unit={t("uCases")} tint="var(--blue)" bg="var(--sky)" />
         <Kpi icon={Timer} label={t("rFirstAvg")} value={dur(Math.round(ansd.reduce((s, x) => s + x.firstResponseMin, 0) / (ansd.length || 1)))} tint="var(--cyan)" bg="var(--cyan-bg)" />
         <Kpi icon={CheckCircle2} label={t("rResAvg")} value={dur(Math.round(done.reduce((s, x) => s + x.resolveMin, 0) / (done.length || 1)))} tint="var(--green)" bg="var(--green-bg)" />
-        <Kpi icon={Repeat} label={t("rReopen")} value={Math.round((tickets.filter((x) => x.reopened).length / tickets.length) * 100)} unit="%" tint="var(--amber)" bg="var(--amber-bg)" />
+        <Kpi icon={Repeat} label={t("rReopen")} value={Math.round((tickets.filter((x) => x.reopened).length / (tickets.length || 1)) * 100)} unit="%" tint="var(--amber)" bg="var(--amber-bg)" />
       </div>
 
       <div className="grid gap-4" style={{ gridTemplateColumns: "1.5fr 1fr" }}>
@@ -2516,10 +2534,10 @@ function Reports({ tickets, trend, toast }) {
               <tr key={c.name}>
                 <td className="font-semibold">{c.name}</td>
                 <td className="text-right">{c.n}</td>
-                <td className="text-right">{Math.round((c.n / tickets.length) * 100)}%</td>
+                <td className="text-right">{Math.round((c.n / (tickets.length || 1)) * 100)}%</td>
                 <td className="text-right">{dur(c.avg)}</td>
                 <td><div className="rounded-full overflow-hidden" style={{ height: 6, background: "#E9E6F2" }}>
-                  <div style={{ width: `${(c.n / catRep[0].n) * 100}%`, height: "100%", background: "var(--blue)" }} /></div></td>
+                  <div style={{ width: `${(c.n / (catRep[0].n || 1)) * 100}%`, height: "100%", background: "var(--blue)" }} /></div></td>
               </tr>
             ))}
           </tbody>
@@ -3069,22 +3087,12 @@ export default function ServiceCRM({ user, role }) {
             <span className="dot" style={{ background: sip.connected ? PRESENCE[presence[me.id]?.status || "offline"].c : "#F87171" }} />
             {sip.connected ? `${t(PRESENCE[presence[me.id]?.status || "offline"].k)} · ${sip.ext}` : t("lineDown")}
           </span>
-        </div>
-      </div>
-
-      <div className="flex-1 min-w-0 flex flex-col">
-        <header className="flex items-center gap-4 px-6 py-3.5 bg-white border-b sticky z-30" style={{ borderColor: "var(--line)", top: 46 }}>
-          <div>
-            <h1 className="text-[18px] font-bold leading-tight">{title}</h1>
-            <p className="text-[12px]" style={{ color: "var(--muted)" }}>
-              {new Date().toLocaleDateString(locale(), { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
-            </p>
-          </div>
-          <div className="ml-auto flex items-center gap-2.5">
+          {/* controls moved up from the (removed) white header row to save vertical space */}
+          <div className="flex items-center gap-2 pl-2" onClickCapture={(e) => e.stopPropagation()}>
             <LangToggle lang={lang} setLang={setLang} />
             <div className="relative">
-              <button className="btn btn-g relative" style={{ padding: "9px 11px" }} onClick={() => setBell(!bell)} aria-label={t("notifications")}>
-                <Bell size={17} />
+              <button className="relative rounded-lg grid place-items-center" style={{ width: 32, height: 32, background: "rgba(255,255,255,.12)", color: "#fff", border: "none", cursor: "pointer" }} onClick={() => setBell(!bell)} aria-label={t("notifications")}>
+                <Bell size={16} />
                 {alerts.length > 0 && <span className="absolute -top-1 -right-1 rounded-full text-[10px] font-bold text-white grid place-items-center" style={{ width: 17, height: 17, background: "var(--red)" }}>{alerts.length > 9 ? "9+" : alerts.length}</span>}
               </button>
               {bell && (
@@ -3109,16 +3117,18 @@ export default function ServiceCRM({ user, role }) {
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2.5 pl-3 border-l" style={{ borderColor: "var(--line)" }}>
-              <div className="rounded-full grid place-items-center flex-none text-white font-bold text-[13px]" style={{ width: 34, height: 34, background: "var(--navy)" }}>{tv(me.n).charAt(0)}</div>
-              <div className="hidden sm:block">
-                <div className="text-[13px] font-semibold leading-tight">{tv(me.n)}</div>
-                <div className="text-[11px]" style={{ color: "var(--muted)" }}>{roleFull}</div>
+            <div className="flex items-center gap-2 pl-2 border-l" style={{ borderColor: "rgba(255,255,255,.2)" }}>
+              <div className="rounded-full grid place-items-center flex-none font-bold text-[12px]" style={{ width: 28, height: 28, background: "var(--blue)", color: "#fff" }}>{tv(me.n).charAt(0)}</div>
+              <div className="hidden sm:block whitespace-nowrap">
+                <div className="text-[12px] font-semibold leading-tight text-white">{tv(me.n)}</div>
+                <div className="text-[10px]" style={{ color: "#9AA3D6" }}>{roleFull}</div>
               </div>
             </div>
           </div>
-        </header>
+        </div>
+      </div>
 
+      <div className="flex-1 min-w-0 flex flex-col">
         <main className="p-6 flex-1" style={{ paddingBottom: playRec && !call ? 130 : 24 }}>
           {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} />}
           {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} unread={unread} markRead={markRead} />}
