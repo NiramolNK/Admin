@@ -519,6 +519,12 @@ const D = {
   cCount: ["Cases", "จำนวนเคส"], cShare: ["Share", "สัดส่วน"], cAvgRes: ["Avg time to close", "เวลาปิดเฉลี่ย"],
   reportExported: ["Report exported to Excel", "ส่งออกรายงานเป็นไฟล์ Excel แล้ว"],
   casesExported: ["Exported %s cases to Excel", "ส่งออก %s เคสเป็นไฟล์ Excel แล้ว"],
+  /* reply all */
+  replyAllOn: ["Reply all", "ตอบกลับทุกคน"],
+  replyAllTo: ["To", "ถึง"],
+  replyAllCc: ["Cc", "สำเนาถึง"],
+  replyAllNone: ["No one else on this thread", "ไม่มีผู้รับอื่นในอีเมลนี้"],
+  replyAllSent: ["Replied to %s people", "ตอบกลับ %s คนแล้ว"],
   /* collision prevention + live monitor */
   colViewing: ["%s is viewing this case", "%s กำลังดูเคสนี้อยู่"],
   colTyping: ["%s is replying now", "%s กำลังพิมพ์ตอบอยู่"],
@@ -1606,6 +1612,24 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const others = useCaseViewers(sel, me, text.trim().length > 0);
   const otherTyping = others.find((o) => o.action === "typing");
 
+  /* reply-all: who else is on this email thread (To + Cc of the last inbound),
+     minus the customer and our own support mailboxes — computed server-side */
+  const [replyAll, setReplyAll] = useState(true);
+  const [rcpt, setRcpt] = useState({ to: "", cc: [] });
+  const [dropCc, setDropCc] = useState([]);        // chips the agent removed
+  useEffect(() => {
+    setDropCc([]);
+    const tkNow = tickets.find((x) => x.id === sel);
+    if (!tkNow?.dbId || tkNow.channel !== "email") { setRcpt({ to: "", cc: [] }); return; }
+    let dead = false;
+    fetch(`${FN_BASE}/email/recipients?ticketId=${tkNow.dbId}`)
+      .then((r) => r.json())
+      .then((d) => { if (!dead) setRcpt({ to: d.to || "", cc: d.cc || [] }); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [sel]);
+  const ccFinal = rcpt.cc.filter((a) => !dropCc.includes(a));
+
   const [preview, setPreview] = useState(null); // { url, name, kind: "img" | "pdf" }
   const openAtt = async (a) => {
     if (!a.path) return;
@@ -1657,7 +1681,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             const r = await fetch(`${FN_BASE}/email/send`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: (tk.emailTo && !tk.emailTo.includes("@parse.")) ? tk.emailTo : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), attachments: atts }),
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: (tk.emailTo && !tk.emailTo.includes("@parse.")) ? tk.emailTo : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), attachments: atts, replyAll, cc: replyAll ? ccFinal : [] }),
             });
             if (!r.ok) { const j = await r.json().catch(() => ({})); toast("✉ " + (j.error || `email send failed (${r.status})`)); }
           } catch (e) { toast("✉ email send failed — network"); }
@@ -1759,6 +1783,34 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             </div>
 
             <CollisionBar others={others} />
+
+            {/* reply-all: everyone already on this email thread */}
+            {tk.channel === "email" && tk.dbId && !isNote && (
+              <div className="px-4 pt-2.5 pb-0.5 border-t" style={{ borderColor: "var(--line)" }}>
+                <div className="flex items-center gap-2 flex-wrap text-[11.5px]">
+                  <label className="flex items-center gap-1.5 font-semibold cursor-pointer select-none"
+                         style={{ color: replyAll ? "var(--blue)" : "var(--muted)" }}>
+                    <input type="checkbox" checked={replyAll} onChange={(e) => setReplyAll(e.target.checked)} style={{ accentColor: "var(--blue)" }} />
+                    {t("replyAllOn")}
+                  </label>
+                  <span style={{ color: "var(--muted)" }}>{t("replyAllTo")}:</span>
+                  <span className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>{rcpt.to || tk.email}</span>
+                  {replyAll && (
+                    ccFinal.length === 0
+                      ? <span style={{ color: "var(--muted)" }}>· {t("replyAllNone")}</span>
+                      : (<>
+                          <span style={{ color: "var(--muted)" }}>{t("replyAllCc")}:</span>
+                          {ccFinal.map((a) => (
+                            <span key={a} className="pill" style={{ background: "var(--slate-bg)", color: "var(--ink)" }}>
+                              {a}
+                              <button onClick={() => setDropCc((p) => [...p, a])} style={{ display: "flex", opacity: .55 }}><X size={10} /></button>
+                            </span>
+                          ))}
+                        </>)
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="border-t p-3" style={{ borderColor: isNote ? "#EAD9A6" : "var(--line)", background: isNote ? "var(--amber-bg)" : "#fff", transition: "background .15s" }}>
               {showCanned && (
