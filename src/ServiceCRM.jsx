@@ -307,6 +307,9 @@ const D = {
   reportExported: ["Report exported to Excel", "ส่งออกรายงานเป็นไฟล์ Excel แล้ว"],
   casesExported: ["Exported %s cases to Excel", "ส่งออก %s เคสเป็นไฟล์ Excel แล้ว"],
   demoData: ["Demo data", "ข้อมูลตัวอย่าง"],
+  last30: ["last 30 days", "30 วันล่าสุด"],
+  byChannel2: ["Breakdown by channel", "สรุปตามช่องทาง"],
+  cChannel2: ["Channel", "ช่องทาง"],
   demoDataNote: ["Showing sample data for demo — real cases are not affected", "กำลังแสดงข้อมูลตัวอย่างสำหรับเดโม — ไม่กระทบเคสจริง"],
 
   /* users */
@@ -722,10 +725,61 @@ function seedTickets() {
   return out.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-function computeTrend(tickets) {
-  // real 14-day volume from actual cases (replaces the demo seedTrend)
+/* Richer demo dataset for the Reports tab only — never written to Supabase.
+   Spreads cases over `days` days with a weekday/weekend rhythm and a light
+   month-end spike so the charts look like a real service desk. */
+function seedDemoTickets(count = 420, days = 90) {
   const out = [];
-  for (let i = 13; i >= 0; i--) {
+  const day0 = new Date(); day0.setHours(0, 0, 0, 0);
+  for (let i = 0; i < count; i++) {
+    const catK = rnd(CAT_KEYS);
+    const pri = ["urgent", "high", "normal", "normal", "normal", "normal", "low"][ri(7)];
+    // pick a day, weighted: weekends quieter, days 25-31 busier
+    let back = ri(days);
+    const d = new Date(day0.getTime() - back * 86400000);
+    const wd = d.getDay();
+    if ((wd === 0 || wd === 6) && Math.random() < 0.45) back = ri(days);
+    const dd = new Date(day0.getTime() - back * 86400000);
+    const created = dd.getTime() + (8 + ri(11)) * 60 * MIN + ri(60) * MIN;
+    const age = (Date.now() - created) / 86400000;
+    // older cases are almost always finished; recent ones are still moving
+    const closedish = age > 5 ? Math.random() < 0.94 : Math.random() < 0.45;
+    const status = closedish ? (Math.random() < 0.62 ? "closed" : "resolved")
+      : rnd(["new", "open", "open", "pending", "escalated"]);
+    const responded = status !== "new" && Math.random() < 0.95;
+    // SLA attainment ~86%
+    const frMin = responded
+      ? Math.round(PRI[pri].fr * (Math.random() < 0.86 ? (0.15 + Math.random() * 0.8) : (1.05 + Math.random() * 1.4)))
+      : null;
+    const resMin = ["resolved", "closed"].includes(status) ? Math.round(PRI[pri].res * (0.2 + Math.random() * 1.5)) : null;
+    const f = rnd(FIRST), l = rnd(LAST);
+    const msgs = [{ from: "customer", text: rnd(OPENING[catK]), at: created }];
+    if (responded) msgs.push({ from: "agent", at: created + frMin * MIN, text: { en: "Thank you for getting in touch — checking this for you now.", th: "ขอบคุณที่แจ้งเข้ามานะคะ กำลังตรวจสอบให้ค่ะ" } });
+    out.push({
+      id: "DEMO-" + String(1000 + i),
+      demo: true,
+      catKey: catK, product: rnd(PRODUCTS),
+      customer: { en: `${f[0]} ${l[0]}`, th: `${f[1]} ${l[1]}` },
+      phone: `08${ri(10)}-${1000 + ri(9000)}-${1000 + ri(9000)}`,
+      email: `demo${1000 + i}@mail.com`,
+      order: Math.random() < 0.8 ? `SO${240000 + ri(9999)}` : null,
+      channel: ["email", "email", "email", "webchat", "webchat", "phone", "line", "shopee", "lazada", "tiktok"][ri(10)],
+      priority: pri, status,
+      owner: status === "new" && Math.random() < 0.35 ? null : rnd(AGENTS).id,
+      createdAt: created, firstResponseMin: frMin, resolveMin: resMin,
+      csat: ["resolved", "closed"].includes(status) && Math.random() < 0.68 ? [5, 5, 5, 5, 4, 4, 4, 3, 2, 1][ri(10)] : null,
+      reopened: Math.random() < 0.06,
+      tags: Math.random() < 0.3 ? [rnd(TAGS)] : [],
+      messages: msgs,
+    });
+  }
+  return out.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+function computeTrend(tickets, days = 14) {
+  // real volume from actual cases (replaces the demo seedTrend)
+  const out = [];
+  for (let i = days - 1; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86400000);
     const day0 = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const day1 = day0 + 86400000;
@@ -2383,10 +2437,13 @@ function RecPlayer({ rec, onClose }) {
 function Reports({ tickets: realTickets, trend: realTrend, toast }) {
   const [period, setPeriod] = useState("daily");
   const [demo, setDemo] = useState(realTickets.length < 20);
-  const [demoSet] = useState(() => {
-    const tk = seedTickets();
-    return { tickets: tk, trend: computeTrend(tk) };
-  });
+  const [demoAll] = useState(() => seedDemoTickets(420, 90));
+  const win = period === "daily" ? 14 : 30;
+  const demoSet = useMemo(() => {
+    const from = Date.now() - win * 86400000;
+    const tk = demoAll.filter((x) => x.createdAt >= from);
+    return { tickets: tk, trend: computeTrend(tk, win) };
+  }, [demoAll, win]);
   const tickets = demo ? demoSet.tickets : realTickets;
   const trend = demo ? demoSet.trend : realTrend;
 
@@ -2416,6 +2473,17 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
     return { name: tv(CAT[k]), n: ts.length, avg: done.length ? Math.round(done.reduce((s, x) => s + x.resolveMin, 0) / done.length) : null };
   }).sort((a, b) => b.n - a.n);
 
+  const chanRep = CH_KEYS.map((k) => {
+    const ts = tickets.filter((x) => x.channel === k);
+    const ansd = ts.filter((x) => x.firstResponseMin != null);
+    const rt = ts.filter((x) => x.csat);
+    return {
+      key: k, name: tv(CH[k].n), c: CH[k].c, n: ts.length,
+      fr: ansd.length ? Math.round(ansd.reduce((s, x) => s + x.firstResponseMin, 0) / ansd.length) : null,
+      csat: rt.length ? +(rt.reduce((s, x) => s + x.csat, 0) / rt.length).toFixed(2) : null,
+    };
+  }).filter((c) => c.n > 0).sort((a, b) => b.n - a.n);
+
   const exportX = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(perf.map((p) => ({
@@ -2423,6 +2491,7 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
       [t("cFirstAvg")]: p.fr ?? "", [t("cResAvg")]: p.res ?? "", [t("cSlaMet")]: p.sla, CSAT: p.csat ?? "", [t("cReopen")]: p.reopen,
     }))), "Agents");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(catRep.map((c) => ({ [t("cCategory")]: c.name, [t("cCount")]: c.n, [t("cAvgRes")]: c.avg ?? "" }))), "Categories");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(chanRep.map((c) => ({ [t("cChannel2")]: c.name, [t("cCount")]: c.n, [t("cFirstAvg")]: c.fr ?? "", CSAT: c.csat ?? "" }))), "Channels");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(trend), "Daily");
     XLSX.writeFile(wb, `cs-report-${demo ? "demo-" : ""}${period}-${new Date().toISOString().slice(0, 10)}.xlsx`);
     toast(t("reportExported"));
@@ -2440,7 +2509,7 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
                     style={{ background: period === k ? "#fff" : "transparent", color: period === k ? "var(--blue)" : "var(--muted)", boxShadow: period === k ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{lbl}</button>
           ))}
         </div>
-        <span className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("rangeIs", period === "daily" ? t("last14") : t("thisMonth"))}</span>
+        <span className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("rangeIs", period === "daily" ? t("last14") : t("last30"))}</span>
         <label className="flex items-center gap-2 ml-auto cursor-pointer select-none text-[12.5px] font-semibold" style={{ color: demo ? "var(--amber)" : "var(--muted)" }}>
           <input type="checkbox" checked={demo} onChange={(e) => setDemo(e.target.checked)} style={{ accentColor: "var(--amber)" }} />
           {t("demoData")}
@@ -2539,6 +2608,26 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
                 <td className="text-right">{dur(c.avg)}</td>
                 <td><div className="rounded-full overflow-hidden" style={{ height: 6, background: "#E2E8F0" }}>
                   <div style={{ width: `${(c.n / (catRep[0].n || 1)) * 100}%`, height: "100%", background: "var(--blue)" }} /></div></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-5 py-4 border-b" style={{ borderColor: "var(--line)" }}><h3 className="font-bold text-[15px]">{t("byChannel2")}</h3></div>
+        <table className="tbl">
+          <thead><tr><th>{t("cChannel2")}</th><th className="text-right">{t("cCount")}</th><th className="text-right">{t("cShare")}</th><th className="text-right">{t("cFirstAvg")}</th><th className="text-right">{t("cCsat")}</th><th style={{ width: 200 }}></th></tr></thead>
+          <tbody>
+            {chanRep.map((c) => (
+              <tr key={c.key}>
+                <td className="font-semibold"><span className="flex items-center gap-2"><span className="dot" style={{ background: c.c }} />{c.name}</span></td>
+                <td className="text-right">{c.n}</td>
+                <td className="text-right">{Math.round((c.n / (tickets.length || 1)) * 100)}%</td>
+                <td className="text-right">{dur(c.fr)}</td>
+                <td className="text-right">{c.csat ?? "—"}</td>
+                <td><div className="rounded-full overflow-hidden" style={{ height: 6, background: "#E2E8F0" }}>
+                  <div style={{ width: `${(c.n / (chanRep[0]?.n || 1)) * 100}%`, height: "100%", background: c.c }} /></div></td>
               </tr>
             ))}
           </tbody>
