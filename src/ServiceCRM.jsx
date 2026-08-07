@@ -655,6 +655,25 @@ const D = {
   cCount: ["Cases", "จำนวนเคส"], cShare: ["Share", "สัดส่วน"], cAvgRes: ["Avg time to close", "เวลาปิดเฉลี่ย"],
   reportExported: ["Report exported to Excel", "ส่งออกรายงานเป็นไฟล์ Excel แล้ว"],
   casesExported: ["Exported %s cases to Excel", "ส่งออก %s เคสเป็นไฟล์ Excel แล้ว"],
+  /* new outbound message */
+  nmNew: ["New message", "เขียนอีเมลใหม่"],
+  nmTitle: ["New email", "อีเมลใหม่"],
+  nmSub: ["Starts a new case and sends it straight away", "เปิดเคสใหม่และส่งอีเมลทันที"],
+  nmFrom: ["From", "ส่งจาก"],
+  nmTo: ["To", "ถึง"],
+  nmCc: ["Cc", "สำเนาถึง"],
+  nmCcAdd: ["Add Cc", "เพิ่มสำเนาถึง"],
+  nmSubject: ["Subject", "หัวข้อ"],
+  nmBody: ["Message", "ข้อความ"],
+  nmCustomer: ["Customer name", "ชื่อลูกค้า"],
+  nmSend: ["Send email", "ส่งอีเมล"],
+  nmSending: ["Sending…", "กำลังส่ง…"],
+  nmSent: ["Email sent · case %s opened", "ส่งอีเมลแล้ว · เปิดเคส %s"],
+  nmErrTo: ["Enter a valid recipient email", "กรอกอีเมลผู้รับให้ถูกต้อง"],
+  nmErrSubj: ["Enter a subject", "กรอกหัวข้อ"],
+  nmErrBody: ["Write a message", "เขียนข้อความ"],
+  nmErrCc: ["%s is not a valid email", "%s ไม่ใช่อีเมลที่ถูกต้อง"],
+  nmSearchBox: ["Search mailbox…", "ค้นหากล่องอีเมล…"],
   /* email signature */
   sigTitle: ["Email signature", "ลายเซ็นอีเมล"],
   sigSub: ["Added to the end of every reply sent from that mailbox", "ระบบจะต่อท้ายอีเมลทุกฉบับที่ส่งจากกล่องนั้น"],
@@ -1665,6 +1684,176 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
 }
 
 const OUTBOUND_MAILBOXES = ["cs.solution@crea.asia", "enfa.cs@crea.asia", "nestlepro.cs@crea.asia"];
+const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
+
+/* ══════════ New outbound email ══════════
+   A proper compose window: pick which brand mailbox it comes from, To + Cc,
+   subject, body, attachments. Creates the case and sends in one step; the
+   signature is appended server-side exactly as it is on a reply. */
+function NewMessage({ me, onClose, onSent, toast }) {
+  const [boxes, setBoxes] = useState({});            // mailbox -> brand name
+  const [f, setF] = useState({ from: OUTBOUND_MAILBOXES[0], to: "", cc: "", customer: "", subject: "", body: "" });
+  const [showCc, setShowCc] = useState(false);
+  const [files, setFiles] = useState([]);
+  const [sig, setSig] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef(null);
+  const set = (k, v) => { setF((p) => ({ ...p, [k]: v })); setErr(""); };
+
+  // all brand mailboxes, so a JDE mail can go out from jde@
+  useEffect(() => {
+    fetch(`${FN_BASE}/email/sig-config`).then((r) => r.json())
+      .then((c) => { if (c?.brandByMailbox) setBoxes(c.brandByMailbox); })
+      .catch(() => {});
+  }, []);
+
+  // preview the signature for the chosen mailbox
+  useEffect(() => {
+    let dead = false;
+    fetch(`${FN_BASE}/email/signature?mailbox=${encodeURIComponent(f.from)}&agent=${encodeURIComponent(tv(me.n))}&agentKey=${encodeURIComponent((me.email || me.id || "").toLowerCase())}`)
+      .then((r) => r.json()).then((d) => { if (!dead) setSig(d.signature || ""); }).catch(() => {});
+    return () => { dead = true; };
+  }, [f.from]);
+
+  const ccList = f.cc.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+
+  const send = async () => {
+    if (!isEmail(f.to)) return setErr(t("nmErrTo"));
+    const bad = ccList.find((a) => !isEmail(a));
+    if (bad) return setErr(t("nmErrCc", bad));
+    if (!f.subject.trim()) return setErr(t("nmErrSubj"));
+    if (!f.body.trim()) return setErr(t("nmErrBody"));
+    setBusy(true);
+    try {
+      const { data: tkRow, error } = await supabase.from("tickets").insert({
+        brand: boxes[f.from] || "CREA", channel: "email",
+        customer_name: f.customer.trim() || f.to.trim(),
+        customer_email: f.to.trim().toLowerCase(),
+        subject: f.subject.trim(),
+      }).select("id").single();
+      if (error) { setBusy(false); return setErr(error.message); }
+
+      // upload attachments first so the send function can pull them
+      const at = Date.now();
+      const atts = files.map((x) => ({ name: x.name, path: `${tkRow.id}/out-${at}/${safeAttName(x.name)}`, size: x.size, type: x.type || "" }));
+      for (let i = 0; i < files.length; i++) {
+        const up = await supabase.storage.from(ATT_BUCKET).upload(atts[i].path, files[i], { contentType: atts[i].type || "application/octet-stream", upsert: true });
+        if (up.error) { setBusy(false); return setErr("✉ " + up.error.message); }
+      }
+
+      const { data: s } = await supabase.auth.getSession();
+      const r = await fetch(`${FN_BASE}/email/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
+        body: JSON.stringify({
+          ticketId: tkRow.id, body: f.body, fromAddress: f.from,
+          fromName: (boxes[f.from] || "CREA") + " Customer Care",
+          agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(),
+          cc: ccList, attachments: atts,
+        }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); setBusy(false); return setErr("✉ " + (j.error || `send failed (${r.status})`)); }
+
+      onSent({
+        id: "TK-E" + tkRow.id, dbId: tkRow.id,
+        subject: biText(f.subject.trim()), catKey: "inquiry", product: null,
+        customer: biText(f.customer.trim() || f.to.trim()),
+        phone: "", email: f.to.trim(), order: null,
+        channel: "email", priority: "normal", status: "pending", emailTo: f.from,
+        owner: me.id, createdAt: Date.now(),
+        firstResponseMin: null, resolveMin: null, csat: null, reopened: false, tags: [],
+        messages: [{ from: "agent", text: biText(f.body), at: Date.now(), by: tv(me.n) }],
+      });
+      toast(t("nmSent", "TK-E" + tkRow.id));
+    } catch (e) { setBusy(false); setErr("✉ " + String(e.message || e)); }
+  };
+
+  const boxKeys = Object.keys(boxes).length ? Object.keys(boxes).sort() : OUTBOUND_MAILBOXES;
+
+  return (
+    <div className="ovl" onClick={onClose}>
+      <div className="sheet" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: "var(--line)" }}>
+          <div>
+            <h3 className="font-bold text-[16px]">{t("nmTitle")}</h3>
+            <p className="text-[12.5px] mt-0.5" style={{ color: "var(--muted)" }}>{t("nmSub")}</p>
+          </div>
+          <button onClick={onClose} className="p-2"><X size={18} /></button>
+        </div>
+
+        <div className="p-6 space-y-3">
+          <div>
+            <label className="lbl">{t("nmFrom")}</label>
+            <select className="fld" value={f.from} onChange={(e) => set("from", e.target.value)}>
+              {boxKeys.map((m) => <option key={m} value={m}>{(boxes[m] || m.split("@")[0])} — {m}</option>)}
+            </select>
+          </div>
+
+          <div className="grid gap-3" style={{ gridTemplateColumns: "1.3fr 1fr" }}>
+            <div>
+              <label className="lbl">{t("nmTo")}</label>
+              <input className="fld" value={f.to} onChange={(e) => set("to", e.target.value)} placeholder="customer@example.com" />
+            </div>
+            <div>
+              <label className="lbl">{t("nmCustomer")}</label>
+              <input className="fld" value={f.customer} onChange={(e) => set("customer", e.target.value)} />
+            </div>
+          </div>
+
+          {showCc ? (
+            <div>
+              <label className="lbl">{t("nmCc")}</label>
+              <input className="fld" value={f.cc} onChange={(e) => set("cc", e.target.value)} placeholder="a@x.com, b@y.com" />
+            </div>
+          ) : (
+            <button className="text-[12.5px] font-semibold" style={{ color: "var(--blue)" }} onClick={() => setShowCc(true)}>+ {t("nmCcAdd")}</button>
+          )}
+
+          <div>
+            <label className="lbl">{t("nmSubject")}</label>
+            <input className="fld" value={f.subject} onChange={(e) => set("subject", e.target.value)} />
+          </div>
+
+          <div>
+            <label className="lbl">{t("nmBody")}</label>
+            <textarea className="fld" rows={7} value={f.body} onChange={(e) => set("body", e.target.value)} />
+          </div>
+
+          {sig && (
+            <pre className="px-3 py-2 rounded-lg whitespace-pre-wrap"
+                 style={{ background: "var(--slate-bg)", color: "var(--muted)", fontFamily: "inherit", fontSize: 11.5 }}>{sig}</pre>
+          )}
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <input ref={fileRef} type="file" multiple style={{ display: "none" }} onChange={(e) => {
+              const picked = Array.from(e.target.files || []);
+              const ok = picked.filter((x) => x.size <= 10 * 1024 * 1024);
+              if (ok.length < picked.length) toast("✉ " + t("attTooBig"), "error");
+              setFiles((p) => [...p, ...ok].slice(0, 10)); e.target.value = "";
+            }} />
+            <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5 }} onClick={() => fileRef.current?.click()}>
+              <Paperclip size={13} />{files.length > 0 && <b className="ml-1">{files.length}</b>}
+            </button>
+            {files.map((x, i) => (
+              <span key={i} className="flex items-center gap-1.5 text-[11.5px] px-2 py-1 rounded-lg" style={{ background: "var(--sky)", color: "var(--blue)", fontWeight: 600 }}>
+                <Paperclip size={10} />{x.name}
+                <button onClick={() => setFiles((p) => p.filter((_, j) => j !== i))} style={{ display: "flex" }}><X size={11} /></button>
+              </span>
+            ))}
+          </div>
+
+          {err && <p className="text-[12.5px]" style={{ color: "var(--red)" }}>{err}</p>}
+        </div>
+
+        <div className="px-6 py-4 border-t flex gap-2 justify-end" style={{ borderColor: "var(--line)" }}>
+          <button className="btn btn-g" onClick={onClose}>{t("cancel")}</button>
+          <button className="btn btn-p" disabled={busy} onClick={send}><Mail size={15} />{busy ? t("nmSending") : t("nmSend")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function NewTicket({ me, onClose, onSave }) {
   const [f, setF] = useState({ customer: "", phone: "", order: "", channel: "line", catKey: CAT_KEYS[0], priority: "normal", subject: "", detail: "", email: "", fromBox: OUTBOUND_MAILBOXES[0] });
@@ -1831,6 +2020,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     else window.open(data.signedUrl, "_blank"); // other file types → download
   };
 
+  const [compose, setCompose] = useState(false);  // New message window
   const [collide, setCollide] = useState(null);   // { name } — confirm before double-replying
 
   const send = (force) => {
@@ -1901,6 +2091,9 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted)" }} />
             <input className="fld" style={{ padding: "8px 12px 8px 32px", fontSize: 13 }} placeholder={t("searchInbox")} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
+          <button className="btn btn-p w-full justify-center mt-2" style={{ padding: "7px 12px", fontSize: 13 }} onClick={() => setCompose(true)}>
+            <Mail size={14} />{t("nmNew")}
+          </button>
           <p className="text-[11.5px] mt-2" style={{ color: "var(--muted)" }}>{t("inboxCount", list.length)}</p>
         </div>
         <div className="flex-1 overflow-auto scroll">
@@ -2135,6 +2328,11 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             </div>
           </div>
         </>
+      )}
+
+      {compose && (
+        <NewMessage me={me} toast={toast} onClose={() => setCompose(false)}
+                    onSent={(x) => { setTickets((p) => [x, ...p]); setCompose(false); setSel(x.id); }} />
       )}
 
       {/* ── collision confirm: two agents replying to the same case ── */}
