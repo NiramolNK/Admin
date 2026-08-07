@@ -712,6 +712,13 @@ const D = {
   sigSkip: ["Don't sign this one", "ไม่ต้องใส่ลายเซ็นฉบับนี้"],
   sigShow: ["Preview", "ดูตัวอย่าง"],
   sigHide: ["Hide", "ซ่อน"],
+  /* per-mailbox signatures */
+  sigScope: ["Signature for", "ลายเซ็นสำหรับ"],
+  sigScopeAll: ["All mailboxes — my default", "ทุกกล่องอีเมล — ค่าเริ่มต้น"],
+  sigOverride: ["Different details for this mailbox", "ใช้ข้อมูลต่างจากค่าเริ่มต้นสำหรับกล่องนี้"],
+  sigInherit: ["Using your default details. Tick the box to write something different for %s.", "กำลังใช้ค่าเริ่มต้น ติ๊กช่องด้านบนเพื่อกำหนดข้อมูลเฉพาะของ %s"],
+  sigCustomised: ["Customised for %s", "กำหนดเองสำหรับ %s"],
+  sigDefaultNote: ["Used for every mailbox that has no details of its own", "ใช้กับทุกกล่องที่ไม่ได้กำหนดข้อมูลเฉพาะไว้"],
   /* Twilio softphone */
   sfTitle: ["Softphone", "โทรศัพท์ในระบบ"],
   sfReady: ["Ready for calls", "พร้อมรับสาย"],
@@ -3680,13 +3687,17 @@ function Telephony({ sip, setSip, toast }) {
    in their own name / role / phone, or writes a fully custom block. Everything
    lives in kv_state so the edge function resolves exactly the same text when it
    signs the outgoing email. */
+const SIG_ALL = "__default__";   // "all mailboxes" scope in the picker
+
 function SignatureSettings({ me, toast }) {
   const [cfg, setCfg] = useState(null);
   const [mine, setMine] = useState({
     mode: "template", layout: "full", name: "", role: "", phone: "",
     company: "", address: "", web: "", custom: "",
   });
-  const [box, setBox] = useState(OUTBOUND_MAILBOXES[0]);
+  // per-mailbox overrides: { "enfa.cs@crea.asia": {…same shape as `mine`} }
+  const [perBox, setPerBox] = useState({});
+  const [box, setBox] = useState(SIG_ALL);
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -3700,17 +3711,22 @@ function SignatureSettings({ me, toast }) {
         setCfg(v);
         const x = (v.byAgent || {})[key] || {};
         const d = v.orgDefaults || {};
-        setMine({
-          mode: x.mode === "custom" && x.handwritten ? "custom" : "template",
-          layout: x.layout || "full",
-          name: x.name || tv(me.n),
-          role: x.role || "",
-          phone: x.phone || "",
-          company: x.company ?? d.company ?? "CREA Co.,Ltd.",
-          address: x.address ?? d.address ?? "712/1 TBI Building (Peterson) 6th Floor, Sukhumvit 26 and 28 Road, Klongton, Klongtoey, Bangkok 10110",
-          web: x.web ?? d.web ?? "www.crea.asia",
-          custom: x.custom || "",
+        // stored records are resolved (mode:"custom"); turn one back into form fields
+        const toForm = (r) => ({
+          mode: r.mode === "custom" && r.handwritten ? "custom" : "template",
+          layout: r.layout || "full",
+          name: r.name || tv(me.n),
+          role: r.role || "",
+          phone: r.phone || "",
+          company: r.company ?? d.company ?? "CREA Co.,Ltd.",
+          address: r.address ?? d.address ?? "712/1 TBI Building (Peterson) 6th Floor, Sukhumvit 26 and 28 Road, Klongton, Klongtoey, Bangkok 10110",
+          web: r.web ?? d.web ?? "www.crea.asia",
+          custom: r.custom || "",
         });
+        setMine(toForm(x));
+        setPerBox(Object.fromEntries(
+          Object.entries(x.boxes || {}).map(([b, r]) => [b, toForm(r)])
+        ));
       })
       .catch(() => {});
   }, [key]);
@@ -3733,26 +3749,46 @@ function SignatureSettings({ me, toast }) {
     return L.join("\n");
   };
 
+  /* Which record the form is editing right now: the default, or one mailbox's
+     own details. A mailbox with no entry in perBox simply inherits. */
+  const overridden = box !== SIG_ALL && !!perBox[box];
+  const active = overridden ? perBox[box] : mine;
+  const setActive = (patch) => {
+    if (overridden) setPerBox((p) => ({ ...p, [box]: { ...p[box], ...patch } }));
+    else setMine((p) => ({ ...p, ...patch }));
+  };
+  const toggleOverride = (on) => setPerBox((p) => {
+    const n = { ...p };
+    if (on) n[box] = { ...mine };          // start from the default, then diverge
+    else delete n[box];
+    return n;
+  });
+
   useEffect(() => {
     if (!cfg) return;
     const id = setTimeout(() => {
-      const brand = cfg.brandByMailbox?.[box] || "CREA Customer Care";
-      setPreview(compose(mine)
+      const asBox = box === SIG_ALL ? OUTBOUND_MAILBOXES[0] : box;
+      const brand = cfg.brandByMailbox?.[asBox] || "CREA Customer Care";
+      setPreview(compose(active)
         .replace(/\{\{\s*brand\s*\}\}/gi, brand)
-        .replace(/\{\{\s*mailbox\s*\}\}/gi, box)
-        .replace(/\{\{\s*(name|agent)\s*\}\}/gi, mine.name || tv(me.n))
-        .replace(/\{\{\s*role\s*\}\}/gi, mine.role || "")
-        .replace(/\{\{\s*phone\s*\}\}/gi, mine.phone || "")
+        .replace(/\{\{\s*mailbox\s*\}\}/gi, asBox)
+        .replace(/\{\{\s*(name|agent)\s*\}\}/gi, active.name || tv(me.n))
+        .replace(/\{\{\s*role\s*\}\}/gi, active.role || "")
+        .replace(/\{\{\s*phone\s*\}\}/gi, active.phone || "")
         .split("\n").map((l) => l.replace(/\s*·\s*$/, "").trimEnd()).filter(Boolean).join("\n"));
     }, 120);
     return () => clearTimeout(id);
-  }, [cfg, mine, box]);
+  }, [cfg, active, box]);
 
   const save = async () => {
     if (!cfg) return;
     setBusy(true);
-    // stored as a resolved custom block: what you see here is what sends
-    const rec = { ...mine, mode: "custom", handwritten: mine.mode === "custom", custom: compose(mine) };
+    // stored as resolved custom blocks: what you see here is what sends
+    const resolve = (m) => ({ ...m, mode: "custom", handwritten: m.mode === "custom", custom: compose(m) });
+    const rec = {
+      ...resolve(mine),
+      boxes: Object.fromEntries(Object.entries(perBox).map(([b, m]) => [b, resolve(m)])),
+    };
     const next = { ...cfg, byAgent: { ...(cfg.byAgent || {}), [key]: rec } };
     const { error } = await supabase.from("kv_state")
       .upsert({ key: "nirm-crm-signatures", value: next }, { onConflict: "key" });
@@ -3777,60 +3813,87 @@ function SignatureSettings({ me, toast }) {
         </div>
       </div>
 
-      {/* layout, or write the whole thing yourself */}
-      <label className="lbl">{t("sigLayout")}</label>
-      <div className="flex gap-1 p-1 rounded-lg mb-3 flex-wrap" style={{ background: "#F1F5F9" }}>
-        {[["full", t("sigFull")], ["compact", t("sigCompact")]].map(([k, lbl]) => {
-          const on = mine.mode === "template" && mine.layout === k;
-          return (
-            <button key={k} onClick={() => setMine((p) => ({ ...p, mode: "template", layout: k }))}
-                    className="px-3 py-1.5 rounded-md text-[12px] font-semibold"
-                    style={{ background: on ? "#fff" : "transparent", color: on ? "var(--blue)" : "var(--muted)",
-                             boxShadow: on ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{lbl}</button>
-          );
-        })}
-        <button onClick={() => setMine((p) => ({ ...p, mode: "custom", custom: p.custom || compose({ ...p, mode: "template" }) }))}
-                className="px-3 py-1.5 rounded-md text-[12px] font-semibold"
-                style={{ background: mine.mode === "custom" ? "#fff" : "transparent",
-                         color: mine.mode === "custom" ? "var(--blue)" : "var(--muted)",
-                         boxShadow: mine.mode === "custom" ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{t("sigCustom")}</button>
-      </div>
-
-      {mine.mode === "custom" ? (
-        <>
-          <textarea className="fld" rows={7} style={{ fontFamily: "inherit" }} value={mine.custom}
-                    onChange={(e) => setMine((p) => ({ ...p, custom: e.target.value }))} />
-          <p className="text-[11.5px] mt-1.5" style={{ color: "var(--muted)" }}>{t("sigVars")}</p>
-        </>
-      ) : (
-        <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
-          <div><label className="lbl">{t("sigName")}</label>
-            <input className="fld" value={mine.name} onChange={(e) => setMine((p) => ({ ...p, name: e.target.value }))} /></div>
-          <div><label className="lbl">{t("sigRole")}</label>
-            <input className="fld" value={mine.role} onChange={(e) => setMine((p) => ({ ...p, role: e.target.value }))} /></div>
-          <div><label className="lbl">{t("sigPhone")}</label>
-            <input className="fld" value={mine.phone} onChange={(e) => setMine((p) => ({ ...p, phone: e.target.value }))} /></div>
-          <div><label className="lbl">{t("sigCompany")}</label>
-            <input className="fld" value={mine.company} onChange={(e) => setMine((p) => ({ ...p, company: e.target.value }))} /></div>
-          <div style={{ gridColumn: "1 / -1" }}><label className="lbl">{t("sigAddress")}</label>
-            <textarea className="fld" rows={2} style={{ fontFamily: "inherit" }} value={mine.address}
-                      onChange={(e) => setMine((p) => ({ ...p, address: e.target.value }))} /></div>
-          <div style={{ gridColumn: "1 / -1" }}><label className="lbl">{t("sigWeb")}</label>
-            <input className="fld" value={mine.web} onChange={(e) => setMine((p) => ({ ...p, web: e.target.value }))} /></div>
-        </div>
-      )}
-      <p className="text-[11.5px] mt-2" style={{ color: "var(--muted)" }}>{t("sigOwn")}</p>
-
-      {/* Preview against each mailbox we send from. The brand line is a
-          {{brand}} placeholder until the moment of sending, so the same
-          signature signs as Enfa, Nestlé Professional or CREA Customer Care
-          depending on which box the mail leaves from. */}
-      <label className="lbl mt-4">{t("sigPreviewAs", cfg.brandByMailbox?.[box] || box.split("@")[0])}</label>
-      <select className="fld mb-2" value={box} onChange={(e) => setBox(e.target.value)}>
+      {/* Which mailbox am I editing? The default covers every box; pick a
+          mailbox to give it its own name, role, phone — anything. */}
+      <label className="lbl">{t("sigScope")}</label>
+      <select className="fld" value={box} onChange={(e) => setBox(e.target.value)}>
+        <option value={SIG_ALL}>{t("sigScopeAll")}</option>
         {sendBoxes.map((m) => (
-          <option key={m} value={m}>{(cfg.brandByMailbox?.[m] || m.split("@")[0])} — {m}</option>
+          <option key={m} value={m}>
+            {(cfg.brandByMailbox?.[m] || m.split("@")[0])} — {m}{perBox[m] ? " ✳" : ""}
+          </option>
         ))}
       </select>
+
+      {box === SIG_ALL ? (
+        <p className="text-[11.5px] mt-1.5 mb-3" style={{ color: "var(--muted)" }}>{t("sigDefaultNote")}</p>
+      ) : (
+        <div className="mt-2 mb-3 px-3 py-2.5 rounded-lg" style={{ background: "var(--slate-bg)" }}>
+          <label className="flex items-center gap-2 text-[12.5px] font-semibold" style={{ cursor: "pointer" }}>
+            <input type="checkbox" checked={overridden} onChange={(e) => toggleOverride(e.target.checked)} />
+            {t("sigOverride")}
+          </label>
+          {!overridden && (
+            <p className="text-[11.5px] mt-1" style={{ color: "var(--muted)" }}>
+              {t("sigInherit", cfg.brandByMailbox?.[box] || box.split("@")[0])}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* layout, or write the whole thing yourself */}
+      <fieldset disabled={box !== SIG_ALL && !overridden} style={{ opacity: box !== SIG_ALL && !overridden ? 0.55 : 1, border: 0, padding: 0, margin: 0 }}>
+        <label className="lbl">{t("sigLayout")}</label>
+        <div className="flex gap-1 p-1 rounded-lg mb-3 flex-wrap" style={{ background: "#F1F5F9" }}>
+          {[["full", t("sigFull")], ["compact", t("sigCompact")]].map(([k, lbl]) => {
+            const on = active.mode === "template" && active.layout === k;
+            return (
+              <button key={k} onClick={() => setActive({ mode: "template", layout: k })}
+                      className="px-3 py-1.5 rounded-md text-[12px] font-semibold"
+                      style={{ background: on ? "#fff" : "transparent", color: on ? "var(--blue)" : "var(--muted)",
+                               boxShadow: on ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{lbl}</button>
+            );
+          })}
+          <button onClick={() => setActive({ mode: "custom", custom: active.custom || compose({ ...active, mode: "template" }) })}
+                  className="px-3 py-1.5 rounded-md text-[12px] font-semibold"
+                  style={{ background: active.mode === "custom" ? "#fff" : "transparent",
+                           color: active.mode === "custom" ? "var(--blue)" : "var(--muted)",
+                           boxShadow: active.mode === "custom" ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{t("sigCustom")}</button>
+        </div>
+
+        {active.mode === "custom" ? (
+          <>
+            <textarea className="fld" rows={7} style={{ fontFamily: "inherit" }} value={active.custom}
+                      onChange={(e) => setActive({ custom: e.target.value })} />
+            <p className="text-[11.5px] mt-1.5" style={{ color: "var(--muted)" }}>{t("sigVars")}</p>
+          </>
+        ) : (
+          <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+            <div><label className="lbl">{t("sigName")}</label>
+              <input className="fld" value={active.name} onChange={(e) => setActive({ name: e.target.value })} /></div>
+            <div><label className="lbl">{t("sigRole")}</label>
+              <input className="fld" value={active.role} onChange={(e) => setActive({ role: e.target.value })} /></div>
+            <div><label className="lbl">{t("sigPhone")}</label>
+              <input className="fld" value={active.phone} onChange={(e) => setActive({ phone: e.target.value })} /></div>
+            <div><label className="lbl">{t("sigCompany")}</label>
+              <input className="fld" value={active.company} onChange={(e) => setActive({ company: e.target.value })} /></div>
+            <div style={{ gridColumn: "1 / -1" }}><label className="lbl">{t("sigAddress")}</label>
+              <textarea className="fld" rows={2} style={{ fontFamily: "inherit" }} value={active.address}
+                        onChange={(e) => setActive({ address: e.target.value })} /></div>
+            <div style={{ gridColumn: "1 / -1" }}><label className="lbl">{t("sigWeb")}</label>
+              <input className="fld" value={active.web} onChange={(e) => setActive({ web: e.target.value })} /></div>
+          </div>
+        )}
+      </fieldset>
+      <p className="text-[11.5px] mt-2" style={{ color: "var(--muted)" }}>{t("sigOwn")}</p>
+
+      {/* The brand line stays a {{brand}} placeholder until the mail is sent,
+          so even the shared default signs as Enfa, Nestlé Professional or
+          CREA Customer Care depending on the mailbox. */}
+      <label className="lbl mt-4">
+        {t("sigPreviewAs", cfg.brandByMailbox?.[box === SIG_ALL ? OUTBOUND_MAILBOXES[0] : box] || String(box).split("@")[0])}
+        {overridden ? ` · ${t("sigCustomised", cfg.brandByMailbox?.[box] || box.split("@")[0])}` : ""}
+      </label>
       <pre className="px-3 py-2.5 rounded-lg whitespace-pre-wrap"
            style={{ background: "var(--slate-bg)", color: "var(--ink)", fontFamily: "inherit", fontSize: 12.5 }}>{preview}</pre>
 
