@@ -530,7 +530,7 @@ table.tbl { width:100%; border-collapse:collapse; }
 .tbl tbody tr:hover { background:#F8FAFC; }
 .tbl tbody tr:last-child td { border-bottom:none; }
 
-.nav-i { display:flex; align-items:center; gap:11px; padding:10px 13px; border-radius:10px; font-size:14px; font-weight:500; color:#CCFBF1; width:100%; text-align:left; transition:.15s; }
+.nav-i { display:flex; align-items:center; gap:11px; padding:10px 13px; border-radius:10px; font-size:14px; font-weight:500; color:#E2E8F0; width:100%; text-align:left; transition:.15s; }
 .nav-i:hover { background:rgba(255,255,255,.08); color:#fff; }
 .nav-i.on { background:var(--blue); color:#fff; font-weight:600; box-shadow:0 4px 14px -4px rgba(13,148,136,.65); }
 
@@ -3083,44 +3083,6 @@ export default function ServiceCRM({ user, role }) {
             <span className="dot" style={{ background: sip.connected ? PRESENCE[presence[me.id]?.status || "offline"].c : "#F87171" }} />
             {sip.connected ? `${t(PRESENCE[presence[me.id]?.status || "offline"].k)} · ${sip.ext}` : t("lineDown")}
           </span>
-          {/* controls moved up from the (removed) white header row to save vertical space */}
-          <div className="flex items-center gap-2 pl-2" onClickCapture={(e) => e.stopPropagation()}>
-            <LangToggle lang={lang} setLang={setLang} />
-            <div className="relative">
-              <button className="relative rounded-lg grid place-items-center" style={{ width: 32, height: 32, background: "rgba(255,255,255,.12)", color: "#fff", border: "none", cursor: "pointer" }} onClick={() => setBell(!bell)} aria-label={t("notifications")}>
-                <Bell size={16} />
-                {alerts.length > 0 && <span className="absolute -top-1 -right-1 rounded-full text-[10px] font-bold text-white grid place-items-center" style={{ width: 17, height: 17, background: "var(--red)" }}>{alerts.length > 9 ? "9+" : alerts.length}</span>}
-              </button>
-              {bell && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setBell(false)} />
-                  <div className="card absolute right-0 mt-2 z-50 overflow-hidden" style={{ width: 344 }}>
-                    <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: "var(--line)" }}>
-                      <b className="text-[14px]">{t("notifTitle")}</b><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("items", alerts.length)}</span>
-                    </div>
-                    <div className="max-h-80 overflow-auto scroll">
-                      {alerts.length === 0
-                        ? <p className="text-[13px] text-center py-8" style={{ color: "var(--muted)" }}>{t("notifEmpty")}</p>
-                        : alerts.slice(0, 8).map((x) => (
-                          <button key={x.id} onClick={() => { setBell(false); openTicket(x); }} className="w-full text-left px-4 py-3 border-b hover:bg-slate-50" style={{ borderColor: "#E2E8F0" }}>
-                            <div className="flex items-center gap-2"><SlaChip t={x} /><span className="ml-auto text-[11px]" style={{ color: "var(--muted)" }}>{x.id}</span></div>
-                            <p className="text-[13px] font-semibold mt-1.5 truncate">{subjectOf(x)}</p>
-                            <p className="text-[11.5px] mt-0.5" style={{ color: "var(--muted)" }}>{tv(x.customer)} · {tv(CH[x.channel].n)}</p>
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-2 pl-2 border-l" style={{ borderColor: "rgba(255,255,255,.2)" }}>
-              <div className="rounded-full grid place-items-center flex-none font-bold text-[12px]" style={{ width: 28, height: 28, background: "var(--blue)", color: "#fff" }}>{tv(me.n).charAt(0)}</div>
-              <div className="hidden sm:block whitespace-nowrap">
-                <div className="text-[12px] font-semibold leading-tight text-white">{tv(me.n)}</div>
-                <div className="text-[10px]" style={{ color: "#94A3B8" }}>{roleFull}</div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
