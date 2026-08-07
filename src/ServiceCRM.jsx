@@ -674,6 +674,12 @@ const D = {
   nmErrBody: ["Write a message", "เขียนข้อความ"],
   nmErrCc: ["%s is not a valid email", "%s ไม่ใช่อีเมลที่ถูกต้อง"],
   nmSearchBox: ["Search mailbox…", "ค้นหากล่องอีเมล…"],
+  nmActiveOnly: ["Active mailboxes only", "เฉพาะกล่องที่ใช้งานอยู่"],
+  nmShowAll: ["Show all %s", "แสดงทั้งหมด %s"],
+  nmLastSeen: ["last mail %s", "อีเมลล่าสุด %s"],
+  nmEditSig: ["Edit", "แก้ไข"],
+  nmSigDone: ["Done", "เสร็จ"],
+  nmSigOnce: ["Edited for this email only", "แก้เฉพาะอีเมลฉบับนี้"],
   /* email signature */
   sigTitle: ["Email signature", "ลายเซ็นอีเมล"],
   sigSub: ["Added to the end of every reply sent from that mailbox", "ระบบจะต่อท้ายอีเมลทุกฉบับที่ส่งจากกล่องนั้น"],
@@ -1692,6 +1698,10 @@ const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim())
    signature is appended server-side exactly as it is on a reply. */
 function NewMessage({ me, onClose, onSent, toast }) {
   const [boxes, setBoxes] = useState({});            // mailbox -> brand name
+  const [lastSeen, setLastSeen] = useState({});      // mailbox -> YYYY-MM-DD of last mail
+  const [allBoxes, setAllBoxes] = useState(false);   // show dormant mailboxes too
+  const [sigEdit, setSigEdit] = useState(false);     // tweak the sign-off for this email
+  const [sigOverride, setSigOverride] = useState(null);
   const [f, setF] = useState({ from: OUTBOUND_MAILBOXES[0], to: "", cc: "", customer: "", subject: "", body: "" });
   const [showCc, setShowCc] = useState(false);
   const [files, setFiles] = useState([]);
@@ -1704,7 +1714,10 @@ function NewMessage({ me, onClose, onSent, toast }) {
   // all brand mailboxes, so a JDE mail can go out from jde@
   useEffect(() => {
     fetch(`${FN_BASE}/email/sig-config`).then((r) => r.json())
-      .then((c) => { if (c?.brandByMailbox) setBoxes(c.brandByMailbox); })
+      .then((c) => {
+        if (c?.brandByMailbox) setBoxes(c.brandByMailbox);
+        if (c?.mailboxLastSeen) setLastSeen(c.mailboxLastSeen);
+      })
       .catch(() => {});
   }, []);
 
@@ -1712,9 +1725,18 @@ function NewMessage({ me, onClose, onSent, toast }) {
   useEffect(() => {
     let dead = false;
     fetch(`${FN_BASE}/email/signature?mailbox=${encodeURIComponent(f.from)}&agent=${encodeURIComponent(tv(me.n))}&agentKey=${encodeURIComponent((me.email || me.id || "").toLowerCase())}`)
-      .then((r) => r.json()).then((d) => { if (!dead) setSig(d.signature || ""); }).catch(() => {});
+      .then((r) => r.json()).then((d) => { if (!dead) { setSig(d.signature || ""); setSigOverride(null); setSigEdit(false); } }).catch(() => {});
     return () => { dead = true; };
   }, [f.from]);
+
+  // mailboxes used in the last 6 months — the rest are almost certainly retired
+  const boxKeys = (() => {
+    const all = Object.keys(boxes).length ? Object.keys(boxes).sort() : OUTBOUND_MAILBOXES;
+    if (allBoxes) return all;
+    const cut = new Date(Date.now() - 183 * 86400000).toISOString().slice(0, 10);
+    const live = all.filter((m) => (lastSeen[m] || "") >= cut);
+    return live.length ? live : all;
+  })();
 
   const ccList = f.cc.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
 
@@ -1747,10 +1769,14 @@ function NewMessage({ me, onClose, onSent, toast }) {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
         body: JSON.stringify({
-          ticketId: tkRow.id, body: f.body, fromAddress: f.from,
+          ticketId: tkRow.id,
+          body: sigOverride != null ? `${f.body.replace(/\s+$/, "")}\n\n${sigOverride}` : f.body,
+          fromAddress: f.from,
           fromName: (boxes[f.from] || "CREA") + " Customer Care",
           agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(),
           cc: ccList, attachments: atts,
+          // an edited sign-off is sent inline and the server one suppressed
+          ...(sigOverride != null ? { noSignature: true } : {}),
         }),
       });
       if (!r.ok) { const j = await r.json().catch(() => ({})); setBusy(false); return setErr("✉ " + (j.error || `send failed (${r.status})`)); }
@@ -1769,8 +1795,6 @@ function NewMessage({ me, onClose, onSent, toast }) {
     } catch (e) { setBusy(false); setErr("✉ " + String(e.message || e)); }
   };
 
-  const boxKeys = Object.keys(boxes).length ? Object.keys(boxes).sort() : OUTBOUND_MAILBOXES;
-
   return (
     <div className="ovl" onClick={onClose}>
       <div className="sheet" style={{ maxWidth: 620 }} onClick={(e) => e.stopPropagation()}>
@@ -1786,8 +1810,19 @@ function NewMessage({ me, onClose, onSent, toast }) {
           <div>
             <label className="lbl">{t("nmFrom")}</label>
             <select className="fld" value={f.from} onChange={(e) => set("from", e.target.value)}>
-              {boxKeys.map((m) => <option key={m} value={m}>{(boxes[m] || m.split("@")[0])} — {m}</option>)}
+              {boxKeys.map((m) => (
+                <option key={m} value={m}>
+                  {(boxes[m] || m.split("@")[0])} — {m}{lastSeen[m] ? ` · ${t("nmLastSeen", lastSeen[m])}` : ""}
+                </option>
+              ))}
             </select>
+            <div className="flex items-center gap-2 mt-1 text-[11.5px]" style={{ color: "var(--muted)" }}>
+              <span>{allBoxes ? " " : t("nmActiveOnly")}</span>
+              <button className="font-semibold" style={{ color: "var(--blue)" }}
+                      onClick={() => setAllBoxes((v) => !v)}>
+                {allBoxes ? t("nmActiveOnly") : t("nmShowAll", Object.keys(boxes).length)}
+              </button>
+            </div>
           </div>
 
           <div className="grid gap-3" style={{ gridTemplateColumns: "1.3fr 1fr" }}>
@@ -1821,8 +1856,23 @@ function NewMessage({ me, onClose, onSent, toast }) {
           </div>
 
           {sig && (
-            <pre className="px-3 py-2 rounded-lg whitespace-pre-wrap"
-                 style={{ background: "var(--slate-bg)", color: "var(--muted)", fontFamily: "inherit", fontSize: 11.5 }}>{sig}</pre>
+            <div>
+              <div className="flex items-center gap-2 mb-1 text-[11.5px]">
+                <span style={{ color: "var(--muted)" }}>{sigOverride != null ? t("nmSigOnce") : t("sigWillAdd")}</span>
+                <button className="font-semibold" style={{ color: "var(--blue)" }}
+                        onClick={() => { if (!sigEdit && sigOverride == null) setSigOverride(sig); setSigEdit((v) => !v); }}>
+                  {sigEdit ? t("nmSigDone") : t("nmEditSig")}
+                </button>
+              </div>
+              {sigEdit ? (
+                <textarea className="fld" rows={5} style={{ fontFamily: "inherit", fontSize: 12 }}
+                          value={sigOverride ?? sig}
+                          onChange={(e) => setSigOverride(e.target.value)} />
+              ) : (
+                <pre className="px-3 py-2 rounded-lg whitespace-pre-wrap"
+                     style={{ background: "var(--slate-bg)", color: "var(--muted)", fontFamily: "inherit", fontSize: 11.5 }}>{sigOverride ?? sig}</pre>
+              )}
+            </div>
           )}
 
           <div className="flex items-center gap-2 flex-wrap">
