@@ -1702,6 +1702,9 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
   );
 }
 
+// only mailboxes that are BOTH a verified SendGrid sender AND have M365
+// forwarding into parse.crea.asia (Outlook > Settings > Mail > Forwarding,
+// "keep a copy" on). All three verified 7 Aug 2026.
 const OUTBOUND_MAILBOXES = ["cs.solution@crea.asia", "enfa.cs@crea.asia", "nestlepro.cs@crea.asia"];
 const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
 
@@ -1788,8 +1791,7 @@ class CrmBoundary extends React.Component {
    signature is appended server-side exactly as it is on a reply. */
 function NewMessage({ me, onClose, onSent, toast }) {
   const [boxes, setBoxes] = useState({});            // mailbox -> brand name
-  const [lastSeen, setLastSeen] = useState({});      // mailbox -> YYYY-MM-DD of last mail
-  const [allBoxes, setAllBoxes] = useState(false);   // show dormant mailboxes too
+  const [sendFrom, setSendFrom] = useState([]);      // mailboxes we may send from
   const [sigEdit, setSigEdit] = useState(false);     // tweak the sign-off for this email
   const [sigOverride, setSigOverride] = useState(null);
   const [f, setF] = useState({ from: OUTBOUND_MAILBOXES[0], to: "", cc: "", customer: "", subject: "", body: "" });
@@ -1806,7 +1808,9 @@ function NewMessage({ me, onClose, onSent, toast }) {
     fetch(`${FN_BASE}/email/sig-config`).then((r) => r.json())
       .then((c) => {
         if (c?.brandByMailbox) setBoxes(c.brandByMailbox);
-        if (c?.mailboxLastSeen) setLastSeen(c.mailboxLastSeen);
+        const allowed = Array.isArray(c?.sendFrom) && c.sendFrom.length ? c.sendFrom : [EMAIL_FROM];
+        setSendFrom(allowed);
+        setF((p) => ({ ...p, from: allowed[0] }));
       })
       .catch(() => {});
   }, []);
@@ -1819,14 +1823,8 @@ function NewMessage({ me, onClose, onSent, toast }) {
     return () => { dead = true; };
   }, [f.from]);
 
-  // mailboxes used in the last 6 months — the rest are almost certainly retired
-  const boxKeys = (() => {
-    const all = Object.keys(boxes).length ? Object.keys(boxes).sort() : OUTBOUND_MAILBOXES;
-    if (allBoxes) return all;
-    const cut = new Date(Date.now() - 183 * 86400000).toISOString().slice(0, 10);
-    const live = all.filter((m) => (lastSeen[m] || "") >= cut);
-    return live.length ? live : all;
-  })();
+  // only mailboxes we can actually send from (SendGrid sender + forwarding set up)
+  const boxKeys = sendFrom.length ? sendFrom : [EMAIL_FROM];
 
   const ccList = f.cc.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
 
@@ -1899,20 +1897,14 @@ function NewMessage({ me, onClose, onSent, toast }) {
         <div className="p-6 space-y-3">
           <div>
             <label className="lbl">{t("nmFrom")}</label>
-            <select className="fld" value={f.from} onChange={(e) => set("from", e.target.value)}>
+            <select className="fld" value={f.from} onChange={(e) => set("from", e.target.value)}
+                    disabled={boxKeys.length < 2}>
               {boxKeys.map((m) => (
                 <option key={m} value={m}>
-                  {(boxes[m] || m.split("@")[0])} — {m}{lastSeen[m] ? ` · ${t("nmLastSeen", lastSeen[m])}` : ""}
+                  {(boxes[m] || m.split("@")[0])} — {m}
                 </option>
               ))}
             </select>
-            <div className="flex items-center gap-2 mt-1 text-[11.5px]" style={{ color: "var(--muted)" }}>
-              <span>{allBoxes ? " " : t("nmActiveOnly")}</span>
-              <button className="font-semibold" style={{ color: "var(--blue)" }}
-                      onClick={() => setAllBoxes((v) => !v)}>
-                {allBoxes ? t("nmActiveOnly") : t("nmShowAll", Object.keys(boxes).length)}
-              </button>
-            </div>
           </div>
 
           <div className="grid gap-3" style={{ gridTemplateColumns: "1.3fr 1fr" }}>
@@ -2200,7 +2192,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             const r = await fetch(`${FN_BASE}/email/send`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: (tk.emailTo && !tk.emailTo.includes("@parse.")) ? tk.emailTo : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(), attachments: atts, replyAll, cc: replyAll ? ccFinal : [], noSignature: noSig }),
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: OUTBOUND_MAILBOXES.includes(String(tk.emailTo || "").toLowerCase()) ? tk.emailTo.toLowerCase() : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(), attachments: atts, replyAll, cc: replyAll ? ccFinal : [], noSignature: noSig }),
             });
             if (!r.ok) { const j = await r.json().catch(() => ({})); toast("✉ " + (j.error || `email send failed (${r.status})`)); }
           } catch (e) { toast("✉ email send failed — network"); }
@@ -3771,6 +3763,10 @@ function SignatureSettings({ me, toast }) {
 
   if (!cfg) return null;
 
+  // only mailboxes we can actually send from — no point previewing a brand box
+  // that has no SendGrid sender and no forwarding behind it
+  const sendBoxes = Array.isArray(cfg.sendFrom) && cfg.sendFrom.length ? cfg.sendFrom : OUTBOUND_MAILBOXES;
+
   return (
     <div className="card p-6">
       <div className="flex items-center gap-3 mb-4">
@@ -3825,12 +3821,14 @@ function SignatureSettings({ me, toast }) {
       )}
       <p className="text-[11.5px] mt-2" style={{ color: "var(--muted)" }}>{t("sigOwn")}</p>
 
-      {/* preview per mailbox — brand line changes with the client */}
-      {/* preview against any of the brand mailboxes — the brand line follows it */}
+      {/* Preview against each mailbox we send from. The brand line is a
+          {{brand}} placeholder until the moment of sending, so the same
+          signature signs as Enfa, Nestlé Professional or CREA Customer Care
+          depending on which box the mail leaves from. */}
       <label className="lbl mt-4">{t("sigPreviewAs", cfg.brandByMailbox?.[box] || box.split("@")[0])}</label>
       <select className="fld mb-2" value={box} onChange={(e) => setBox(e.target.value)}>
-        {Object.keys(cfg.brandByMailbox || {}).sort().map((m) => (
-          <option key={m} value={m}>{(cfg.brandByMailbox[m] || m.split("@")[0])} — {m}</option>
+        {sendBoxes.map((m) => (
+          <option key={m} value={m}>{(cfg.brandByMailbox?.[m] || m.split("@")[0])} — {m}</option>
         ))}
       </select>
       <pre className="px-3 py-2.5 rounded-lg whitespace-pre-wrap"
