@@ -24,6 +24,9 @@ const EMAIL_FROM = "cs.solution@crea.asia";        // SendGrid-verified single s
 const EMAIL_FROM_NAME = "CREA Customer Care";
 const biText = (s) => ({ en: s ?? "", th: s ?? "" });
 const ATT_BUCKET = "ticket-attachments";
+// our own support mailboxes — used to pick the right From address and signature
+// out of a To/Cc line that may also list a dozen colleagues
+const SUPPORT_MAILBOXES = ["cs.solution@crea.asia", "enfa.cs@crea.asia", "nestlepro.cs@crea.asia"];
 
 /* ── attachment renderer: images show inline as thumbnails, other files as chips ── */
 function AttThumb({ a, onOpen }) {
@@ -425,9 +428,14 @@ function mapDbTicket(t, msgs) {
     firstResponseMin: t.first_response_at ? Math.max(1, Math.round((new Date(t.first_response_at) - new Date(t.created_at)) / 60000)) : null,
     resolveMin: t.resolved_at ? Math.max(1, Math.round((new Date(t.resolved_at) - new Date(t.created_at)) / 60000)) : null,
     csat: t.csat ?? null, reopened: !!t.reopened, tags: [],
-    // which support address the customer emailed (from the first inbound message)
+    // Which of OUR support addresses the customer wrote to. Big Nestlé/Enfa
+    // threads list a dozen colleagues in To/Cc, so we can't just take the first
+    // address — scan the whole line for a known mailbox instead.
     emailTo: (() => {
       const m = (msgs || []).find((x) => x.direction === "in" && x.meta && x.meta.to);
+      const line = `${m?.meta?.to || ""} , ${m?.meta?.cc || ""}`.toLowerCase();
+      const hit = SUPPORT_MAILBOXES.find((box) => line.includes(box));
+      if (hit) return hit;
       const to = m?.meta?.to || "";
       return (to.match(/<([^>]+)>/)?.[1] ?? to).trim().toLowerCase() || null;
     })(),
@@ -649,6 +657,14 @@ const D = {
   sigVars: ["Use {{agent}} for the sender's name", "ใช้ {{agent}} แทนชื่อผู้ส่ง"],
   sigSaved: ["Signature saved", "บันทึกลายเซ็นแล้ว"],
   sigSave: ["Save signature", "บันทึกลายเซ็น"],
+  sigMine: ["My signature", "ลายเซ็นของฉัน"],
+  sigMineSub: ["Your details, used in every email you send", "ข้อมูลของคุณ ใช้กับอีเมลทุกฉบับที่คุณส่ง"],
+  sigTemplate: ["Template", "รูปแบบ"],
+  sigCustom: ["Write my own", "เขียนเอง"],
+  sigName: ["Display name", "ชื่อที่แสดง"],
+  sigRole: ["Role", "ตำแหน่ง"],
+  sigPhone: ["Phone (optional)", "เบอร์โทร (ถ้ามี)"],
+  sigPreviewAs: ["Preview as %s", "ตัวอย่างจาก %s"],
   sigWillAdd: ["Signature will be added", "จะต่อท้ายด้วยลายเซ็น"],
   sigSkip: ["Don't sign this one", "ไม่ต้องใส่ลายเซ็นฉบับนี้"],
   sigShow: ["Preview", "ดูตัวอย่าง"],
@@ -1790,7 +1806,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     if (!tkNow?.dbId || tkNow.channel !== "email") { setSig(""); return; }
     const box = (tkNow.emailTo && !tkNow.emailTo.includes("@parse.")) ? tkNow.emailTo : EMAIL_FROM;
     let dead = false;
-    fetch(`${FN_BASE}/email/signature?mailbox=${encodeURIComponent(box)}&agent=${encodeURIComponent(tv(me.n))}`)
+    fetch(`${FN_BASE}/email/signature?mailbox=${encodeURIComponent(box)}&agent=${encodeURIComponent(tv(me.n))}&agentKey=${encodeURIComponent((me.email || me.id || "").toLowerCase())}`)
       .then((r) => r.json())
       .then((d) => { if (!dead) setSig(d.signature || ""); })
       .catch(() => {});
@@ -1848,7 +1864,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             const r = await fetch(`${FN_BASE}/email/send`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: (tk.emailTo && !tk.emailTo.includes("@parse.")) ? tk.emailTo : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), attachments: atts, replyAll, cc: replyAll ? ccFinal : [], noSignature: noSig }),
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: (tk.emailTo && !tk.emailTo.includes("@parse.")) ? tk.emailTo : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(), attachments: atts, replyAll, cc: replyAll ? ccFinal : [], noSignature: noSig }),
             });
             if (!r.ok) { const j = await r.json().catch(() => ({})); toast("✉ " + (j.error || `email send failed (${r.status})`)); }
           } catch (e) { toast("✉ email send failed — network"); }
@@ -3320,70 +3336,142 @@ function Telephony({ sip, setSip, toast }) {
   );
 }
 
-/* Per-mailbox email sign-off. Lives in kv_state so the edge function reads the
-   same record when it appends the signature to an outgoing reply. */
-function SignatureSettings({ toast }) {
-  const [cfg, setCfg] = useState({ enabled: true, byMailbox: {} });
+/* "My signature" — the team shares a set of template shells; each person fills
+   in their own name / role / phone, or writes a fully custom block. Everything
+   lives in kv_state so the edge function resolves exactly the same text when it
+   signs the outgoing email. */
+function SignatureSettings({ me, toast }) {
+  const [cfg, setCfg] = useState(null);
+  const [mine, setMine] = useState({ mode: "template", templateId: "", name: "", role: "", phone: "", custom: "" });
   const [box, setBox] = useState(OUTBOUND_MAILBOXES[0]);
+  const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
+
+  const key = (me.email || me.id || "").toLowerCase();
 
   useEffect(() => {
     supabase.from("kv_state").select("value").eq("key", "nirm-crm-signatures").maybeSingle()
-      .then(({ data }) => { if (data?.value) setCfg({ enabled: data.value.enabled !== false, byMailbox: data.value.byMailbox || {} }); })
+      .then(({ data }) => {
+        const v = data?.value;
+        if (!v) return;
+        setCfg(v);
+        const existing = (v.byAgent || {})[key] || {};
+        setMine({
+          mode: existing.mode || "template",
+          templateId: existing.templateId || v.defaultTemplate || (v.templates?.[0]?.id ?? ""),
+          name: existing.name || tv(me.n),
+          role: existing.role || "",
+          phone: existing.phone || "",
+          custom: existing.custom || "",
+        });
+      })
       .catch(() => {});
-  }, []);
+  }, [key]);
+
+  // live preview straight from the server, so it matches what actually sends
+  useEffect(() => {
+    if (!cfg) return;
+    const id = setTimeout(() => {
+      const shell = mine.mode === "custom"
+        ? mine.custom
+        : (cfg.templates || []).find((x) => x.id === mine.templateId)?.body || "";
+      const brand = cfg.brandByMailbox?.[box] || "CREA Customer Care";
+      const out = String(shell)
+        .replace(/\{\{\s*(name|agent)\s*\}\}/gi, mine.name || tv(me.n))
+        .replace(/\{\{\s*role\s*\}\}/gi, mine.role || "Customer Care")
+        .replace(/\{\{\s*phone\s*\}\}/gi, mine.phone || "")
+        .replace(/\{\{\s*mailbox\s*\}\}/gi, box)
+        .replace(/\{\{\s*brand\s*\}\}/gi, brand)
+        .split("\n").map((l) => l.replace(/\s*·\s*$/, "").replace(/^\s*·\s*/, "").trimEnd())
+        .join("\n").trim();
+      setPreview(out);
+    }, 120);
+    return () => clearTimeout(id);
+  }, [cfg, mine, box]);
 
   const save = async () => {
+    if (!cfg) return;
     setBusy(true);
+    const next = { ...cfg, byAgent: { ...(cfg.byAgent || {}), [key]: mine } };
     const { error } = await supabase.from("kv_state")
-      .upsert({ key: "nirm-crm-signatures", value: cfg }, { onConflict: "key" });
+      .upsert({ key: "nirm-crm-signatures", value: next }, { onConflict: "key" });
     setBusy(false);
+    if (!error) setCfg(next);
     toast(error ? error.message : t("sigSaved"), error ? "error" : "ok");
   };
+
+  if (!cfg) return null;
 
   return (
     <div className="card p-6">
       <div className="flex items-center gap-3 mb-4">
         <div className="kpi-ic" style={{ background: "var(--sky)" }}><Mail size={20} style={{ color: "var(--blue)" }} /></div>
         <div className="flex-1">
-          <h3 className="font-bold text-[15px]">{t("sigTitle")}</h3>
-          <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("sigSub")}</p>
+          <h3 className="font-bold text-[15px]">{t("sigMine")}</h3>
+          <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("sigMineSub")}</p>
         </div>
-        <label className="flex items-center gap-2 text-[12.5px] font-semibold cursor-pointer select-none"
-               style={{ color: cfg.enabled ? "var(--blue)" : "var(--muted)" }}>
-          <input type="checkbox" checked={cfg.enabled} style={{ accentColor: "var(--blue)" }}
-                 onChange={(e) => setCfg((p) => ({ ...p, enabled: e.target.checked }))} />
-          {t("sigOn")}
-        </label>
       </div>
 
-      <div className="flex gap-1 p-1 rounded-lg mb-3" style={{ background: "#F1F5F9" }}>
+      {/* template shells + "write my own" */}
+      <label className="lbl">{t("sigTemplate")}</label>
+      <div className="flex gap-1 p-1 rounded-lg mb-3 flex-wrap" style={{ background: "#F1F5F9" }}>
+        {(cfg.templates || []).map((tp) => {
+          const on = mine.mode === "template" && mine.templateId === tp.id;
+          return (
+            <button key={tp.id} onClick={() => setMine((p) => ({ ...p, mode: "template", templateId: tp.id }))}
+                    className="px-3 py-1.5 rounded-md text-[12px] font-semibold"
+                    style={{ background: on ? "#fff" : "transparent", color: on ? "var(--blue)" : "var(--muted)",
+                             boxShadow: on ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{tp.name}</button>
+          );
+        })}
+        <button onClick={() => setMine((p) => ({ ...p, mode: "custom" }))}
+                className="px-3 py-1.5 rounded-md text-[12px] font-semibold"
+                style={{ background: mine.mode === "custom" ? "#fff" : "transparent",
+                         color: mine.mode === "custom" ? "var(--blue)" : "var(--muted)",
+                         boxShadow: mine.mode === "custom" ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{t("sigCustom")}</button>
+      </div>
+
+      {mine.mode === "custom" ? (
+        <>
+          <textarea className="fld" rows={6} style={{ fontFamily: "inherit" }} value={mine.custom}
+                    onChange={(e) => setMine((p) => ({ ...p, custom: e.target.value }))} />
+          <p className="text-[11.5px] mt-1.5" style={{ color: "var(--muted)" }}>{t("sigVars")}</p>
+        </>
+      ) : (
+        <div className="grid gap-2.5" style={{ gridTemplateColumns: "1fr 1fr" }}>
+          <div><label className="lbl">{t("sigName")}</label>
+            <input className="fld" value={mine.name} onChange={(e) => setMine((p) => ({ ...p, name: e.target.value }))} /></div>
+          <div><label className="lbl">{t("sigRole")}</label>
+            <input className="fld" value={mine.role} onChange={(e) => setMine((p) => ({ ...p, role: e.target.value }))} /></div>
+          <div style={{ gridColumn: "1 / -1" }}><label className="lbl">{t("sigPhone")}</label>
+            <input className="fld" value={mine.phone} onChange={(e) => setMine((p) => ({ ...p, phone: e.target.value }))} /></div>
+        </div>
+      )}
+
+      {/* preview per mailbox — brand line changes with the client */}
+      <label className="lbl mt-4">{t("sigPreviewAs", box.split("@")[0])}</label>
+      <div className="flex gap-1 p-1 rounded-lg mb-2" style={{ background: "#F1F5F9" }}>
         {OUTBOUND_MAILBOXES.map((m) => (
           <button key={m} onClick={() => setBox(m)} className="px-3 py-1.5 rounded-md text-[12px] font-semibold flex-1 truncate"
                   style={{ background: box === m ? "#fff" : "transparent", color: box === m ? "var(--blue)" : "var(--muted)",
-                           boxShadow: box === m ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>
-            {m.split("@")[0]}
-          </button>
+                           boxShadow: box === m ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{m.split("@")[0]}</button>
         ))}
       </div>
-
-      <textarea className="fld" rows={6} style={{ fontFamily: "inherit" }}
-                value={cfg.byMailbox[box] ?? ""}
-                onChange={(e) => setCfg((p) => ({ ...p, byMailbox: { ...p.byMailbox, [box]: e.target.value } }))} />
-      <p className="text-[11.5px] mt-1.5" style={{ color: "var(--muted)" }}>{t("sigVars")}</p>
+      <pre className="px-3 py-2.5 rounded-lg whitespace-pre-wrap"
+           style={{ background: "var(--slate-bg)", color: "var(--ink)", fontFamily: "inherit", fontSize: 12.5 }}>{preview}</pre>
 
       <button className="btn btn-p mt-3" disabled={busy} onClick={save}><Save size={15} />{t("sigSave")}</button>
     </div>
   );
 }
 
-function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip, setSip, routing, setRouting, ringFor, setRingFor, maxWait, setMaxWait, toast }) {
+function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip, setSip, routing, setRouting, ringFor, setRingFor, maxWait, setMaxWait, toast, me }) {
   const rules = [["round", t("asRound"), t("asRoundD")], ["load", t("asLoad"), t("asLoadD")], ["manual", t("asManual"), t("asManualD")]];
   const notifs = [["risk", t("nRisk"), t("nRiskD")], ["unassigned", t("nUnassigned"), t("nUnassignedD")], ["daily", t("nDaily"), t("nDailyD")], ["lowcsat", t("nLowCsat"), t("nLowCsatD")]];
   return (
     <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
       <div className="space-y-4">
-        <SignatureSettings toast={toast} />
+        <SignatureSettings me={me} toast={toast} />
 
         <div className="card p-6">
           <div className="flex items-center gap-3 mb-5">
@@ -3844,7 +3932,7 @@ export default function ServiceCRM({ user, role }) {
           {tab === "kb"        && <Knowledge kb={kb} setKb={setKb} canned={canned} setCanned={setCanned} me={me} toast={toast} />}
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
           {tab === "users"     && <UsersView users={users} setUsers={setUsers} me={me} toast={toast} />}
-          {tab === "settings"  && <SettingsView chans={chans} setChans={setChans} notif={notif} setNotif={setNotif} assign={assign} setAssign={setAssign} sip={sip} setSip={setSip} routing={routing} setRouting={setRouting} ringFor={ringFor} setRingFor={setRingFor} maxWait={maxWait} setMaxWait={setMaxWait} toast={toast} />}
+          {tab === "settings"  && <SettingsView chans={chans} setChans={setChans} notif={notif} setNotif={setNotif} assign={assign} setAssign={setAssign} sip={sip} setSip={setSip} routing={routing} setRouting={setRouting} ringFor={ringFor} setRingFor={setRingFor} maxWait={maxWait} setMaxWait={setMaxWait} toast={toast} me={me} />}
         </main>
       </div>
 
