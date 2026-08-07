@@ -701,6 +701,13 @@ const D = {
   sigRole: ["Role", "ตำแหน่ง"],
   sigPhone: ["Phone (optional)", "เบอร์โทร (ถ้ามี)"],
   sigPreviewAs: ["Preview as %s", "ตัวอย่างจาก %s"],
+  sigCompany: ["Company line", "ชื่อบริษัท"],
+  sigAddress: ["Address", "ที่อยู่"],
+  sigWeb: ["Website", "เว็บไซต์"],
+  sigLayout: ["Layout", "รูปแบบ"],
+  sigFull: ["Full", "เต็ม"],
+  sigCompact: ["Compact", "สั้น"],
+  sigOwn: ["Only you can change your own signature", "ลายเซ็นนี้แก้ไขได้เฉพาะเจ้าของ"],
   sigWillAdd: ["Signature will be added", "จะต่อท้ายด้วยลายเซ็น"],
   sigSkip: ["Don't sign this one", "ไม่ต้องใส่ลายเซ็นฉบับนี้"],
   sigShow: ["Preview", "ดูตัวอย่าง"],
@@ -3683,7 +3690,10 @@ function Telephony({ sip, setSip, toast }) {
    signs the outgoing email. */
 function SignatureSettings({ me, toast }) {
   const [cfg, setCfg] = useState(null);
-  const [mine, setMine] = useState({ mode: "template", templateId: "", name: "", role: "", phone: "", custom: "" });
+  const [mine, setMine] = useState({
+    mode: "template", layout: "full", name: "", role: "", phone: "",
+    company: "", address: "", web: "", custom: "",
+  });
   const [box, setBox] = useState(OUTBOUND_MAILBOXES[0]);
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
@@ -3696,36 +3706,52 @@ function SignatureSettings({ me, toast }) {
         const v = data?.value;
         if (!v) return;
         setCfg(v);
-        const existing = (v.byAgent || {})[key] || {};
+        const x = (v.byAgent || {})[key] || {};
+        const d = v.orgDefaults || {};
         setMine({
-          mode: existing.mode || "template",
-          templateId: existing.templateId || v.defaultTemplate || (v.templates?.[0]?.id ?? ""),
-          name: existing.name || tv(me.n),
-          role: existing.role || "",
-          phone: existing.phone || "",
-          custom: existing.custom || "",
+          mode: x.mode === "custom" && x.handwritten ? "custom" : "template",
+          layout: x.layout || "full",
+          name: x.name || tv(me.n),
+          role: x.role || "",
+          phone: x.phone || "",
+          company: x.company ?? d.company ?? "CREA Co.,Ltd.",
+          address: x.address ?? d.address ?? "712/1 TBI Building (Peterson) 6th Floor, Sukhumvit 26 and 28 Road, Klongton, Klongtoey, Bangkok 10110",
+          web: x.web ?? d.web ?? "www.crea.asia",
+          custom: x.custom || "",
         });
       })
       .catch(() => {});
   }, [key]);
 
-  // live preview straight from the server, so it matches what actually sends
+  /* Build the signature text from this person's own fields. {{brand}} and
+     {{mailbox}} stay as placeholders so the brand line still follows whichever
+     mailbox the email goes out from. */
+  const compose = (m) => {
+    if (m.mode === "custom") return m.custom;
+    const L = [];
+    L.push(m.name || tv(me.n));
+    if (m.role) L.push(m.role);
+    L.push(`{{brand}}${m.company ? ` — ${m.company}` : ""}`);
+    if (m.layout === "full" && m.address) L.push(m.address);
+    const tail = [];
+    if (m.phone) tail.push(`Mobile: ${m.phone}`);
+    if (m.layout === "compact" && m.web) tail.push(m.web);
+    if (tail.length) L.push(tail.join(" · "));
+    if (m.layout === "full" && m.web) L.push(m.web);
+    return L.join("\n");
+  };
+
   useEffect(() => {
     if (!cfg) return;
     const id = setTimeout(() => {
-      const shell = mine.mode === "custom"
-        ? mine.custom
-        : (cfg.templates || []).find((x) => x.id === mine.templateId)?.body || "";
       const brand = cfg.brandByMailbox?.[box] || "CREA Customer Care";
-      const out = String(shell)
-        .replace(/\{\{\s*(name|agent)\s*\}\}/gi, mine.name || tv(me.n))
-        .replace(/\{\{\s*role\s*\}\}/gi, mine.role || "Customer Care")
-        .replace(/\{\{\s*phone\s*\}\}/gi, mine.phone || "")
-        .replace(/\{\{\s*mailbox\s*\}\}/gi, box)
+      setPreview(compose(mine)
         .replace(/\{\{\s*brand\s*\}\}/gi, brand)
-        .split("\n").map((l) => l.replace(/\s*·\s*$/, "").replace(/^\s*·\s*/, "").trimEnd())
-        .join("\n").trim();
-      setPreview(out);
+        .replace(/\{\{\s*mailbox\s*\}\}/gi, box)
+        .replace(/\{\{\s*(name|agent)\s*\}\}/gi, mine.name || tv(me.n))
+        .replace(/\{\{\s*role\s*\}\}/gi, mine.role || "")
+        .replace(/\{\{\s*phone\s*\}\}/gi, mine.phone || "")
+        .split("\n").map((l) => l.replace(/\s*·\s*$/, "").trimEnd()).filter(Boolean).join("\n"));
     }, 120);
     return () => clearTimeout(id);
   }, [cfg, mine, box]);
@@ -3733,7 +3759,9 @@ function SignatureSettings({ me, toast }) {
   const save = async () => {
     if (!cfg) return;
     setBusy(true);
-    const next = { ...cfg, byAgent: { ...(cfg.byAgent || {}), [key]: mine } };
+    // stored as a resolved custom block: what you see here is what sends
+    const rec = { ...mine, mode: "custom", handwritten: mine.mode === "custom", custom: compose(mine) };
+    const next = { ...cfg, byAgent: { ...(cfg.byAgent || {}), [key]: rec } };
     const { error } = await supabase.from("kv_state")
       .upsert({ key: "nirm-crm-signatures", value: next }, { onConflict: "key" });
     setBusy(false);
@@ -3753,19 +3781,19 @@ function SignatureSettings({ me, toast }) {
         </div>
       </div>
 
-      {/* template shells + "write my own" */}
-      <label className="lbl">{t("sigTemplate")}</label>
+      {/* layout, or write the whole thing yourself */}
+      <label className="lbl">{t("sigLayout")}</label>
       <div className="flex gap-1 p-1 rounded-lg mb-3 flex-wrap" style={{ background: "#F1F5F9" }}>
-        {(cfg.templates || []).map((tp) => {
-          const on = mine.mode === "template" && mine.templateId === tp.id;
+        {[["full", t("sigFull")], ["compact", t("sigCompact")]].map(([k, lbl]) => {
+          const on = mine.mode === "template" && mine.layout === k;
           return (
-            <button key={tp.id} onClick={() => setMine((p) => ({ ...p, mode: "template", templateId: tp.id }))}
+            <button key={k} onClick={() => setMine((p) => ({ ...p, mode: "template", layout: k }))}
                     className="px-3 py-1.5 rounded-md text-[12px] font-semibold"
                     style={{ background: on ? "#fff" : "transparent", color: on ? "var(--blue)" : "var(--muted)",
-                             boxShadow: on ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{tp.name}</button>
+                             boxShadow: on ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{lbl}</button>
           );
         })}
-        <button onClick={() => setMine((p) => ({ ...p, mode: "custom" }))}
+        <button onClick={() => setMine((p) => ({ ...p, mode: "custom", custom: p.custom || compose({ ...p, mode: "template" }) }))}
                 className="px-3 py-1.5 rounded-md text-[12px] font-semibold"
                 style={{ background: mine.mode === "custom" ? "#fff" : "transparent",
                          color: mine.mode === "custom" ? "var(--blue)" : "var(--muted)",
@@ -3774,7 +3802,7 @@ function SignatureSettings({ me, toast }) {
 
       {mine.mode === "custom" ? (
         <>
-          <textarea className="fld" rows={6} style={{ fontFamily: "inherit" }} value={mine.custom}
+          <textarea className="fld" rows={7} style={{ fontFamily: "inherit" }} value={mine.custom}
                     onChange={(e) => setMine((p) => ({ ...p, custom: e.target.value }))} />
           <p className="text-[11.5px] mt-1.5" style={{ color: "var(--muted)" }}>{t("sigVars")}</p>
         </>
@@ -3784,10 +3812,18 @@ function SignatureSettings({ me, toast }) {
             <input className="fld" value={mine.name} onChange={(e) => setMine((p) => ({ ...p, name: e.target.value }))} /></div>
           <div><label className="lbl">{t("sigRole")}</label>
             <input className="fld" value={mine.role} onChange={(e) => setMine((p) => ({ ...p, role: e.target.value }))} /></div>
-          <div style={{ gridColumn: "1 / -1" }}><label className="lbl">{t("sigPhone")}</label>
+          <div><label className="lbl">{t("sigPhone")}</label>
             <input className="fld" value={mine.phone} onChange={(e) => setMine((p) => ({ ...p, phone: e.target.value }))} /></div>
+          <div><label className="lbl">{t("sigCompany")}</label>
+            <input className="fld" value={mine.company} onChange={(e) => setMine((p) => ({ ...p, company: e.target.value }))} /></div>
+          <div style={{ gridColumn: "1 / -1" }}><label className="lbl">{t("sigAddress")}</label>
+            <textarea className="fld" rows={2} style={{ fontFamily: "inherit" }} value={mine.address}
+                      onChange={(e) => setMine((p) => ({ ...p, address: e.target.value }))} /></div>
+          <div style={{ gridColumn: "1 / -1" }}><label className="lbl">{t("sigWeb")}</label>
+            <input className="fld" value={mine.web} onChange={(e) => setMine((p) => ({ ...p, web: e.target.value }))} /></div>
         </div>
       )}
+      <p className="text-[11.5px] mt-2" style={{ color: "var(--muted)" }}>{t("sigOwn")}</p>
 
       {/* preview per mailbox — brand line changes with the client */}
       {/* preview against any of the brand mailboxes — the brand line follows it */}
