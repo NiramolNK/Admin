@@ -642,6 +642,17 @@ const D = {
   cCount: ["Cases", "จำนวนเคส"], cShare: ["Share", "สัดส่วน"], cAvgRes: ["Avg time to close", "เวลาปิดเฉลี่ย"],
   reportExported: ["Report exported to Excel", "ส่งออกรายงานเป็นไฟล์ Excel แล้ว"],
   casesExported: ["Exported %s cases to Excel", "ส่งออก %s เคสเป็นไฟล์ Excel แล้ว"],
+  /* email signature */
+  sigTitle: ["Email signature", "ลายเซ็นอีเมล"],
+  sigSub: ["Added to the end of every reply sent from that mailbox", "ระบบจะต่อท้ายอีเมลทุกฉบับที่ส่งจากกล่องนั้น"],
+  sigOn: ["Signatures on", "เปิดใช้ลายเซ็น"],
+  sigVars: ["Use {{agent}} for the sender's name", "ใช้ {{agent}} แทนชื่อผู้ส่ง"],
+  sigSaved: ["Signature saved", "บันทึกลายเซ็นแล้ว"],
+  sigSave: ["Save signature", "บันทึกลายเซ็น"],
+  sigWillAdd: ["Signature will be added", "จะต่อท้ายด้วยลายเซ็น"],
+  sigSkip: ["Don't sign this one", "ไม่ต้องใส่ลายเซ็นฉบับนี้"],
+  sigShow: ["Preview", "ดูตัวอย่าง"],
+  sigHide: ["Hide", "ซ่อน"],
   /* Twilio softphone */
   sfTitle: ["Softphone", "โทรศัพท์ในระบบ"],
   sfReady: ["Ready for calls", "พร้อมรับสาย"],
@@ -1769,6 +1780,23 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   }, [sel]);
   const ccFinal = rcpt.cc.filter((a) => !dropCc.includes(a));
 
+  /* signature — resolved server-side so the preview matches what actually sends */
+  const [sig, setSig] = useState("");
+  const [noSig, setNoSig] = useState(false);
+  const [showSig, setShowSig] = useState(false);
+  useEffect(() => {
+    setNoSig(false); setShowSig(false);
+    const tkNow = tickets.find((x) => x.id === sel);
+    if (!tkNow?.dbId || tkNow.channel !== "email") { setSig(""); return; }
+    const box = (tkNow.emailTo && !tkNow.emailTo.includes("@parse.")) ? tkNow.emailTo : EMAIL_FROM;
+    let dead = false;
+    fetch(`${FN_BASE}/email/signature?mailbox=${encodeURIComponent(box)}&agent=${encodeURIComponent(tv(me.n))}`)
+      .then((r) => r.json())
+      .then((d) => { if (!dead) setSig(d.signature || ""); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [sel]);
+
   const [preview, setPreview] = useState(null); // { url, name, kind: "img" | "pdf" }
   const openAtt = async (a) => {
     if (!a.path) return;
@@ -1820,7 +1848,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             const r = await fetch(`${FN_BASE}/email/send`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: (tk.emailTo && !tk.emailTo.includes("@parse.")) ? tk.emailTo : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), attachments: atts, replyAll, cc: replyAll ? ccFinal : [] }),
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: (tk.emailTo && !tk.emailTo.includes("@parse.")) ? tk.emailTo : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), attachments: atts, replyAll, cc: replyAll ? ccFinal : [], noSignature: noSig }),
             });
             if (!r.ok) { const j = await r.json().catch(() => ({})); toast("✉ " + (j.error || `email send failed (${r.status})`)); }
           } catch (e) { toast("✉ email send failed — network"); }
@@ -1948,6 +1976,27 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                         </>)
                   )}
                 </div>
+
+                {/* signature — what the customer will actually see at the bottom */}
+                {sig && (
+                  <div className="mt-1.5 text-[11.5px]">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="flex items-center gap-1.5 cursor-pointer select-none" style={{ color: "var(--muted)" }}>
+                        <input type="checkbox" checked={!noSig} onChange={(e) => setNoSig(!e.target.checked)} style={{ accentColor: "var(--blue)" }} />
+                        {noSig ? t("sigSkip") : t("sigWillAdd")}
+                      </label>
+                      {!noSig && (
+                        <button onClick={() => setShowSig((v) => !v)} className="font-semibold" style={{ color: "var(--blue)" }}>
+                          {showSig ? t("sigHide") : t("sigShow")}
+                        </button>
+                      )}
+                    </div>
+                    {showSig && !noSig && (
+                      <pre className="mt-1.5 px-3 py-2 rounded-lg whitespace-pre-wrap"
+                           style={{ background: "var(--slate-bg)", color: "var(--muted)", fontFamily: "inherit", fontSize: 11.5 }}>{sig}</pre>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -3271,12 +3320,71 @@ function Telephony({ sip, setSip, toast }) {
   );
 }
 
+/* Per-mailbox email sign-off. Lives in kv_state so the edge function reads the
+   same record when it appends the signature to an outgoing reply. */
+function SignatureSettings({ toast }) {
+  const [cfg, setCfg] = useState({ enabled: true, byMailbox: {} });
+  const [box, setBox] = useState(OUTBOUND_MAILBOXES[0]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    supabase.from("kv_state").select("value").eq("key", "nirm-crm-signatures").maybeSingle()
+      .then(({ data }) => { if (data?.value) setCfg({ enabled: data.value.enabled !== false, byMailbox: data.value.byMailbox || {} }); })
+      .catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setBusy(true);
+    const { error } = await supabase.from("kv_state")
+      .upsert({ key: "nirm-crm-signatures", value: cfg }, { onConflict: "key" });
+    setBusy(false);
+    toast(error ? error.message : t("sigSaved"), error ? "error" : "ok");
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="kpi-ic" style={{ background: "var(--sky)" }}><Mail size={20} style={{ color: "var(--blue)" }} /></div>
+        <div className="flex-1">
+          <h3 className="font-bold text-[15px]">{t("sigTitle")}</h3>
+          <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("sigSub")}</p>
+        </div>
+        <label className="flex items-center gap-2 text-[12.5px] font-semibold cursor-pointer select-none"
+               style={{ color: cfg.enabled ? "var(--blue)" : "var(--muted)" }}>
+          <input type="checkbox" checked={cfg.enabled} style={{ accentColor: "var(--blue)" }}
+                 onChange={(e) => setCfg((p) => ({ ...p, enabled: e.target.checked }))} />
+          {t("sigOn")}
+        </label>
+      </div>
+
+      <div className="flex gap-1 p-1 rounded-lg mb-3" style={{ background: "#F1F5F9" }}>
+        {OUTBOUND_MAILBOXES.map((m) => (
+          <button key={m} onClick={() => setBox(m)} className="px-3 py-1.5 rounded-md text-[12px] font-semibold flex-1 truncate"
+                  style={{ background: box === m ? "#fff" : "transparent", color: box === m ? "var(--blue)" : "var(--muted)",
+                           boxShadow: box === m ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>
+            {m.split("@")[0]}
+          </button>
+        ))}
+      </div>
+
+      <textarea className="fld" rows={6} style={{ fontFamily: "inherit" }}
+                value={cfg.byMailbox[box] ?? ""}
+                onChange={(e) => setCfg((p) => ({ ...p, byMailbox: { ...p.byMailbox, [box]: e.target.value } }))} />
+      <p className="text-[11.5px] mt-1.5" style={{ color: "var(--muted)" }}>{t("sigVars")}</p>
+
+      <button className="btn btn-p mt-3" disabled={busy} onClick={save}><Save size={15} />{t("sigSave")}</button>
+    </div>
+  );
+}
+
 function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip, setSip, routing, setRouting, ringFor, setRingFor, maxWait, setMaxWait, toast }) {
   const rules = [["round", t("asRound"), t("asRoundD")], ["load", t("asLoad"), t("asLoadD")], ["manual", t("asManual"), t("asManualD")]];
   const notifs = [["risk", t("nRisk"), t("nRiskD")], ["unassigned", t("nUnassigned"), t("nUnassignedD")], ["daily", t("nDaily"), t("nDailyD")], ["lowcsat", t("nLowCsat"), t("nLowCsatD")]];
   return (
     <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
       <div className="space-y-4">
+        <SignatureSettings toast={toast} />
+
         <div className="card p-6">
           <div className="flex items-center gap-3 mb-5">
             <div className="kpi-ic" style={{ background: "var(--sky)" }}><Inbox size={20} style={{ color: "var(--blue)" }} /></div>
