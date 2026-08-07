@@ -680,6 +680,12 @@ const D = {
   nmEditSig: ["Edit", "แก้ไข"],
   nmSigDone: ["Done", "เสร็จ"],
   nmSigOnce: ["Edited for this email only", "แก้เฉพาะอีเมลฉบับนี้"],
+  catSaved: ["Request type updated", "อัปเดตประเภทเรื่องแล้ว"],
+  crashTitle: ["Something went wrong", "เกิดข้อผิดพลาด"],
+  crashSub: ["The page hit an error. Your data is safe — reload to continue.", "หน้าจอเกิดข้อผิดพลาด ข้อมูลไม่หาย กดโหลดใหม่เพื่อทำงานต่อ"],
+  crashReload: ["Reload", "โหลดใหม่"],
+  trimShow: ["Show quoted text", "แสดงข้อความที่อ้างอิง"],
+  trimHide: ["Hide quoted text", "ซ่อนข้อความที่อ้างอิง"],
   /* email signature */
   sigTitle: ["Email signature", "ลายเซ็นอีเมล"],
   sigSub: ["Added to the end of every reply sent from that mailbox", "ระบบจะต่อท้ายอีเมลทุกฉบับที่ส่งจากกล่องนั้น"],
@@ -1692,6 +1698,83 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
 const OUTBOUND_MAILBOXES = ["cs.solution@crea.asia", "enfa.cs@crea.asia", "nestlepro.cs@crea.asia"];
 const isEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
 
+/* ══════════ trim quoted history off an email ══════════
+   A CS reply usually carries the whole thread plus a signature block below it.
+   Agents only need the newest part, so we cut at the first quote marker and
+   keep the rest behind a toggle — nothing is lost, just folded away. */
+const QUOTE_MARKERS = [
+  /^-{2,}\s*original message\s*-{2,}/im,
+  /^_{5,}\s*$/im,
+  /^\s*on .{0,120}\bwrote:\s*$/im,
+  /^\s*จาก:\s/im,                                   // Thai Outlook header block
+  /^\s*from:\s.*$\n^\s*(sent|date):\s/im,           // Outlook From:/Sent: block
+  /^\s*>{1,}\s?/m,                                  // classic quote prefix
+  /^\s*-{2,}\s*$/m,                                 // signature separator "--"
+];
+function trimQuoted(raw) {
+  const full = String(raw ?? "")
+    .replace(/\[cid:[^\]]*\]/gi, "")                // inline-image markers
+    .replace(/<cid:[^>]*>/gi, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  let cut = -1;
+  for (const re of QUOTE_MARKERS) {
+    const m = full.match(re);
+    if (m && m.index != null && (cut < 0 || m.index < cut)) cut = m.index;
+  }
+  // a marker in the first couple of lines is usually a false positive
+  if (cut >= 0 && full.slice(0, cut).trim().length < 12) cut = -1;
+  if (cut < 0) return { visible: full, hidden: "" };
+  return { visible: full.slice(0, cut).trim(), hidden: full.slice(cut).trim() };
+}
+
+/* message body with the quoted tail folded behind a "…" chip */
+function MsgBody({ text }) {
+  const [open, setOpen] = useState(false);
+  const { visible, hidden } = trimQuoted(text);
+  if (!hidden) return <>{visible}</>;
+  return (
+    <>
+      {visible}
+      <button onClick={() => setOpen((v) => !v)} className="block mt-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold"
+              style={{ background: "rgba(100,116,139,.18)", color: "inherit", opacity: .8 }}
+              title={open ? t("trimHide") : t("trimShow")}>· · ·</button>
+      {open && (
+        <span className="block mt-1.5 pl-2.5 whitespace-pre-wrap" style={{ borderLeft: "2px solid rgba(100,116,139,.35)", opacity: .7, fontSize: "0.95em" }}>
+          {hidden}
+        </span>
+      )}
+    </>
+  );
+}
+
+/* A React error anywhere below this unmounts the whole tree and leaves a white
+   page. Catch it, show what broke, and keep a reload button in reach. */
+class CrmBoundary extends React.Component {
+  constructor(p) { super(p); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  componentDidCatch(err, info) { console.error("[crm] crashed:", err, info?.componentStack); }
+  render() {
+    if (!this.state.err) return this.props.children;
+    return (
+      <div className="p-8">
+        <div className="card p-6" style={{ maxWidth: 640, margin: "40px auto" }}>
+          <div className="flex items-center gap-2.5 mb-2">
+            <AlertTriangle size={20} style={{ color: "var(--red)" }} />
+            <b className="text-[16px]">{t("crashTitle")}</b>
+          </div>
+          <p className="text-[13.5px]" style={{ color: "var(--muted)" }}>{t("crashSub")}</p>
+          <pre className="mt-3 px-3 py-2 rounded-lg text-[11.5px] whitespace-pre-wrap"
+               style={{ background: "var(--slate-bg)", color: "var(--red)", fontFamily: "inherit" }}>
+            {String(this.state.err?.message || this.state.err)}
+          </pre>
+          <button className="btn btn-p mt-4" onClick={() => window.location.reload()}>{t("crashReload")}</button>
+        </div>
+      </div>
+    );
+  }
+}
+
 /* ══════════ New outbound email ══════════
    A proper compose window: pick which brand mailbox it comes from, To + Cc,
    subject, body, attachments. Creates the case and sends in one step; the
@@ -2162,7 +2245,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                   {unread[x.id] > 0 && <span className="ml-auto flex-none rounded-full text-[10px] font-bold grid place-items-center" style={{ minWidth: 17, height: 17, padding: "0 5px", background: "var(--amber)", color: "#0F172A" }}>{unread[x.id]}</span>}
                 </div>
                 <div className="text-[12px] truncate mt-0.5" style={{ color: "var(--muted)", fontWeight: unread[x.id] ? 700 : 400 }}>
-                  {last.from === "customer" ? "" : t("youPrefix")}{tv(last.text)}
+                  {last.from === "customer" ? "" : t("youPrefix")}{trimQuoted(tv(last.text)).visible.replace(/\s+/g, " ")}
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <span className="dot" style={{ background: PRI[x.priority].c }} />
@@ -2198,7 +2281,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                     <div className={`bub ${m.from === "agent" ? "bub-a" : m.from === "note" ? "bub-n" : m.from === "call" ? "bub-call" : "bub-c"}`}>
                       {m.from === "note" && <div className="flex items-center gap-1.5 text-[11px] font-bold mb-1"><StickyNote size={11} />{t("noteBanner")}</div>}
                       {m.from === "call" && <div className="flex items-center gap-1.5 text-[11px] font-bold mb-1"><PhoneCall size={11} />{t("navCalls")}</div>}
-                      {tv(m.text)}
+                      <MsgBody text={tv(m.text)} />
                       {m.att && m.att.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {m.att.map((a, j) => <AttThumb key={j} a={a} onOpen={() => openAtt(a)} />)}
@@ -2332,7 +2415,11 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
 
             <div className="p-4 border-b space-y-2.5" style={{ borderColor: "var(--line)" }}>
               <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fOrder")}</span><b className="text-[12.5px]">{tk.order || "—"}</b></div>
-              <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fCat")}</span><b className="text-[12.5px]">{tv(CAT[tk.catKey])}</b></div>
+              <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fCat")}</span>
+                <select className="fld" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} value={tk.catKey}
+                        onChange={(e) => patch({ catKey: e.target.value }, t("catSaved"))}>
+                  {CAT_KEYS.map((k) => <option key={k} value={k}>{tv(CAT[k])}</option>)}
+                </select></div>
               <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("cPriority")}</span>
                 <select className="fld" style={{ width: 112, padding: "4px 8px", fontSize: 12 }} value={tk.priority} onChange={(e) => patch({ priority: e.target.value }, t("priSaved"))}>
                   {PRI_KEYS.map((k) => <option key={k} value={k}>{tv(PRI[k].n)}</option>)}
@@ -4177,6 +4264,7 @@ export default function ServiceCRM({ user, role }) {
 
       <div className="flex-1 min-w-0 flex flex-col">
         <main className="p-6 flex-1" style={{ paddingBottom: playRec && !call ? 130 : 24 }}>
+         <CrmBoundary>
           {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} me={me} />}
           {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} unread={unread} markRead={markRead} />}
           {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} />}
@@ -4186,6 +4274,7 @@ export default function ServiceCRM({ user, role }) {
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
           {tab === "users"     && <UsersView users={users} setUsers={setUsers} me={me} toast={toast} />}
           {tab === "settings"  && <SettingsView chans={chans} setChans={setChans} notif={notif} setNotif={setNotif} assign={assign} setAssign={setAssign} sip={sip} setSip={setSip} routing={routing} setRouting={setRouting} ringFor={ringFor} setRingFor={setRingFor} maxWait={maxWait} setMaxWait={setMaxWait} toast={toast} me={me} />}
+         </CrmBoundary>
         </main>
       </div>
 
