@@ -495,12 +495,13 @@ const CSS = `
 
 .svc, .svc * { box-sizing:border-box; font-family:'Galano Grotesque','IBM Plex Sans','IBM Plex Sans Thai',system-ui,-apple-system,sans-serif; }
 .svc {
-  --navy:#313A7E; --navy-2:#3D479A; --blue:#7A3E9C; --blue-2:#9A5FBE;
-  --sky:#F3EBF9; --ink:#0F1B2D; --muted:#64748B; --line:#E5E4F1; --bg:#F5F3FA;
-  --green:#12A150; --green-bg:#E4F7EC; --amber:#E8940C; --amber-bg:#FDF2DF;
-  --red:#DC3545; --red-bg:#FCE9EB; --cyan:#0891B2; --cyan-bg:#E0F4F8;
-  --violet:#4B55A8; --violet-bg:#EAECF7; --slate-bg:#F1EFF7;
-  --shadow:0 1px 2px rgba(49,58,126,.07), 0 8px 24px -12px rgba(49,58,126,.18);
+  /* NiRM palette — teal #0D9488 primary, slate neutrals */
+  --navy:#0F766E; --navy-2:#115E59; --blue:#0D9488; --blue-2:#14B8A6;
+  --sky:#F0FDFA; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --bg:#F8FAFC;
+  --green:#12A150; --green-bg:#E4F7EC; --amber:#D97706; --amber-bg:#FEF3C7;
+  --red:#B91C1C; --red-bg:#FEE2E2; --cyan:#0891B2; --cyan-bg:#E0F4F8;
+  --violet:#4F46E5; --violet-bg:#EEF2FF; --slate-bg:#F1F5F9;
+  --shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.16);
   background:var(--bg); color:var(--ink); min-height:100vh; -webkit-font-smoothing:antialiased;
 }
 .svc.th, .svc.th * { font-family:'IBM Plex Sans Thai','Galano Grotesque','IBM Plex Sans',system-ui,sans-serif; }
@@ -511,11 +512,11 @@ const CSS = `
 
 .card { background:#fff; border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
 .fld { width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:9px; background:#fff; outline:none; transition:.15s; }
-.fld:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(122,62,156,.14); }
+.fld:focus { border-color:var(--blue); box-shadow:0 0 0 3px rgba(13,148,136,.14); }
 .lbl { display:block; font-size:12px; font-weight:600; color:var(--muted); margin-bottom:5px; }
 
 .btn { display:inline-flex; align-items:center; gap:7px; padding:9px 15px; border-radius:9px; font-size:13.5px; font-weight:600; transition:.15s; white-space:nowrap; }
-.btn-p { background:var(--blue); color:#fff; } .btn-p:hover { background:#6A3288; }
+.btn-p { background:var(--blue); color:#fff; } .btn-p:hover { background:#0F766E; }
 .btn-g { background:#fff; color:var(--ink); border:1px solid var(--line); } .btn-g:hover { background:var(--sky); border-color:var(--blue-2); }
 .btn-d { background:var(--green); color:#fff; } .btn-d:hover { background:#0E8642; }
 .btn:disabled { opacity:.45; cursor:not-allowed; }
@@ -525,27 +526,27 @@ const CSS = `
 
 table.tbl { width:100%; border-collapse:collapse; }
 .tbl th { text-align:left; font-size:11.5px; font-weight:700; color:var(--muted); padding:11px 14px; border-bottom:1px solid var(--line); background:#FBFAFD; white-space:nowrap; }
-.tbl td { padding:12px 14px; border-bottom:1px solid #EFEDF6; font-size:13.5px; vertical-align:middle; }
-.tbl tbody tr:hover { background:#F9F6FC; }
+.tbl td { padding:12px 14px; border-bottom:1px solid #E2E8F0; font-size:13.5px; vertical-align:middle; }
+.tbl tbody tr:hover { background:#F8FAFC; }
 .tbl tbody tr:last-child td { border-bottom:none; }
 
-.nav-i { display:flex; align-items:center; gap:11px; padding:10px 13px; border-radius:10px; font-size:14px; font-weight:500; color:#C3C9EE; width:100%; text-align:left; transition:.15s; }
+.nav-i { display:flex; align-items:center; gap:11px; padding:10px 13px; border-radius:10px; font-size:14px; font-weight:500; color:#CCFBF1; width:100%; text-align:left; transition:.15s; }
 .nav-i:hover { background:rgba(255,255,255,.08); color:#fff; }
-.nav-i.on { background:var(--blue); color:#fff; font-weight:600; box-shadow:0 4px 14px -4px rgba(122,62,156,.65); }
+.nav-i.on { background:var(--blue); color:#fff; font-weight:600; box-shadow:0 4px 14px -4px rgba(13,148,136,.65); }
 
 .kpi-ic { width:46px; height:46px; border-radius:12px; display:grid; place-items:center; flex:none; }
 .ovl { position:fixed; inset:0; background:rgba(30,26,46,.55); backdrop-filter:blur(3px); z-index:60; display:flex; align-items:center; justify-content:center; padding:18px; }
-.sheet { background:#fff; border-radius:16px; width:100%; max-height:90vh; overflow:auto; box-shadow:0 24px 64px -12px rgba(49,58,126,.4); }
+.sheet { background:#fff; border-radius:16px; width:100%; max-height:90vh; overflow:auto; box-shadow:0 24px 64px -12px rgba(15,23,42,.4); }
 
-.conv { width:100%; text-align:left; padding:12px 14px; border-bottom:1px solid #EFEDF6; transition:.12s; border-left:3px solid transparent; }
-.conv:hover { background:#F9F6FC; }
+.conv { width:100%; text-align:left; padding:12px 14px; border-bottom:1px solid #E2E8F0; transition:.12s; border-left:3px solid transparent; }
+.conv:hover { background:#F8FAFC; }
 .conv.on { background:var(--sky); border-left-color:var(--blue); }
 
 .bub { max-width:74%; padding:10px 13px; border-radius:14px; font-size:13.5px; line-height:1.55; white-space:pre-wrap; }
 .bub-c { background:#fff; border:1px solid var(--line); border-bottom-left-radius:4px; }
 .bub-a { background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
 .bub-n { background:var(--amber-bg); border:1px dashed #E9C384; color:#7A5410; border-radius:10px; }
-.bub-call { background:#EFEBF6; border:1px solid var(--line); color:#3D5675; border-radius:10px; font-size:12.5px; }
+.bub-call { background:#F1F5F9; border:1px solid var(--line); color:#3D5675; border-radius:10px; font-size:12.5px; }
 
 .kp { height:46px; border-radius:10px; border:1px solid var(--line); background:#fff; font-size:17px; font-weight:600; display:grid; place-items:center; transition:.1s; }
 .kp:hover { background:var(--sky); border-color:var(--blue-2); }
@@ -559,9 +560,9 @@ table.tbl { width:100%; border-collapse:collapse; }
 @keyframes barBounce { 0%,100%{ transform:scaleY(.25);} 50%{ transform:scaleY(1);} }
 .wv span { display:block; width:3px; height:20px; border-radius:2px; background:#7EE2AC; transform-origin:center; animation:barBounce .9s ease-in-out infinite; }
 
-.lang { display:inline-flex; padding:2px; border-radius:9px; background:#EFEBF6; }
+.lang { display:inline-flex; padding:2px; border-radius:9px; background:#F1F5F9; }
 .lang button { padding:5px 11px; border-radius:7px; font-size:12px; font-weight:700; color:var(--muted); transition:.15s; }
-.lang button.on { background:#fff; color:var(--blue); box-shadow:0 1px 3px rgba(49,58,126,.12); }
+.lang button.on { background:#fff; color:var(--blue); box-shadow:0 1px 3px rgba(15,23,42,.12); }
 
 .scroll::-webkit-scrollbar { width:8px; height:8px; }
 .scroll::-webkit-scrollbar-thumb { background:#CFCBE3; border-radius:8px; }
@@ -581,7 +582,7 @@ const CH = {
   shopee: { n: { en: "Shopee", th: "Shopee" },        c: "#EE4D2D", bg: "#FDECE8", ic: ShoppingBag },
   lazada: { n: { en: "Lazada", th: "Lazada" },        c: "#7C4DBF", bg: "#F1EAFB", ic: ShoppingBag },
   email:  { n: { en: "Email", th: "อีเมล" },           c: "#0891B2", bg: "#E0F4F8", ic: Mail },
-  phone:  { n: { en: "Phone", th: "โทรศัพท์" },        c: "#313A7E", bg: "#EAECF7", ic: Phone },
+  phone:  { n: { en: "Phone", th: "โทรศัพท์" },        c: "#0F172A", bg: "#F1F5F9", ic: Phone },
 };
 const CH_KEYS = ["email", "webchat", "phone", "line", "fb", "tiktok", "shopee", "lazada"];
 const P1_CHANNELS = ["email", "webchat", "phone"]; // Phase 1 scope
@@ -880,13 +881,13 @@ function Login({ onLogin, lang, setLang }) {
           <div>
             <span className="pill" style={{ background: "rgba(255,255,255,.16)", color: "#fff" }}><Zap size={12} />{t("loginBadge")}</span>
             <h1 className="text-[34px] font-bold leading-tight mt-5 whitespace-pre-line">{t("loginH1")}</h1>
-            <p className="text-[14px] mt-2" style={{ color: "#C3C9EE" }}>{t("loginSub")}</p>
+            <p className="text-[14px] mt-2" style={{ color: "#CCFBF1" }}>{t("loginSub")}</p>
           </div>
           <ul className="space-y-3 mt-8">
             {[[Inbox, "f1t", "f1d"], [Timer, "f2t", "f2d"], [BookOpen, "f3t", "f3d"], [ThumbsUp, "f4t", "f4d"]].map(([Ic, a, b]) => (
               <li key={a} className="flex gap-3 items-start">
                 <span className="rounded-lg p-2 flex-none" style={{ background: "rgba(255,255,255,.12)" }}><Ic size={16} /></span>
-                <span><b className="text-[14px]">{t(a)}</b><br /><span className="text-[12.5px]" style={{ color: "#B4BCE8" }}>{t(b)}</span></span>
+                <span><b className="text-[14px]">{t(a)}</b><br /><span className="text-[12.5px]" style={{ color: "#99F6E4" }}>{t(b)}</span></span>
               </li>
             ))}
           </ul>
@@ -990,13 +991,13 @@ function Dashboard({ tickets, trend, scope, go, open }) {
           </div>
           <ResponsiveContainer width="100%" height={230}>
             <AreaChart data={trend} margin={{ top: 4, right: 6, left: -22, bottom: 0 }}>
-              <defs><linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#7A3E9C" stopOpacity={.28} /><stop offset="100%" stopColor="#7A3E9C" stopOpacity={0} /></linearGradient></defs>
-              <CartesianGrid strokeDasharray="3 4" stroke="#ECEAF5" vertical={false} />
-              <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#8B8FB0" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#8B8FB0" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E5E4F1", fontSize: 12.5 }} />
+              <defs><linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0D9488" stopOpacity={.28} /><stop offset="100%" stopColor="#0D9488" stopOpacity={0} /></linearGradient></defs>
+              <CartesianGrid strokeDasharray="3 4" stroke="#E2E8F0" vertical={false} />
+              <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E8F0", fontSize: 12.5 }} />
               <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" iconSize={7} />
-              <Area type="monotone" dataKey="opened" name={t("sNew")} stroke="#7A3E9C" strokeWidth={2.4} fill="url(#gIn)" />
+              <Area type="monotone" dataKey="opened" name={t("sNew")} stroke="#0D9488" strokeWidth={2.4} fill="url(#gIn)" />
               <Line type="monotone" dataKey="closed" name={t("sClosed")} stroke="#12A150" strokeWidth={2.2} dot={false} />
             </AreaChart>
           </ResponsiveContainer>
@@ -1010,7 +1011,7 @@ function Dashboard({ tickets, trend, scope, go, open }) {
               <Pie data={byChan} dataKey="value" innerRadius={52} outerRadius={78} paddingAngle={2} stroke="none">
                 {byChan.map((d) => <Cell key={d.name} fill={d.c} />)}
               </Pie>
-              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E5E4F1", fontSize: 12.5 }} />
+              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E8F0", fontSize: 12.5 }} />
             </PieChart>
           </ResponsiveContainer>
           <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-1">
@@ -1036,7 +1037,7 @@ function Dashboard({ tickets, trend, scope, go, open }) {
                 <td className="text-right font-semibold">{a.open}</td>
                 <td className="text-right">{a.breach > 0 ? <span className="pill" style={{ background: "var(--red-bg)", color: "var(--red)" }}>{a.breach}</span> : <span style={{ color: "var(--muted)" }}>—</span>}</td>
                 <td className="text-right">{a.csat}</td>
-                <td><div className="rounded-full overflow-hidden" style={{ height: 6, background: "#E9E6F2" }}>
+                <td><div className="rounded-full overflow-hidden" style={{ height: 6, background: "#E2E8F0" }}>
                   <div style={{ width: `${Math.min(100, a.open * 9)}%`, height: "100%", background: a.open > 9 ? "var(--red)" : a.open > 5 ? "var(--amber)" : "var(--green)" }} /></div></td>
               </tr>
             ))}
@@ -1048,11 +1049,11 @@ function Dashboard({ tickets, trend, scope, go, open }) {
           <h3 className="font-bold text-[15px] mb-3">{t("topCats")}</h3>
           <ResponsiveContainer width="100%" height={252}>
             <BarChart data={byCat} layout="vertical" margin={{ left: 14, right: 12 }}>
-              <CartesianGrid strokeDasharray="3 4" stroke="#ECEAF5" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 11, fill: "#8B8FB0" }} axisLine={false} tickLine={false} />
+              <CartesianGrid strokeDasharray="3 4" stroke="#E2E8F0" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
               <YAxis type="category" dataKey="name" width={104} tick={{ fontSize: 10.5, fill: "#5D6188" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E5E4F1", fontSize: 12.5 }} cursor={{ fill: "#F5F3FA" }} />
-              <Bar dataKey="v" name={t("cCount")} fill="#7A3E9C" radius={[0, 4, 4, 0]} barSize={11} />
+              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E8F0", fontSize: 12.5 }} cursor={{ fill: "#F5F3FA" }} />
+              <Bar dataKey="v" name={t("cCount")} fill="#0D9488" radius={[0, 4, 4, 0]} barSize={11} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -1402,7 +1403,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                 </div>
                 <div className="flex items-center gap-1.5">
                   <div className="font-semibold text-[13px] truncate">{tv(x.customer)}</div>
-                  {unread[x.id] > 0 && <span className="ml-auto flex-none rounded-full text-[10px] font-bold grid place-items-center" style={{ minWidth: 17, height: 17, padding: "0 5px", background: "var(--amber)", color: "#313A7E" }}>{unread[x.id]}</span>}
+                  {unread[x.id] > 0 && <span className="ml-auto flex-none rounded-full text-[10px] font-bold grid place-items-center" style={{ minWidth: 17, height: 17, padding: "0 5px", background: "var(--amber)", color: "#0F172A" }}>{unread[x.id]}</span>}
                 </div>
                 <div className="text-[12px] truncate mt-0.5" style={{ color: "var(--muted)", fontWeight: unread[x.id] ? 700 : 400 }}>
                   {last.from === "customer" ? "" : t("youPrefix")}{tv(last.text)}
@@ -1467,7 +1468,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                   <div className="max-h-44 overflow-auto scroll">
                     {canned.map((c) => (
                       <button key={c.id} onClick={() => { setText((p) => (p ? p + "\n" : "") + tv(c.body)); setShowCanned(false); }}
-                              className="w-full text-left px-3 py-2.5 border-b hover:bg-slate-50" style={{ borderColor: "#EFEDF6" }}>
+                              className="w-full text-left px-3 py-2.5 border-b hover:bg-slate-50" style={{ borderColor: "#E2E8F0" }}>
                         <b className="text-[12.5px]">{tv(c.title)}</b>
                         <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "var(--muted)" }}>{tv(c.body).replace(/\n/g, " ")}</p>
                       </button>
@@ -1539,7 +1540,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             <div className="p-4 border-b" style={{ borderColor: "var(--line)" }}>
               <p className="lbl">{t("custHistory")}</p>
               {tickets.filter((x) => tv(x.customer) === tv(tk.customer)).slice(0, 4).map((x) => (
-                <button key={x.id} onClick={() => OPEN_ST.includes(x.status) && setSel(x.id)} className="w-full text-left py-2 border-b" style={{ borderColor: "#EFEDF6" }}>
+                <button key={x.id} onClick={() => OPEN_ST.includes(x.status) && setSel(x.id)} className="w-full text-left py-2 border-b" style={{ borderColor: "#E2E8F0" }}>
                   <div className="flex items-center gap-1.5"><Chip map={ST} k={x.status} /><span className="ml-auto text-[10.5px]" style={{ color: "var(--muted)" }}>{ago(x.createdAt)}</span></div>
                   <p className="text-[12px] mt-1 truncate">{subjectOf(x)}</p>
                 </button>
@@ -1690,10 +1691,10 @@ function Knowledge({ kb, setKb, canned, setCanned, me, toast }) {
   return (
     <div className="space-y-4">
       <div className="card p-4 flex flex-wrap gap-2.5 items-center">
-        <div className="flex gap-1 p-1 rounded-lg" style={{ background: "#EFEBF6" }}>
+        <div className="flex gap-1 p-1 rounded-lg" style={{ background: "#F1F5F9" }}>
           {[["kb", t("tabArticles")], ["canned", t("tabCanned")]].map(([k, lbl]) => (
             <button key={k} onClick={() => setTab(k)} className="px-4 py-1.5 rounded-md text-[13px] font-semibold"
-                    style={{ background: tab === k ? "#fff" : "transparent", color: tab === k ? "var(--blue)" : "var(--muted)", boxShadow: tab === k ? "0 1px 3px rgba(49,58,126,.12)" : "none" }}>{lbl}</button>
+                    style={{ background: tab === k ? "#fff" : "transparent", color: tab === k ? "var(--blue)" : "var(--muted)", boxShadow: tab === k ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{lbl}</button>
           ))}
         </div>
         <div className="relative flex-1" style={{ minWidth: 220 }}>
@@ -1857,7 +1858,7 @@ function CallConsole({ call, tickets, onSave, onClose, onTimeout, ringFor = 20, 
                 ? <><PhoneIncoming size={11} />{t("incoming")}</>
                 : <>{rec && <span className="dot" style={{ background: "#FF5A5F" }} />}{rec ? t("recOn") : t("recOff")}</>}
             </span>
-            <button onClick={onClose} className="p-1 rounded-lg" style={{ color: "#B4BCE8" }}><X size={17} /></button>
+            <button onClick={onClose} className="p-1 rounded-lg" style={{ color: "#99F6E4" }}><X size={17} /></button>
           </div>
 
           <div className={`mx-auto rounded-full grid place-items-center mb-3 ${phase === "incoming" ? "ringing" : ""}`}
@@ -1865,7 +1866,7 @@ function CallConsole({ call, tickets, onSave, onClose, onTimeout, ringFor = 20, 
             {call.customer ? tv(call.customer).charAt(0) : <Phone size={24} />}
           </div>
           <p className="text-[17px] font-bold">{name}</p>
-          <p className="text-[13.5px]" style={{ color: "#B4BCE8" }}>{call.phone}</p>
+          <p className="text-[13.5px]" style={{ color: "#99F6E4" }}>{call.phone}</p>
 
           {openCases.length > 0 && phase !== "wrap" && (
             <span className="pill mt-2" style={{ background: "var(--amber-bg)", color: "var(--amber)" }}>
@@ -1888,7 +1889,7 @@ function CallConsole({ call, tickets, onSave, onClose, onTimeout, ringFor = 20, 
               {hold && <span className="pill" style={{ background: "var(--amber-bg)", color: "var(--amber)" }}>{t("onHold")}</span>}
             </div>
           )}
-          {phase === "wrap" && <p className="text-[13px] mt-3" style={{ color: "#B4BCE8" }}>{t("callEnded", mmss(sec))}</p>}
+          {phase === "wrap" && <p className="text-[13px] mt-3" style={{ color: "#99F6E4" }}>{t("callEnded", mmss(sec))}</p>}
         </div>
 
         {phase === "incoming" && (
@@ -1933,7 +1934,7 @@ function CallConsole({ call, tickets, onSave, onClose, onTimeout, ringFor = 20, 
 
             {xfer && (
               <div className="mt-3">
-                <p className="text-[11.5px] mb-1.5" style={{ color: "#B4BCE8" }}>{t("transferTo")}</p>
+                <p className="text-[11.5px] mb-1.5" style={{ color: "#99F6E4" }}>{t("transferTo")}</p>
                 <div className="space-y-1 max-h-36 overflow-auto scroll">
                   {AGENTS.filter((a) => a.active).map((a) => (
                     <button key={a.id} className="w-full text-left px-3 py-2 rounded-lg text-[13px] font-semibold"
@@ -2118,7 +2119,7 @@ function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks,
             </div>
             <div className="max-h-56 overflow-auto scroll">
               {callbacks.map((c) => (
-                <div key={c.id} className="px-5 py-3 border-b flex items-center gap-3" style={{ borderColor: "#EFEDF6" }}>
+                <div key={c.id} className="px-5 py-3 border-b flex items-center gap-3" style={{ borderColor: "#E2E8F0" }}>
                   <div className="min-w-0">
                     <b className="text-[13px]">{c.customer ? tv(c.customer) : t("unknownCaller")}</b>
                     <div className="text-[11.5px] mt-0.5" style={{ color: "var(--muted)" }}>
@@ -2160,7 +2161,7 @@ function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks,
                   {queue.map((q, i) => {
                     const w = Math.floor((Date.now() - q.at) / 1000);
                     return (
-                      <div key={q.id} className="px-5 py-3 border-b" style={{ borderColor: "#EFEDF6" }}>
+                      <div key={q.id} className="px-5 py-3 border-b" style={{ borderColor: "#E2E8F0" }}>
                         <div className="flex items-center gap-2">
                           <span className="pill" style={{ background: "var(--slate-bg)", color: "var(--muted)" }}>{t("posInQueue", i + 1)}</span>
                           <b className="text-[13px]">{q.customer ? tv(q.customer) : t("unknownCaller")}</b>
@@ -2189,7 +2190,7 @@ function CallsView({ tickets, allTickets, calls, queue, callbacks, setCallbacks,
             </div>
             <div className="max-h-72 overflow-auto scroll">
               {board.map(({ u, p, open }) => (
-                <div key={u.id} className="px-5 py-2.5 border-b flex items-center gap-3" style={{ borderColor: "#EFEDF6" }}>
+                <div key={u.id} className="px-5 py-2.5 border-b flex items-center gap-3" style={{ borderColor: "#E2E8F0" }}>
                   <span className="rounded-full grid place-items-center flex-none text-white font-bold text-[11px]" style={{ width: 28, height: 28, background: PRESENCE[p.status].c }}>
                     {tv(u.n).charAt(0)}
                   </span>
@@ -2316,12 +2317,12 @@ function RecPlayer({ rec, onClose }) {
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-[70]" style={{ background: "var(--navy)", color: "#fff", boxShadow: "0 -8px 30px -8px rgba(49,58,126,.5)" }}>
+    <div className="fixed bottom-0 left-0 right-0 z-[70]" style={{ background: "var(--navy)", color: "#fff", boxShadow: "0 -8px 30px -8px rgba(15,23,42,.5)" }}>
       {showTx && (
         <div className="border-b px-6 py-4 max-h-56 overflow-auto scroll" style={{ borderColor: "rgba(255,255,255,.12)", background: "var(--navy-2)" }}>
           <div className="flex items-center gap-2 mb-3">
             <b className="text-[13px]">{t("transcript")}</b>
-            <span className="text-[11px]" style={{ color: "#B4BCE8" }}>{t("transcriptNote")}</span>
+            <span className="text-[11px]" style={{ color: "#99F6E4" }}>{t("transcriptNote")}</span>
           </div>
           <div className="space-y-2" style={{ maxWidth: 760 }}>
             {tx.map((m, i) => (
@@ -2344,15 +2345,15 @@ function RecPlayer({ rec, onClose }) {
 
         <div className="min-w-0" style={{ width: 210 }}>
           <div className="text-[13px] font-bold truncate">{t("recOf", rec.name)}</div>
-          <div className="text-[11px]" style={{ color: "#B4BCE8" }}>
+          <div className="text-[11px]" style={{ color: "#99F6E4" }}>
             {clock(rec.at)}{rec.ticketId ? ` · ${rec.ticketId}` : ""} · {rec.by ? uname(rec.by) : "—"}
           </div>
         </div>
 
-        <span className="text-[12px] flex-none" style={{ fontVariantNumeric: "tabular-nums", color: "#B4BCE8" }}>{mmss(Math.floor(pos))}</span>
+        <span className="text-[12px] flex-none" style={{ fontVariantNumeric: "tabular-nums", color: "#99F6E4" }}>{mmss(Math.floor(pos))}</span>
         <input type="range" min={0} max={total} value={pos} onChange={(e) => setPos(+e.target.value)}
                className="flex-1" style={{ accentColor: "#9A5FBE" }} aria-label={t("recOf", rec.name)} />
-        <span className="text-[12px] flex-none" style={{ fontVariantNumeric: "tabular-nums", color: "#B4BCE8" }}>{mmss(total)}</span>
+        <span className="text-[12px] flex-none" style={{ fontVariantNumeric: "tabular-nums", color: "#99F6E4" }}>{mmss(total)}</span>
 
         <div className="flex gap-1 flex-none">
           {[1, 1.5, 2].map((s) => (
@@ -2366,10 +2367,10 @@ function RecPlayer({ rec, onClose }) {
         <button onClick={() => setShowTx(!showTx)} className="btn flex-none" style={{ padding: "7px 12px", background: showTx ? "#fff" : "rgba(255,255,255,.12)", color: showTx ? "var(--navy)" : "#fff", fontSize: 12.5 }}>
           <StickyNote size={13} />{t("transcript")}
         </button>
-        <button onClick={onClose} className="p-2 rounded-lg flex-none" style={{ color: "#B4BCE8" }} aria-label={t("closePlayer")}><X size={17} /></button>
+        <button onClick={onClose} className="p-2 rounded-lg flex-none" style={{ color: "#99F6E4" }} aria-label={t("closePlayer")}><X size={17} /></button>
       </div>
 
-      <div className="px-6 pb-2.5 flex items-center gap-4 text-[10.5px]" style={{ color: "#8B90BD" }}>
+      <div className="px-6 pb-2.5 flex items-center gap-4 text-[10.5px]" style={{ color: "#94A3B8" }}>
         <span className="flex items-center gap-1.5"><Radio size={10} />{t("demoAudio")}</span>
         <span className="flex items-center gap-1.5"><ShieldCheck size={10} />{t("playbackLogged")}</span>
       </div>
@@ -2433,10 +2434,10 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
   return (
     <div className="space-y-4">
       <div className="card p-4 flex flex-wrap gap-2.5 items-center">
-        <div className="flex gap-1 p-1 rounded-lg" style={{ background: "#EFEBF6" }}>
+        <div className="flex gap-1 p-1 rounded-lg" style={{ background: "#F1F5F9" }}>
           {[["daily", t("daily")], ["monthly", t("monthly")]].map(([k, lbl]) => (
             <button key={k} onClick={() => setPeriod(k)} className="px-4 py-1.5 rounded-md text-[13px] font-semibold"
-                    style={{ background: period === k ? "#fff" : "transparent", color: period === k ? "var(--blue)" : "var(--muted)", boxShadow: period === k ? "0 1px 3px rgba(49,58,126,.12)" : "none" }}>{lbl}</button>
+                    style={{ background: period === k ? "#fff" : "transparent", color: period === k ? "var(--blue)" : "var(--muted)", boxShadow: period === k ? "0 1px 3px rgba(15,23,42,.12)" : "none" }}>{lbl}</button>
           ))}
         </div>
         <span className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("rangeIs", period === "daily" ? t("last14") : t("thisMonth"))}</span>
@@ -2464,10 +2465,10 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
           <h3 className="font-bold text-[15px] mb-4">{t("csatTrend")}</h3>
           <ResponsiveContainer width="100%" height={218}>
             <LineChart data={trend} margin={{ top: 4, right: 6, left: -22, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 4" stroke="#ECEAF5" vertical={false} />
-              <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#8B8FB0" }} axisLine={false} tickLine={false} />
-              <YAxis domain={[1, 5]} tick={{ fontSize: 11, fill: "#8B8FB0" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E5E4F1", fontSize: 12.5 }} />
+              <CartesianGrid strokeDasharray="3 4" stroke="#E2E8F0" vertical={false} />
+              <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
+              <YAxis domain={[1, 5]} tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E8F0", fontSize: 12.5 }} />
               <Line type="monotone" dataKey="csat" name="CSAT" stroke="#E8940C" strokeWidth={2.6} dot={{ r: 2.5 }} />
             </LineChart>
           </ResponsiveContainer>
@@ -2477,7 +2478,7 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
           {dist.map((d) => (
             <div key={d.n} className="flex items-center gap-3 mb-2.5">
               <span className="flex items-center gap-1 text-[12.5px] font-semibold" style={{ width: 26 }}>{d.n}<Star size={11} fill="#E8940C" style={{ color: "#E8940C" }} /></span>
-              <div className="flex-1 rounded-full overflow-hidden" style={{ height: 9, background: "#E9E6F2" }}>
+              <div className="flex-1 rounded-full overflow-hidden" style={{ height: 9, background: "#E2E8F0" }}>
                 <div style={{ width: `${rated.length ? (d.count / rated.length) * 100 : 0}%`, height: "100%", background: d.n >= 4 ? "var(--green)" : d.n === 3 ? "var(--amber)" : "var(--red)" }} />
               </div>
               <b className="text-[12.5px]" style={{ width: 30, textAlign: "right" }}>{d.count}</b>
@@ -2511,7 +2512,7 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
                   <td className="text-right">{dur(p.res)}</td>
                   <td className="text-right">
                     <div className="flex items-center gap-2 justify-end">
-                      <div className="rounded-full overflow-hidden" style={{ width: 42, height: 5, background: "#E9E6F2" }}>
+                      <div className="rounded-full overflow-hidden" style={{ width: 42, height: 5, background: "#E2E8F0" }}>
                         <div style={{ width: `${p.sla}%`, height: "100%", background: p.sla >= 85 ? "var(--green)" : p.sla >= 70 ? "var(--amber)" : "var(--red)" }} />
                       </div><b className="text-[12.5px]">{p.sla}%</b>
                     </div>
@@ -2536,7 +2537,7 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
                 <td className="text-right">{c.n}</td>
                 <td className="text-right">{Math.round((c.n / (tickets.length || 1)) * 100)}%</td>
                 <td className="text-right">{dur(c.avg)}</td>
-                <td><div className="rounded-full overflow-hidden" style={{ height: 6, background: "#E9E6F2" }}>
+                <td><div className="rounded-full overflow-hidden" style={{ height: 6, background: "#E2E8F0" }}>
                   <div style={{ width: `${(c.n / (catRep[0].n || 1)) * 100}%`, height: "100%", background: "var(--blue)" }} /></div></td>
               </tr>
             ))}
@@ -2725,7 +2726,7 @@ function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip
           {CH_KEYS.map((k) => {
             const c = CH[k]; const I = c.ic;
             return (
-              <div key={k} className="flex items-center gap-3 py-3 border-b" style={{ borderColor: "#EFEDF6" }}>
+              <div key={k} className="flex items-center gap-3 py-3 border-b" style={{ borderColor: "#E2E8F0" }}>
                 <span className="kpi-ic" style={{ background: c.bg, width: 36, height: 36, borderRadius: 10 }}><I size={16} style={{ color: c.c }} /></span>
                 <div><b className="text-[13.5px]">{tv(c.n)}</b>
                   <p className="text-[11.5px] mt-0.5" style={{ color: "var(--muted)" }}>{chans[k] ? t("chanOn") : t("chanOff")}</p></div>
@@ -2788,7 +2789,7 @@ function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip
               <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("notifSettingsSub")}</p></div>
           </div>
           {notifs.map(([k, ti, d]) => (
-            <button key={k} onClick={() => setNotif((p) => ({ ...p, [k]: !p[k] }))} className="w-full flex items-center gap-3 py-3.5 border-b text-left" style={{ borderColor: "#EFEDF6" }}>
+            <button key={k} onClick={() => setNotif((p) => ({ ...p, [k]: !p[k] }))} className="w-full flex items-center gap-3 py-3.5 border-b text-left" style={{ borderColor: "#E2E8F0" }}>
               <div><b className="text-[13.5px]">{ti}</b><p className="text-[12px] mt-0.5" style={{ color: "var(--muted)" }}>{d}</p></div>
               <span className="ml-auto rounded-full flex-none transition" style={{ width: 40, height: 22, padding: 3, background: notif[k] ? "var(--green)" : "#CBD5E1" }}>
                 <span className="block rounded-full bg-white transition" style={{ width: 16, height: 16, transform: notif[k] ? "translateX(18px)" : "none" }} />
@@ -3065,20 +3066,15 @@ export default function ServiceCRM({ user, role }) {
 
       {/* horizontal top bar (was a left sidebar) — NiRM already owns the left rail */}
       <div className="flex items-center gap-1.5 px-4 py-2" style={{ background: "var(--navy)", position: "sticky", top: 0, zIndex: 40, overflowX: "auto" }}>
-        <div className="rounded-lg grid place-items-center flex-none" style={{ width: 30, height: 30, background: "var(--blue)" }}><Inbox size={15} color="#fff" /></div>
-        <div className="flex-none mr-3">
-          <div className="text-[13px] font-bold text-white leading-tight">{t("brand")}</div>
-          <div className="text-[10px] whitespace-nowrap" style={{ color: "#9AA3D6" }}>{t("chansConnected", Object.values(chans).filter(Boolean).length)}</div>
-        </div>
         {nav.map((n) => (
           <button key={n.k} className={`nav-i ${tab === n.k ? "on" : ""}`} style={{ width: "auto", flex: "none", padding: "8px 12px", gap: 8, whiteSpace: "nowrap" }} onClick={() => setTab(n.k)}>
             <n.ic size={16} className="flex-none" />{t(n.key)}
-            {n.k === "inbox" && unreadTotal > 0 && <span className="pill" style={{ background: "var(--amber)", color: "#313A7E", padding: "1px 7px", fontWeight: 700 }}>{unreadTotal}</span>}
+            {n.k === "inbox" && unreadTotal > 0 && <span className="pill" style={{ background: "var(--amber)", color: "#0F172A", padding: "1px 7px", fontWeight: 700 }}>{unreadTotal}</span>}
             {n.k === "inbox" && unreadTotal === 0 && myOpen > 0 && <span className="pill" style={{ background: "rgba(255,255,255,.2)", color: "#fff", padding: "1px 7px" }}>{myOpen}</span>}
-            {n.k === "calls" && (queue.length + callbacks.length) > 0 && <span className="pill" style={{ background: queue.length ? "var(--amber)" : "var(--red)", color: queue.length ? "#313A7E" : "#fff", padding: "1px 7px" }}>{queue.length + callbacks.length}</span>}
+            {n.k === "calls" && (queue.length + callbacks.length) > 0 && <span className="pill" style={{ background: queue.length ? "var(--amber)" : "var(--red)", color: queue.length ? "#0F172A" : "#fff", padding: "1px 7px" }}>{queue.length + callbacks.length}</span>}
           </button>
         ))}
-        <div className="ml-auto flex-none flex items-center gap-4 text-[11px] pl-4" style={{ color: "#9AA3D6" }}>
+        <div className="ml-auto flex-none flex items-center gap-4 text-[11px] pl-4" style={{ color: "#94A3B8" }}>
           <span className="flex items-center gap-1.5 whitespace-nowrap">
             <span className="dot" style={{ background: alerts.length ? "#FBBF24" : "#34D399" }} />
             {alerts.length ? t("slaRisk", alerts.length) : t("allWithin")}
@@ -3106,7 +3102,7 @@ export default function ServiceCRM({ user, role }) {
                       {alerts.length === 0
                         ? <p className="text-[13px] text-center py-8" style={{ color: "var(--muted)" }}>{t("notifEmpty")}</p>
                         : alerts.slice(0, 8).map((x) => (
-                          <button key={x.id} onClick={() => { setBell(false); openTicket(x); }} className="w-full text-left px-4 py-3 border-b hover:bg-slate-50" style={{ borderColor: "#EFEDF6" }}>
+                          <button key={x.id} onClick={() => { setBell(false); openTicket(x); }} className="w-full text-left px-4 py-3 border-b hover:bg-slate-50" style={{ borderColor: "#E2E8F0" }}>
                             <div className="flex items-center gap-2"><SlaChip t={x} /><span className="ml-auto text-[11px]" style={{ color: "var(--muted)" }}>{x.id}</span></div>
                             <p className="text-[13px] font-semibold mt-1.5 truncate">{subjectOf(x)}</p>
                             <p className="text-[11.5px] mt-0.5" style={{ color: "var(--muted)" }}>{tv(x.customer)} · {tv(CH[x.channel].n)}</p>
@@ -3121,7 +3117,7 @@ export default function ServiceCRM({ user, role }) {
               <div className="rounded-full grid place-items-center flex-none font-bold text-[12px]" style={{ width: 28, height: 28, background: "var(--blue)", color: "#fff" }}>{tv(me.n).charAt(0)}</div>
               <div className="hidden sm:block whitespace-nowrap">
                 <div className="text-[12px] font-semibold leading-tight text-white">{tv(me.n)}</div>
-                <div className="text-[10px]" style={{ color: "#9AA3D6" }}>{roleFull}</div>
+                <div className="text-[10px]" style={{ color: "#94A3B8" }}>{roleFull}</div>
               </div>
             </div>
           </div>
