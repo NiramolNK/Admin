@@ -424,7 +424,7 @@ function mapDbTicket(t, msgs) {
     subject: t.subject || null,
     customer: biText(t.customer_name || t.customer_email || "Customer"),
     phone: t.customer_phone || "", email: t.customer_email || "",
-    order: (t.meta && t.meta.order) || null,
+    order: t.order_ref || (t.meta && t.meta.order) || null,
     channel: t.channel, priority: t.priority, status: t.status,
     owner: t.owner || null,
     createdAt: new Date(t.created_at).getTime(),
@@ -984,6 +984,7 @@ const D = {
   slaPausedLbl: ["Clock paused for", "หยุดนับเวลาไปแล้ว"],
   slaResUsed: ["Close clock used", "เวลาปิดงานที่ใช้ไป"],
   slaHouseDefault: ["House default — no brand contract linked yet", "ค่าเริ่มต้นของบริษัท — ยังไม่ผูกสัญญาแบรนด์"],
+  orderSaved: ["Order number saved", "บันทึกเลขคำสั่งซื้อแล้ว"],
 
   /* misc units */
   uCases: ["cases", "เคส"], uOf5: ["/ 5", "/ 5"], uPct: ["%", "%"],
@@ -2390,6 +2391,12 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     }));
     // real case → deliver through the channel backend
     if (tk.dbId) {
+      // replying claims an unassigned case — persist it, or the next poll
+      // snaps it back to Unassigned. `.is(owner, null)` means if a colleague
+      // claimed it a second earlier, their claim wins.
+      if (!isNote && !tk.owner) {
+        supabase.from("tickets").update({ owner: me.id }).eq("id", tk.dbId).is("owner", null).then(() => {});
+      }
       if (isNote) {
         supabase.from("messages").insert({ ticket_id: tk.dbId, direction: "note", channel: tk.channel, author: tv(me.n), body: msgText }).then(() => {});
       } else if (tk.channel === "webchat") {
@@ -2430,6 +2437,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
       if ("owner" in p) upd.owner = p.owner;
       if (p.priority) upd.priority = p.priority;
       if ("catKey" in p) upd.category = p.catKey || null;   // was never persisted — type reset on every refresh
+      if ("order" in p) upd.order_ref = p.order || null;
       if (Object.keys(upd).length) supabase.from("tickets").update(upd).eq("id", tk.dbId).then(() => {});
     }
   };
@@ -2632,7 +2640,12 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             </div>
 
             <div className="p-4 border-b space-y-2.5" style={{ borderColor: "var(--line)" }}>
-              <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fOrder")}</span><b className="text-[12.5px]">{tk.order || "—"}</b></div>
+              <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fOrder")}</span>
+                {/* editable — email cases arrive without one, the agent types it in */}
+                <input className="fld" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} defaultValue={tk.order || ""} key={tk.id + (tk.order || "")}
+                       placeholder="—"
+                       onBlur={(e) => { const v = e.target.value.trim(); if (v !== (tk.order || "")) patch({ order: v || null }, t("orderSaved")); }}
+                       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} /></div>
               <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fCat")}</span>
                 {/* catKeyOf maps a retired key onto its replacement, so a case
                     tagged before the taxonomy changed still shows the right
