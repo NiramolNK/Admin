@@ -428,6 +428,18 @@ function mapDbTicket(t, msgs) {
     firstResponseMin: t.first_response_at ? Math.max(1, Math.round((new Date(t.first_response_at) - new Date(t.created_at)) / 60000)) : null,
     resolveMin: t.resolved_at ? Math.max(1, Math.round((new Date(t.resolved_at) - new Date(t.created_at)) / 60000)) : null,
     csat: t.csat ?? null, reopened: !!t.reopened, tags: [],
+    // ── SLA contract, snapshotted onto the case when it was created ──
+    // Editing a brand's contract later never rewrites an old case's clock.
+    brandId: t.brand_id || null,
+    slaTargetMin: t.sla_target_min ?? null,
+    slaResTargetHrs: t.sla_resolution_target_hrs ?? null,
+    slaHoursStart: t.sla_hours_start || null,
+    slaHoursEnd: t.sla_hours_end || null,
+    slaPausedMin: t._sla?.sla_paused_min ?? t.sla_paused_min ?? 0,
+    frtElapsedMin: t._sla?.frt_elapsed_min ?? null,
+    resElapsedMin: t._sla?.res_elapsed_min ?? null,
+    resPct: t._sla?.res_pct ?? null,
+    slaFlag: t._sla?.sla_flag ?? null,
     // Which of OUR support addresses the customer wrote to. Big Nestlé/Enfa
     // threads list a dozen colleagues in To/Cc, so we can't just take the first
     // address — scan the whole line for a known mailbox instead.
@@ -459,11 +471,17 @@ async function fetchRealTickets() {
     .in("channel", ["email", "webchat"]).order("created_at", { ascending: false }).limit(200);
   if (error || !tks || !tks.length) return [];
   const ids = tks.map((t) => t.id);
-  const { data: msgs } = await supabase.from("messages").select("*")
-    .in("ticket_id", ids).order("created_at", { ascending: true });
+  const [{ data: msgs }, { data: slas }] = await Promise.all([
+    supabase.from("messages").select("*").in("ticket_id", ids).order("created_at", { ascending: true }),
+    // v_ticket_sla computes the live clock server-side: business minutes inside
+    // the brand's service window, minus accumulated pause time
+    supabase.from("v_ticket_sla").select("*").in("id", ids),
+  ]);
   const by = {};
   (msgs || []).forEach((m) => { (by[m.ticket_id] = by[m.ticket_id] || []).push(m); });
-  return tks.map((t) => mapDbTicket(t, by[t.id]));
+  const slaBy = {};
+  (slas || []).forEach((s) => { slaBy[s.id] = s; });
+  return tks.map((t) => mapDbTicket({ ...t, _sla: slaBy[t.id] || null }, by[t.id]));
 }
 
 /* ═══════════════════════ i18n ═══════════════════════ */
@@ -955,6 +973,14 @@ const D = {
   uMin: ["%s min", "%s นาที"], uHr: ["%s hr", "%s ชม."], uDay: ["%s d", "%s วัน"],
   slaMet: ["Replied in time", "ตอบทันเวลา"], slaMissed: ["Replied late", "ตอบช้ากว่ากำหนด"],
   slaOver: ["%s over SLA", "เกิน SLA %s"], slaLeft: ["%s left", "เหลือ %s"],
+  slaContract: ["Service level", "ระดับการให้บริการ"],
+  slaTargetLbl: ["Reply target", "เป้าเวลาตอบกลับ"],
+  slaResTargetLbl: ["Close target", "เป้าเวลาปิดงาน"],
+  slaWindowLbl: ["Service hours", "เวลาให้บริการ"],
+  slaAlwaysOn: ["24 hours", "ตลอด 24 ชม."],
+  slaPausedLbl: ["Clock paused for", "หยุดนับเวลาไปแล้ว"],
+  slaResUsed: ["Close clock used", "เวลาปิดงานที่ใช้ไป"],
+  slaHouseDefault: ["House default — no brand contract linked yet", "ค่าเริ่มต้นของบริษัท — ยังไม่ผูกสัญญาแบรนด์"],
 
   /* misc units */
   uCases: ["cases", "เคส"], uOf5: ["/ 5", "/ 5"], uPct: ["%", "%"],
@@ -1446,15 +1472,54 @@ const user = (id) => USERS.find((u) => u.id === id);
 const uname = (id) => (user(id) ? tv(user(id).n) : t("unassigned"));
 const subjectOf = (tk) => tk.subject ? tv(tk.subject) : `${catLabel(tk.catKey)} · ${tv(tk.product)}`;
 
+/* ── SLA clock ──────────────────────────────────────────────────────────────
+   Mirrors public.business_minutes() in Postgres so the pill keeps ticking
+   between polls. The database stays the authority for the *targets* and for
+   accumulated pause time; this only recomputes "how long has it been".
+   Thailand has no DST, so a fixed +07:00 offset is exact.                     */
+const TZ_OFF_MS = 7 * 60 * 60 * 1000;
+const DAY_MS = 86400000;
+const hhmmMin = (s) => {
+  if (!s) return null;
+  const [h, m] = String(s).split(":");
+  const v = (+h) * 60 + (+m || 0);
+  return Number.isFinite(v) ? v : null;
+};
+function businessMinutes(fromMs, toMs, startT, endT) {
+  if (!(toMs > fromMs)) return 0;
+  const s = hhmmMin(startT), e = hhmmMin(endT);
+  // no service window on file, or a 24h window → wall clock
+  if (s == null || e == null || s === e) return (toMs - fromMs) / 60000;
+  const f = fromMs + TZ_OFF_MS, u = toMs + TZ_OFF_MS;
+  const d0 = Math.floor(f / DAY_MS) - 1, d1 = Math.floor(u / DAY_MS);
+  if (d1 - d0 > 400) return (toMs - fromMs) / 60000;   // runaway guard
+  let total = 0;
+  for (let d = d0; d <= d1; d++) {
+    const ws = d * DAY_MS + s * 60000;
+    // a window like AESTURA's 07:00–01:00 closes on the following day
+    const we = d * DAY_MS + e * 60000 + (e <= s ? DAY_MS : 0);
+    total += Math.max(0, Math.min(u, we) - Math.max(f, ws)) / 60000;
+  }
+  return total;
+}
+
 function sla(tk) {
-  const target = PRI[tk.priority].fr;
+  // Real cases carry their brand's contracted first-response target and
+  // service window. Demo seeds have neither, so they fall back to the
+  // priority table they were generated against.
+  const target = tk.slaTargetMin ?? PRI[tk.priority].fr;
   if (tk.firstResponseMin != null) {
-    const ok = tk.firstResponseMin <= target;
+    const used = tk.frtElapsedMin ?? tk.firstResponseMin;
+    const ok = used <= target;
     return { state: ok ? "met" : "missed", label: ok ? t("slaMet") : t("slaMissed"), left: null };
   }
-  const left = target - Math.floor((Date.now() - tk.createdAt) / MIN);
+  const elapsed = Math.floor(
+    businessMinutes(tk.createdAt, Date.now(), tk.slaHoursStart, tk.slaHoursEnd)
+  );
+  const left = target - elapsed;
   if (left < 0) return { state: "breach", label: t("slaOver", dur(-left)), left };
-  if (left <= target * 0.3) return { state: "risk", label: t("slaLeft", dur(left)), left };
+  // §5.2 ladder: At Risk at 75% of target consumed
+  if (elapsed >= target * 0.75) return { state: "risk", label: t("slaLeft", dur(left)), left };
   return { state: "ok", label: t("slaLeft", dur(left)), left };
 }
 const SLA_C = { met: "var(--green)", missed: "var(--red)", breach: "var(--red)", risk: "var(--amber)", ok: "var(--muted)" };
@@ -2583,8 +2648,31 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                 <select className="fld" style={{ width: 132, padding: "4px 8px", fontSize: 12 }} value={tk.owner || ""} onChange={(e) => patch({ owner: e.target.value || null }, t("ownerSaved"))}>
                   <option value="">{t("unassigned")}</option>{AGENTS.map((a) => <option key={a.id} value={a.id}>{tv(a.n)}</option>)}
                 </select></div>
-              <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("firstReplyIn")}</span><b className="text-[12.5px]">{dur(tk.firstResponseMin)}</b></div>
+              <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("firstReplyIn")}</span><b className="text-[12.5px]">{dur(tk.frtElapsedMin ?? tk.firstResponseMin)}</b></div>
             </div>
+
+            {/* ── the contract this case is being measured against ── */}
+            {tk.slaTargetMin != null && (
+              <div className="p-4 border-b" style={{ borderColor: "var(--line)" }}>
+                <p className="lbl">{t("slaContract")}</p>
+                <div className="space-y-1.5 mt-1">
+                  <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("slaTargetLbl")}</span><b className="text-[12.5px]">{dur(tk.slaTargetMin)}</b></div>
+                  {tk.slaResTargetHrs != null && (
+                    <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("slaResTargetLbl")}</span><b className="text-[12.5px]">{dur(tk.slaResTargetHrs * 60)}</b></div>
+                  )}
+                  <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("slaWindowLbl")}</span>
+                    <b className="text-[12.5px]">{tk.slaHoursStart ? `${String(tk.slaHoursStart).slice(0, 5)} – ${String(tk.slaHoursEnd).slice(0, 5)}` : t("slaAlwaysOn")}</b></div>
+                  {tk.resElapsedMin != null && (
+                    <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("slaResUsed")}</span>
+                      <b className="text-[12.5px]" style={{ color: (tk.resPct ?? 0) >= 100 ? "var(--red)" : (tk.resPct ?? 0) >= 75 ? "var(--amber)" : undefined }}>{dur(tk.resElapsedMin)}{tk.resPct != null ? ` · ${Math.round(tk.resPct)}%` : ""}</b></div>
+                  )}
+                  {tk.slaPausedMin > 0 && (
+                    <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("slaPausedLbl")}</span><b className="text-[12.5px]">{dur(tk.slaPausedMin)}</b></div>
+                  )}
+                </div>
+                {!tk.brandId && <p className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>{t("slaHouseDefault")}</p>}
+              </div>
+            )}
 
             <div className="p-4 border-b" style={{ borderColor: "var(--line)" }}>
               <p className="lbl">{t("custHistory")}</p>
