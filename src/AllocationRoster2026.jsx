@@ -50,7 +50,12 @@ const ALLOC_SHIFTS  = [{code:"M",label:"Morning"},{code:"ME",label:"Mid"},{code:
 const ALLOC_DAYS    = [{code:"Mon",wd:1},{code:"Tue",wd:2},{code:"Wed",wd:3},{code:"Thu",wd:4},{code:"Fri",wd:5},{code:"Sat",wd:6},{code:"Sun",wd:0}];
 const ALLOC_WK      = [1,2,3,4,5];
 const ALLOC_ALL     = [1,2,3,4,5,6,0];
-const ALLOC_SHIFT_C = {M:{bg:"#DBEAFE",color:"#1D4ED8",label:"M"},ME:{bg:"#F0FDFA",color:"#0F766E",label:"ME"},E:{bg:"#D1FAE5",color:"#065F46",label:"E"},Off:{bg:"#FEE2E2",color:"#B91C1C",label:"Off"},TOIL:{bg:"#FEF3C7",color:"#92400E",label:"TOIL"},OT:{bg:"#FCE7F3",color:"#9D174D",label:"OT"}};
+const ALLOC_SHIFT_C = {M:{bg:"#DBEAFE",color:"#1D4ED8",label:"M"},ME:{bg:"#F0FDFA",color:"#0F766E",label:"ME"},E:{bg:"#D1FAE5",color:"#065F46",label:"E"},Off:{bg:"#FEE2E2",color:"#B91C1C",label:"Off"},RO:{bg:"#FFEDD5",color:"#C2410C",label:"RO"},TOIL:{bg:"#FEF3C7",color:"#92400E",label:"TOIL"},OT:{bg:"#FCE7F3",color:"#9D174D",label:"OT"}};
+/* RO = "Requested to Off" — a day off the agent asked for rather than one the
+   roster handed out. It behaves exactly like Off everywhere that matters: not
+   counted as worked, not paid, and auto-fill treats it as fixed. The separate
+   code only records where the day off came from. */
+const isOffCode = (v) => v === "Off" || v === "RO";
 /* ── duplicate-accounts guard ──
    User accounts must be email-based (Supabase auth). Legacy name-only
    accounts ("Boo", "Mint", …) from the old login created duplicate rows in
@@ -266,7 +271,7 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
     const working = {M:[], ME:[], E:[]};
     t1Agents.forEach(ag => {
       const v = asgn[`${ag.id}_${d.date}`];
-      if(!v || v==="Off" || v==="TOIL") return;
+      if(!v || isOffCode(v) || v==="TOIL") return;
       if(v==="M") working.M.push(ag);
       if(v==="ME") working.ME.push(ag);
       if(v==="E") working.E.push(ag);
@@ -471,6 +476,9 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
       // stagger collapses and every agent lands Off on the same day(s).
       // Agents just work the stub; their off day comes in the full weeks.
       if (week.length < 4) return;
+      // The agent already asked to be off this week (RO). That request IS their
+      // day off — don't hand them a second one on top of it.
+      if (week.some(d => existing[`${ag.id}_${d.date}`] === "RO")) return;
       // Stagger by both week index AND agent index so no two agents share the same off day
       const offIdx = (wi + agIdx) % week.length;
       forcedOff[`${ag.id}_${week[offIdx].date}`] = true;
@@ -543,9 +551,10 @@ function allocAutoFillConstrained(agents, dates, flags, constraints, brands, exi
 
     // Split agents into available (can work today) and unavailable (forced off).
     // Also treat manager-set Off / TOIL / OT entries in `existing` as fixed — skip them.
+    // RO is the agent's own request to be off: auto-fill must never write over it.
     const isFixed = (a) => {
       const v = existing[`${a.id}_${d.date}`];
-      return v === "Off" || v === "TOIL" || v === "OT" || v === "M" || v === "ME" || v === "E";
+      return isOffCode(v) || v === "TOIL" || v === "OT" || v === "M" || v === "ME" || v === "E";
     };
     const unavail = t1.filter(a => !a.days.includes(d.wd) || forcedOff[`${a.id}_${d.date}`]);
     // RULE (new-agent onboarding): an agent with a Start Date works
@@ -1038,6 +1047,11 @@ export default function AllocationPanel({ isAdmin = true }) {
   // until next successful save). Bumped via setSaveStatus below.
   const [saveStatus, setSaveStatus] = useState(null);
   const saveAttemptRef = useRef(0);
+  // A blocked wipe is a real problem and must keep the banner up until the tab
+  // is reloaded. An ordinary failed write is not — the retry usually succeeds a
+  // second later, and leaving the banner up after that made every session look
+  // like it was losing data.
+  const wipeBlocked = useRef(false);
   // FIX (stale-tab stomp): remember last-saved JSON per key so flushSave only
   // writes keys that actually changed in THIS tab. A tab can no longer
   // overwrite domains its user never touched.
@@ -1157,6 +1171,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         console.error(`[DBG-wipe] BLOCKED suspicious shrink of ${storageKey}: ${prevJson.length} -> ${nextJson.length} chars`, {
           before: topKeys(prevJson), after: topKeys(nextJson), stack: new Error().stack,
         });
+        wipeBlocked.current = true;   // this one is sticky — it needs a human
         setSaveStatus("error");
       }
     }
@@ -1171,8 +1186,12 @@ export default function AllocationPanel({ isAdmin = true }) {
         }) : Promise.resolve()
       )
     ).then(() => {
+      // Everything dirty is on the server and nothing new is pending, so clear
+      // the banner — including an earlier failure that has since been retried
+      // successfully. Leaving it up made every session look like it was losing
+      // data when it wasn't. Only a blocked wipe stays.
       if (id === saveAttemptRef.current && needsSave.current === false) {
-        setSaveStatus(s => (s === "error" ? "error" : null));
+        setSaveStatus(wipeBlocked.current ? "error" : null);
       }
     }).catch(e => {
       console.error("Per-domain save failed:", e);
@@ -1664,7 +1683,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     let m=0,me=0,e=0,other=0;
     active.filter(a => a.team !== "T2").forEach(ag => {
       const v=asgn[`${ag.id}_${d.date}`];
-      if(!v || v==="Off") return;
+      if(!v || isOffCode(v)) return;   // Off and RO are both nobody-in-the-seat
       if(v==="M") m++;
       else if(v==="ME") me++;
       else if(v==="E") e++;
@@ -1682,7 +1701,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     let c = 0;
     active.filter(a => a.team !== "T2").forEach(ag => {
       const v=asgn[`${ag.id}_${d.date}`];
-      if(v&&v!=="Off"&&v!=="TOIL"){
+      if(v&&!isOffCode(v)&&v!=="TOIL"){
         c+=ag.costDay*(v==="OT"?1.5:1);
         const ex=extraHrs[`${ag.id}_${d.date}`];
         if(ex&&ex.h) c+=ex.h*(ag.costDay/8)*(ex.x||1);
@@ -1693,12 +1712,12 @@ export default function AllocationPanel({ isAdmin = true }) {
     return Math.round(c);
   });
   const totalCost = active.filter(a=>a.team!=="T2").reduce((s,a)=>{
-    let c=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off"&&v!=="TOIL"){c+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${dt.date}`];if(ex&&ex.h)c+=ex.h*(a.costDay/8)*(ex.x||1);}});
+    let c=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&!isOffCode(v)&&v!=="TOIL"){c+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${dt.date}`];if(ex&&ex.h)c+=ex.h*(a.costDay/8)*(ex.x||1);}});
     return s+c;
   },0) + t2MonthlyCost;
   const t1ReturnAgents = agents.filter(a => a.active && (a.team==="T1"||a.team==="Return"));
   const t1ReturnCost   = t1ReturnAgents.reduce((s,a) => {
-    let c=0; dates.forEach(d=>{const v=asgn[`${a.id}_${d.date}`];if(v&&v!=="Off"&&v!=="TOIL"){c+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${d.date}`];if(ex&&ex.h)c+=ex.h*(a.costDay/8)*(ex.x||1);}}); return s+c;
+    let c=0; dates.forEach(d=>{const v=asgn[`${a.id}_${d.date}`];if(v&&!isOffCode(v)&&v!=="TOIL"){c+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${d.date}`];if(ex&&ex.h)c+=ex.h*(a.costDay/8)*(ex.x||1);}}); return s+c;
   }, 0);
   const totalBudget = Object.values(budget).reduce((s,v)=>s+v,0);
 
@@ -1975,6 +1994,7 @@ export default function AllocationPanel({ isAdmin = true }) {
       .ME{background:#ede9fe;color:#14b8a6;font-weight:700}
       .E{background:#d1fae5;color:#065f46;font-weight:700}
       .Off{background:#fee2e2;color:#991b1b}
+      .RO{background:#ffedd5;color:#c2410c;font-weight:700}
       .TOIL{background:#fef3c7;color:#92400e}
       .OT{background:#fce7f3;color:#9d174d;font-weight:700}
       .name-col{text-align:left;font-weight:600;min-width:80px}
@@ -1993,7 +2013,7 @@ export default function AllocationPanel({ isAdmin = true }) {
       ...dates.map(d => asgn[`${ag.id}_${d.date}`] || "")
     ])];
     rows.push(["","Working", ...dates.map(d =>
-      rosterAgents.filter(ag => { const v=asgn[`${ag.id}_${d.date}`]; return v&&v!=="Off"&&v!=="TOIL"; }).length
+      rosterAgents.filter(ag => { const v=asgn[`${ag.id}_${d.date}`]; return v&&!isOffCode(v)&&v!=="TOIL"; }).length
     )]);
     dlXLSX(rows, `Roster_${MONTHS[rosterMonth-1]}${rosterYear}.xlsx`);
   };
@@ -2001,7 +2021,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   // ── Export Roster to PDF (print) ───────────────────────────────────────────
   const exportRosterPDF = () => {
     const label = `${MONTHS[rosterMonth-1]} ${rosterYear}`;
-    const shiftClass = {M:"M",ME:"ME",E:"E",Off:"Off",TOIL:"TOIL",OT:"OT"};
+    const shiftClass = {M:"M",ME:"ME",E:"E",Off:"Off",RO:"RO",TOIL:"TOIL",OT:"OT"};
     let html = `<h1>Roster — ${label}</h1><table>`;
     html += `<thead><tr><th>Team</th><th>Agent</th>${dates.map(d=>`<th>${d.dd}/${d.mm}<br/>${d.day}</th>`).join('')}</tr></thead>`;
     html += `<tbody>`;
@@ -2016,7 +2036,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     // Summary row
     html += `<tr style="border-top:2px solid #F1F5F9"><td></td><td class="name-col" style="font-weight:700">Working</td>`;
     dates.forEach(d => {
-      const n = rosterAgents.filter(ag => { const v=asgn[`${ag.id}_${d.date}`]; return v&&v!=="Off"&&v!=="TOIL"; }).length;
+      const n = rosterAgents.filter(ag => { const v=asgn[`${ag.id}_${d.date}`]; return v&&!isOffCode(v)&&v!=="TOIL"; }).length;
       html += `<td style="font-weight:700;background:#e0e7ff">${n}</td>`;
     });
     html += `</tr></tbody></table>`;
@@ -2111,7 +2131,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     return agents.filter(a => {
       if(!a.active || (a.team!=="T1" && a.team!=="CC")) return false;
       const v = asgn[`${a.id}_${date}`];
-      if(!v || v==="Off" || v==="TOIL") return false;
+      if(!v || isOffCode(v) || v==="TOIL") return false;
       if(shift==="ME") return v==="ME"; // ME view: only ME-rostered agents
       if(v==="ME") return true; // ME agents appear in both M and E views
       return v===shift;
@@ -2438,7 +2458,11 @@ export default function AllocationPanel({ isAdmin = true }) {
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
                 {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
               </div>
-              <div style={{fontSize:11,color:"#94A3B8",marginTop:1}}>{allocTab==="crm" ? "3 channels connected" : `${dateLabel} · ${active.length} agents`}</div>
+              {/* Service Desk has no subtitle — the old "3 channels connected"
+                  was a hardcoded demo string, not a real connection count. */}
+              {allocTab !== "crm" && (
+                <div style={{fontSize:11,color:"#94A3B8",marginTop:1}}>{`${dateLabel} · ${active.length} agents`}</div>
+              )}
             </div>
           </div>
 
@@ -2520,7 +2544,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             agents.filter(a => a.active && a.team !== "T2").forEach(ag => {
               ppDates.forEach(d => {
                 const v = ppAsgn[`${ag.id}_${d.date}`];
-                if (!v || v === "Off" || v === "TOIL") return;
+                if (!v || isOffCode(v) || v === "TOIL") return;
                 t1rCost += ag.costDay * (v === "OT" ? 1.5 : 1);
                 const e = ppXtra[`${ag.id}_${d.date}`];
                 if (e && e.h) t1rCost += e.h * (ag.costDay/8) * (e.x || 1);
@@ -2705,12 +2729,14 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {/* Summary stats */}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10,marginBottom:16}}>
                   {[
-                    ["Work Days", dates.filter(d=>{const v=asgn[`${myAgent.id}_${d.date}`];return v&&v!=="Off";}).length, "#0D9488"],
+                    ["Work Days", dates.filter(d=>{const v=asgn[`${myAgent.id}_${d.date}`];return v&&!isOffCode(v);}).length, "#0D9488"],
                     ["Days Off", dates.filter(d=>{const v=asgn[`${myAgent.id}_${d.date}`];return v==="Off";}).length, "#EF4444"],
+                    // days the agent asked for, shown separately from assigned days off
+                    ...(()=>{ const n = dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="RO").length; return n>0?[["Requested Off", n, "#C2410C"]]:[]; })(),
                     ["Morning", dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="M").length, "#1D4ED8"],
                     ["Evening", dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="E").length, "#065F46"],
                     // Extra hours worked this month (only counts worked days — same rule as pay)
-                    ...(()=>{ const tot = dates.reduce((s,d)=>{ const v=asgn[`${myAgent.id}_${d.date}`]; const ex=extraHrs[`${myAgent.id}_${d.date}`]; return (v&&v!=="Off"&&ex&&ex.h)?s+ex.h:s; },0); return tot>0?[["Extra Hours","+"+tot+"h","#B45309"]]:[]; })(),
+                    ...(()=>{ const tot = dates.reduce((s,d)=>{ const v=asgn[`${myAgent.id}_${d.date}`]; const ex=extraHrs[`${myAgent.id}_${d.date}`]; return (v&&!isOffCode(v)&&ex&&ex.h)?s+ex.h:s; },0); return tot>0?[["Extra Hours","+"+tot+"h","#B45309"]]:[]; })(),
                   ].map(([label,count,color])=>(
                     <div key={label} style={{background:"#fff",borderRadius:10,border:"1px solid #E2E8F0",padding:"12px 16px",textAlign:"center"}}>
                       <div style={{fontSize:22,fontWeight:700,color}}>{count}</div>
@@ -2733,7 +2759,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         <span style={{fontSize:11,fontWeight:700,color:"#D97706",background:"#FEF3C7",padding:"4px 10px",borderRadius:6,marginLeft:"auto"}}>Request pending — waiting for approval</span>
                       ) : (
                         <div style={{display:"flex",gap:6,marginLeft:"auto",flexWrap:"wrap"}}>
-                          {["M","ME","E","Off"].map(code=>{
+                          {["M","ME","E","Off","RO"].map(code=>{
                             const cs2=ALLOC_SHIFT_C[code];
                             return (
                               <button key={code} onClick={()=>{
@@ -2744,7 +2770,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                                   reason:"", status:"pending", requestedBy:loginUser,
                                   timestamp:new Date().toISOString()
                                 }]);
-                              }} style={{padding:"6px 14px",borderRadius:8,border:"1px solid #E2E8F0",background:cs2?.bg||"#F1F5F9",color:cs2?.color||"#1A1D2E",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":"Day Off"}</button>
+                              }} style={{padding:"6px 14px",borderRadius:8,border:"1px solid #E2E8F0",background:cs2?.bg||"#F1F5F9",color:cs2?.color||"#1A1D2E",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":code==="RO"?"Request Off":"Day Off"}</button>
                             );
                           })}
                         </div>
@@ -2900,7 +2926,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 <span style={{fontSize:11,color:"#94A3B8"}}>to (optional)</span>
                 <input type="date" value={mgrReq.dateEnd} min={mgrReq.date||undefined} onChange={e=>setMgrReq(p=>({...p,dateEnd:e.target.value}))} style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit"}}/>
                 <select value={mgrReq.shift} onChange={e=>setMgrReq(p=>({...p,shift:e.target.value}))} style={{padding:"7px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit"}}>
-                  {["M","ME","E","Off"].map(s=><option key={s} value={s}>{s==="M"?"Morning (M)":s==="ME"?"Mid (ME)":s==="E"?"Evening (E)":"Day Off"}</option>)}
+                  {["M","ME","E","Off","RO"].map(s=><option key={s} value={s}>{s==="M"?"Morning (M)":s==="ME"?"Mid (ME)":s==="E"?"Evening (E)":s==="RO"?"Requested to Off (RO)":"Day Off"}</option>)}
                 </select>
                 <button onClick={()=>{
                   if(!mgrReq.agentId || !mgrReq.date) return;
@@ -3259,7 +3285,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               {Object.entries(ALLOC_SHIFT_C).map(([k,v])=>(
                 <div key={k} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#6B7280"}}>
                   <span style={{display:"inline-block",width:26,height:16,borderRadius:3,background:v.bg,color:v.color,fontWeight:700,fontSize:9,textAlign:"center",lineHeight:"16px"}}>{v.label}</span>
-                  {k==="M"?"Morning":k==="ME"?"Mid":k==="E"?"Evening":k==="Off"?"Day Off":k}
+                  {k==="M"?"Morning":k==="ME"?"Mid":k==="E"?"Evening":k==="Off"?"Day Off":k==="RO"?"Requested to Off":k}
                 </div>
               ))}
             </div>
@@ -3316,7 +3342,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                                 {editing && (
                                   <div onClick={e=>e.stopPropagation()} style={{position:"absolute",top:"100%",left:0,zIndex:50,background:"#1A1D38",border:"1px solid #E2E8F0",borderRadius:10,boxShadow:"0 8px 24px #00000088",padding:10,width:150,fontSize:12}}>
                                     <div style={{fontWeight:700,color:"#6B7280",marginBottom:6,fontSize:10}}>{d.dd}/{d.mm} {d.day} · {ag.name}</div>
-                                    {[...(ag.team==="T1"?ag.shifts:["M","ME","E"].filter(s=>ag.shifts.includes(s))),"Off",...((ag.team==="T2"||ag.team==="Return"||ag.team==="CC")?["TOIL","OT"]:[])].map(code => {
+                                    {[...(ag.team==="T1"?ag.shifts:["M","ME","E"].filter(s=>ag.shifts.includes(s))),"Off","RO",...((ag.team==="T2"||ag.team==="Return"||ag.team==="CC")?["TOIL","OT"]:[])].map(code => {
                                       const cs2=ALLOC_SHIFT_C[code];const act=val===code;
                                       return (
                                         <button key={code} onClick={()=>{
@@ -3342,7 +3368,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                                         }}
                                           style={{display:"flex",alignItems:"center",gap:6,width:"100%",padding:"5px 8px",border:act?`2px solid ${cs2?.color}`:"1px solid #E2E8F0",borderRadius:5,cursor:"pointer",fontFamily:"inherit",fontWeight:600,fontSize:11,background:act?cs2?.bg:"transparent",color:cs2?.color||"#1A1D2E",marginBottom:2}}>
                                           <span style={{width:24,height:16,borderRadius:3,background:cs2?.bg,color:cs2?.color,fontWeight:700,fontSize:9,textAlign:"center",lineHeight:"14px",flexShrink:0}}>{cs2?.label}</span>
-                                          {code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":code==="Off"?"Day Off":code}
+                                          {code==="M"?"Morning":code==="ME"?"Mid":code==="E"?"Evening":code==="Off"?"Day Off":code==="RO"?"Requested to Off":code}
                                         </button>
                                       );
                                     })}
