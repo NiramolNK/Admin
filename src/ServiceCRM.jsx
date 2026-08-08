@@ -772,6 +772,8 @@ const D = {
 
   /* users */
   usersTitle: ["People in your organisation", "ผู้ใช้งานในองค์กร"],
+  usersFromRoster: ["Live from NiRM — add or change people in Roster › Teams", "ดึงจาก NiRM โดยตรง — เพิ่มหรือแก้ไขได้ที่ Roster › Teams"],
+  usersLoading: ["Loading people from NiRM…", "กำลังโหลดรายชื่อจาก NiRM…"],
   usersSub: ["%s active · %s total", "%s คนใช้งานอยู่ · ทั้งหมด %s คน"],
   addUser: ["Add person", "เพิ่มผู้ใช้งาน"],
   addUserSub: ["We'll email them a link to set their password", "ระบบจะส่งอีเมลตั้งรหัสผ่านให้ผู้ใช้งานใหม่"],
@@ -1117,23 +1119,75 @@ const OPENING = {
     { en: "The tracking number you gave me doesn't come up anywhere.", th: "เลขแทร็คที่ให้มาเช็กไม่เจอครับ" }],
 };
 
-const TEAMS = {
-  cx: { en: "CX leadership", th: "หัวหน้าฝ่าย CX" },
-  a:  { en: "Support team A", th: "ทีม Support A" },
-  b:  { en: "Support team B", th: "ทีม Support B" },
-};
+/* ══════════ the real people, straight out of NiRM ══════════
+   These used to be a hardcoded demo list of eight invented staff on
+   "Support team A/B" — nothing to do with CREA. They now load from the same
+   two keys the Roster module owns: `nirm-agents` (who exists, which team,
+   active or not) and `nirm-userAccounts` (their NiRM login role). Roster
+   stays the single source of truth; the Service Desk only reads it.
 
-const USERS = [
-  { id: "u1", n: { en: "Niramol K.", th: "ณิรมล ก." },   role: "admin",   team: "cx", email: "niramol@company.co.th", active: true },
-  { id: "u2", n: { en: "Prim S.", th: "ปริม ส." },        role: "manager", team: "a",  email: "prim@company.co.th",    active: true },
-  { id: "u3", n: { en: "Vee T.", th: "วี ธ." },           role: "manager", team: "b",  email: "vee@company.co.th",     active: true },
-  { id: "u4", n: { en: "Gyb W.", th: "กิ๊บ ว." },          role: "agent",   team: "a",  email: "gyb@company.co.th",     active: true },
-  { id: "u5", n: { en: "Ohm P.", th: "โอม ป." },          role: "agent",   team: "a",  email: "ohm@company.co.th",     active: true },
-  { id: "u6", n: { en: "Cream T.", th: "ครีม ธ." },       role: "agent",   team: "a",  email: "cream@company.co.th",   active: true },
-  { id: "u7", n: { en: "Ploy M.", th: "พลอย ม." },        role: "agent",   team: "b",  email: "ploy@company.co.th",    active: true },
-  { id: "u8", n: { en: "Marker R.", th: "มาร์คเกอร์ ร." }, role: "agent",  team: "b",  email: "marker@company.co.th",  active: false },
-];
-const AGENTS = USERS.filter((u) => u.role === "agent");
+   `let`, not `const`, so loadOrgPeople() can fill them in once Supabase
+   answers without every call site having to thread state through. */
+let TEAMS = {};
+let USERS = [];
+let AGENTS = [];
+
+const TEAM_LABELS = {
+  t1:     { en: "Team 1", th: "ทีม 1" },
+  t2:     { en: "Team 2", th: "ทีม 2" },
+  cc:     { en: "Call centre", th: "คอลเซ็นเตอร์" },
+  return: { en: "Returns & refunds", th: "คืน / เปลี่ยนสินค้า" },
+};
+const ROLE_LABELS = {
+  manager:  { en: "Manager", th: "ผู้จัดการ" },
+  t1:       { en: "T1 agent", th: "เจ้าหน้าที่ T1" },
+  fulltime: { en: "Full-time agent", th: "พนักงานประจำ" },
+  return:   { en: "Returns", th: "ฝ่ายคืนสินค้า" },
+  cc:       { en: "Call centre", th: "คอลเซ็นเตอร์" },
+};
+/* NiRM role → what the Service Desk lets you do. Managers get the supervisor
+   views; everyone else works their own queue. Display keeps the NiRM role. */
+const PERM_OF = { manager: "admin" };
+
+async function loadOrgPeople() {
+  try {
+    const { data } = await supabase.from("kv_state").select("key,value")
+      .in("key", ["nirm-agents", "nirm-userAccounts"]);
+    const byKey = Object.fromEntries((data ?? []).map((r) => [r.key, r.value]));
+    const roster = Array.isArray(byKey["nirm-agents"]) ? byKey["nirm-agents"] : [];
+    const accounts = Array.isArray(byKey["nirm-userAccounts"]) ? byKey["nirm-userAccounts"] : [];
+    if (!roster.length) return false;
+
+    const roleByEmail = {};
+    for (const a of accounts) {
+      const e = String(a?.username ?? "").toLowerCase().trim();
+      if (e) roleByEmail[e] = String(a?.role ?? "").toLowerCase().trim();
+    }
+
+    const teams = {};
+    const users = roster.map((a) => {
+      const email = String(a?.email ?? "").toLowerCase().trim();
+      const teamKey = String(a?.team ?? "").toLowerCase().trim() || "other";
+      if (!teams[teamKey]) teams[teamKey] = TEAM_LABELS[teamKey] ?? biText(a?.team || "—");
+      const nirmRole = roleByEmail[email] || "t1";
+      return {
+        id: String(a?.id ?? email),
+        n: biText(a?.name || a?.fullName || email),
+        fullName: a?.fullName || "",
+        email,
+        team: teamKey,
+        nirmRole,
+        role: PERM_OF[nirmRole] ?? "agent",
+        active: a?.active !== false,
+      };
+    }).filter((u) => u.id);
+
+    TEAMS = teams;
+    USERS = users;
+    AGENTS = users.filter((u) => u.active);   // anyone still working can own a case
+    return true;
+  } catch { return false; }
+}
 
 const FIRST = [["Somying","สมหญิง"],["Wirat","วิรัตน์"],["Nuttapon","ณัฐพล"],["Piyada","ปิยะดา"],["Chalida","ชลิดา"],["Teeradech","ธีรเดช"],["Kamonchanok","กมลชนก"],["Suriya","สุริยา"],["Pattra","ภัทรา"],["Anucha","อนุชา"],["Jiraporn","จิราพร"],["Sirichai","ศิริชัย"],["Benjamas","เบญจมาศ"],["Todsapon","ทศพล"],["Napatsorn","นภัสสร"],["Worawut","วรวุฒิ"],["Preeya","ปรียา"],["Kittipong","กิตติพงศ์"],["Orathai","อรทัย"],["Chanathip","ชนาธิป"]];
 const LAST = [["Thongdee","ทองดี"],["Sangthong","แสงทอง"],["Wattanakul","วัฒนกุล"],["Srisuk","ศรีสุข"],["Phandee","พันธุ์ดี"],["Insee","อินทรีย์"],["Boonma","บุญมา"],["Rattanachot","รัตนโชติ"],["Charoensuk","เจริญสุข"],["Maneewong","มณีวงศ์"],["Sakulthong","สกุลทอง"],["Pinkaew","ปิ่นแก้ว"],["Thanakit","ธนกิจ"],["Wongsawang","วงศ์สว่าง"],["Areerak","อารีรักษ์"]];
@@ -1172,7 +1226,7 @@ function seedTickets() {
       email: `cust${1000 + i}@mail.com`,
       order: Math.random() < 0.78 ? `SO${240000 + ri(9999)}` : null,
       channel: rnd(P1_CHANNELS), priority: pri, status,
-      owner: status === "new" && Math.random() < 0.5 ? null : rnd(AGENTS).id,
+      owner: status === "new" && Math.random() < 0.5 ? null : (rnd(AGENTS)?.id ?? null),
       createdAt: created, firstResponseMin: frMin, resolveMin: resMin,
       csat: ["resolved", "closed"].includes(status) && Math.random() < 0.62 ? [5, 5, 5, 4, 4, 3, 2, 1][ri(8)] : null,
       reopened: Math.random() < 0.07,
@@ -1223,7 +1277,7 @@ function seedDemoTickets(count = 420, days = 90) {
       order: Math.random() < 0.8 ? `SO${240000 + ri(9999)}` : null,
       channel: ["email", "email", "email", "webchat", "webchat", "phone", "line", "shopee", "lazada", "tiktok"][ri(10)],
       priority: pri, status,
-      owner: status === "new" && Math.random() < 0.35 ? null : rnd(AGENTS).id,
+      owner: status === "new" && Math.random() < 0.35 ? null : (rnd(AGENTS)?.id ?? null),
       createdAt: created, firstResponseMin: frMin, resolveMin: resMin,
       csat: ["resolved", "closed"].includes(status) && Math.random() < 0.68 ? [5, 5, 5, 5, 4, 4, 4, 3, 2, 1][ri(10)] : null,
       reopened: Math.random() < 0.06,
@@ -3535,34 +3589,31 @@ function UsersView({ users, setUsers, me, toast }) {
   };
   return (
     <div className="space-y-4">
-      <div className="card p-4 flex items-center justify-between">
-        <div><h3 className="font-bold text-[15px]">{t("usersTitle")}</h3>
-          <p className="text-[12.5px] mt-0.5" style={{ color: "var(--muted)" }}>{t("usersSub", users.filter((u) => u.active).length, users.length)}</p></div>
-        <button className="btn btn-p" onClick={() => setAdd(true)}><UserPlus size={15} />{t("addUser")}</button>
+      <div className="card p-4">
+        <h3 className="font-bold text-[15px]">{t("usersTitle")}</h3>
+        <p className="text-[12.5px] mt-0.5" style={{ color: "var(--muted)" }}>
+          {t("usersSub", users.filter((u) => u.active).length, users.length)} · {t("usersFromRoster")}
+        </p>
       </div>
       <div className="card overflow-hidden">
         <table className="tbl">
-          <thead><tr><th>{t("cName")}</th><th>{t("cEmail")}</th><th>{t("cTeam")}</th><th>{t("cRole")}</th><th>{t("cStatus")}</th><th></th></tr></thead>
+          <thead><tr><th>{t("cName")}</th><th>{t("cEmail")}</th><th>{t("cTeam")}</th><th>{t("cRole")}</th><th>{t("cStatus")}</th></tr></thead>
           <tbody>
+            {!users.length && (
+              <tr><td colSpan={5} className="text-center py-6" style={{ color: "var(--muted)" }}>{t("usersLoading")}</td></tr>
+            )}
             {users.map((u) => (
               <tr key={u.id}>
-                <td className="font-semibold">{tv(u.n)}{u.id === me.id && <span className="pill ml-2" style={{ background: "var(--sky)", color: "var(--blue)" }}>{t("youTag")}</span>}</td>
-                <td style={{ color: "var(--muted)" }}>{u.email}</td>
-                <td>{tv(TEAMS[u.team])}</td>
-                <td>
-                  <select className="fld" style={{ width: 138, padding: "5px 9px", fontSize: 12.5 }} value={u.role} disabled={u.id === me.id}
-                          onChange={(e) => { setUsers((p) => p.map((x) => x.id === u.id ? { ...x, role: e.target.value } : x)); toast(t("roleUpdated", tv(u.n))); }}>
-                    <option value="admin">{t("rAdmin")}</option><option value="manager">{t("rSup")}</option><option value="agent">{t("rAgent")}</option>
-                  </select>
+                <td className="font-semibold">
+                  {tv(u.n)}
+                  {u.id === me.id && <span className="pill ml-2" style={{ background: "var(--sky)", color: "var(--blue)" }}>{t("youTag")}</span>}
+                  {u.fullName && <div className="text-[11.5px] font-normal" style={{ color: "var(--muted)" }}>{u.fullName}</div>}
                 </td>
+                <td style={{ color: "var(--muted)" }}>{u.email || "—"}</td>
+                <td>{tv(TEAMS[u.team]) || u.team}</td>
+                <td>{tv(ROLE_LABELS[u.nirmRole]) || u.nirmRole}</td>
                 <td><span className="pill" style={{ background: u.active ? "var(--green-bg)" : "var(--slate-bg)", color: u.active ? "var(--green)" : "var(--muted)" }}>
                   <span className="dot" style={{ background: u.active ? "var(--green)" : "#94A3B8" }} />{u.active ? t("activeSt") : t("inactiveSt")}</span></td>
-                <td className="text-right">
-                  <button className="btn btn-g" style={{ padding: "5px 11px" }} disabled={u.id === me.id}
-                          onClick={() => { setUsers((p) => p.map((x) => x.id === u.id ? { ...x, active: !x.active } : x)); toast(u.active ? t("userDisabled", tv(u.n)) : t("userEnabled", tv(u.n))); }}>
-                    {u.active ? t("disable") : t("enable")}
-                  </button>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -4036,6 +4087,21 @@ export default function ServiceCRM({ user, role }) {
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   }, []);
+
+  /* Pull the real staff list out of NiRM once on mount. Until this lands the
+     People tab and the assignment dropdowns are simply empty rather than
+     showing invented names. Re-point `me` at my own roster record too, so
+     "my cases" matches the id that assignments are stored against. */
+  useEffect(() => {
+    let dead = false;
+    loadOrgPeople().then((ok) => {
+      if (dead || !ok) return;
+      setUsers(USERS);
+      const mine = USERS.find((u) => u.email && u.email === String(user || "").toLowerCase());
+      if (mine) setMe((p) => ({ ...mine, role: p.role }));   // keep the NiRM-derived permission
+    });
+    return () => { dead = true; };
+  }, [user]);
 
   // ── live email cases: merge in front of demo seeds, refresh every 20s ──
   useEffect(() => {
