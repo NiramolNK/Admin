@@ -719,6 +719,24 @@ const D = {
   sigInherit: ["Using your default details. Tick the box to write something different for %s.", "กำลังใช้ค่าเริ่มต้น ติ๊กช่องด้านบนเพื่อกำหนดข้อมูลเฉพาะของ %s"],
   sigCustomised: ["Customised for %s", "กำหนดเองสำหรับ %s"],
   sigDefaultNote: ["Used for every mailbox that has no details of its own", "ใช้กับทุกกล่องที่ไม่ได้กำหนดข้อมูลเฉพาะไว้"],
+  /* taxonomy settings */
+  taxTitle: ["Case taxonomy", "หมวดหมู่และสถานะเคส"],
+  taxSub: ["Request types and case statuses. Changes apply everywhere immediately.", "ประเภทเรื่องและสถานะเคส มีผลทันทีทั้งระบบ"],
+  taxCats: ["Request types", "ประเภทเรื่อง"],
+  taxStatuses: ["Case statuses", "สถานะเคส"],
+  taxAdd: ["Add", "เพิ่ม"],
+  taxLabelEn: ["Name (EN)", "ชื่อ (อังกฤษ)"],
+  taxLabelTh: ["Name (TH)", "ชื่อ (ไทย)"],
+  taxRetire: ["Retire", "เลิกใช้"],
+  taxRestore: ["Restore", "กลับมาใช้"],
+  taxRetired: ["Retired", "เลิกใช้แล้ว"],
+  taxSystem: ["Standard", "มาตรฐาน"],
+  taxSaved: ["Taxonomy updated", "อัปเดตแล้ว"],
+  taxRetiredNote: ["Retired items stay on old cases — they just aren't offered on new ones.", "รายการที่เลิกใช้ยังแสดงในเคสเก่า แต่จะไม่ให้เลือกในเคสใหม่"],
+  taxSystemWarn: ["This is one of the 16 standard types. Cross-brand reporting depends on it — retire it only if you're sure.", "นี่คือประเภทมาตรฐาน 1 ใน 16 รายงานข้ามแบรนด์ใช้ข้อมูลนี้ กรุณาตรวจสอบก่อนเลิกใช้"],
+  taxPauses: ["Pauses SLA", "หยุดนับ SLA"],
+  taxOpen: ["Counts as open", "นับเป็นงานค้าง"],
+  taxNeedName: ["Enter a name", "กรอกชื่อ"],
   /* Twilio softphone */
   sfTitle: ["Softphone", "โทรศัพท์ในระบบ"],
   sfReady: ["Ready for calls", "พร้อมรับสาย"],
@@ -1050,7 +1068,27 @@ const CH = {
 const CH_KEYS = ["email", "webchat", "phone", "line", "fb", "tiktok", "shopee", "lazada"];
 const P1_CHANNELS = ["email", "webchat", "phone"]; // Phase 1 scope
 
-const ST = {
+/* ── taxonomy ──────────────────────────────────────────────────────────────
+   Statuses and categories live in Supabase (`case_statuses`, `case_categories`)
+   so they can be added to and retired without a deploy. What follows is the
+   seed the app boots with; loadTaxonomy() replaces it once the tables answer.
+   Kept as `let` under the original names so the ~40 call sites are unchanged.
+
+   Colours stay in code — they're presentation, not taxonomy, and picking one
+   per row in a settings screen is a worse job than choosing a sensible palette
+   once. Any status without an entry in ST_COLORS falls back to slate. */
+const ST_COLORS = {
+  new:              { c: "var(--blue)",   bg: "var(--sky)" },
+  open:             { c: "var(--cyan)",   bg: "var(--cyan-bg)" },
+  pending:          { c: "var(--amber)",  bg: "var(--amber-bg)" },
+  waiting_brand:    { c: "var(--violet)", bg: "var(--violet-bg)" },
+  waiting_internal: { c: "var(--muted)",  bg: "var(--slate-bg)" },
+  escalated:        { c: "var(--red)",    bg: "var(--red-bg)" },
+  resolved:         { c: "var(--green)",  bg: "var(--green-bg)" },
+  closed:           { c: "var(--muted)",  bg: "var(--slate-bg)" },
+};
+
+let ST = {
   new:       { n: { en: "New", th: "งานใหม่" },                 c: "var(--blue)",   bg: "var(--sky)" },
   open:      { n: { en: "In progress", th: "กำลังดำเนินการ" },   c: "var(--cyan)",   bg: "var(--cyan-bg)" },
   pending:   { n: { en: "Waiting on customer", th: "รอลูกค้าตอบ" }, c: "var(--amber)", bg: "var(--amber-bg)" },
@@ -1058,8 +1096,11 @@ const ST = {
   resolved:  { n: { en: "Resolved", th: "แก้ไขแล้ว" },           c: "var(--green)",  bg: "var(--green-bg)" },
   closed:    { n: { en: "Closed", th: "ปิดงาน" },                c: "var(--muted)",  bg: "var(--slate-bg)" },
 };
-const ST_KEYS = Object.keys(ST);
-const OPEN_ST = ["new", "open", "pending", "escalated"];
+let ST_KEYS = Object.keys(ST);
+let OPEN_ST = ["new", "open", "pending", "escalated"];
+// which statuses stop the SLA clock (§5.2). Waiting Customer does; Waiting
+// Brand deliberately does NOT — brand-side delay is our exposure to surface.
+let PAUSE_ST = ["pending"];
 
 const PRI = {
   urgent: { n: { en: "Urgent", th: "ด่วนมาก" }, c: "var(--red)",   bg: "var(--red-bg)",   fr: 15,  res: 120 },
@@ -1069,7 +1110,7 @@ const PRI = {
 };
 const PRI_KEYS = ["urgent", "high", "normal", "low"];
 
-const CAT = {
+let CAT = {
   delay:     { en: "Delivery delay", th: "จัดส่งล่าช้า" },
   damaged:   { en: "Damaged on arrival", th: "สินค้าชำรุด/เสียหาย" },
   refund:    { en: "Refund request", th: "ขอคืนเงิน" },
@@ -1079,7 +1120,53 @@ const CAT = {
   complaint: { en: "Service complaint", th: "ร้องเรียนบริการ" },
   tracking:  { en: "Parcel tracking", th: "ติดตามพัสดุ" },
 };
-const CAT_KEYS = Object.keys(CAT);
+let CAT_KEYS = Object.keys(CAT);
+/* Old NiRM keys → the category that replaced them, built from `legacy_keys`.
+   A case tagged `delay` years ago still resolves to Delivery instead of
+   rendering blank, which is the whole reason retiring a category is a soft
+   delete rather than a row disappearing. */
+let CAT_ALIAS = {};
+const catKeyOf = (k) => (k && CAT[k] ? k : (CAT_ALIAS[k] ?? k));
+const catLabel = (k) => { const c = CAT[catKeyOf(k)]; return c ? tv(c) : (k || "—"); };
+
+/* Load the taxonomy from Supabase. Falls back to the seeds above if the tables
+   are unreachable, so a network blip degrades to "slightly stale labels"
+   rather than an empty inbox. Returns true when it replaced anything. */
+async function loadTaxonomy() {
+  try {
+    const [cats, sts] = await Promise.all([
+      supabase.from("case_categories").select("*").order("sort_order"),
+      supabase.from("case_statuses").select("*").order("sort_order"),
+    ]);
+
+    if (Array.isArray(cats.data) && cats.data.length) {
+      const nextCat = {}, alias = {};
+      for (const r of cats.data) {
+        // inactive categories stay resolvable for history, just not offered
+        nextCat[r.key] = { en: r.label_en, th: r.label_th || r.label_en, active: r.active !== false };
+        for (const old of (Array.isArray(r.legacy_keys) ? r.legacy_keys : [])) {
+          if (old && old !== r.key) alias[old] = r.key;
+        }
+      }
+      CAT = nextCat;
+      CAT_ALIAS = alias;
+      CAT_KEYS = cats.data.filter((r) => r.active !== false).map((r) => r.key);
+    }
+
+    if (Array.isArray(sts.data) && sts.data.length) {
+      const nextSt = {};
+      for (const r of sts.data) {
+        const col = ST_COLORS[r.key] ?? { c: "var(--muted)", bg: "var(--slate-bg)" };
+        nextSt[r.key] = { n: { en: r.label_en, th: r.label_th || r.label_en }, ...col, active: r.active !== false };
+      }
+      ST = nextSt;
+      ST_KEYS = sts.data.filter((r) => r.active !== false).map((r) => r.key);
+      OPEN_ST = sts.data.filter((r) => r.is_open).map((r) => r.key);
+      PAUSE_ST = sts.data.filter((r) => r.pauses_sla).map((r) => r.key);
+    }
+    return true;
+  } catch { return false; }
+}
 
 const PRODUCTS = [
   { en: "Facial moisturiser 50ml", th: "ครีมบำรุงผิว 50ml" },
@@ -1357,7 +1444,7 @@ const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s %
 const fmt = (n) => new Intl.NumberFormat(locale()).format(n);
 const user = (id) => USERS.find((u) => u.id === id);
 const uname = (id) => (user(id) ? tv(user(id).n) : t("unassigned"));
-const subjectOf = (tk) => tk.subject ? tv(tk.subject) : `${tv(CAT[tk.catKey])} · ${tv(tk.product)}`;
+const subjectOf = (tk) => tk.subject ? tv(tk.subject) : `${catLabel(tk.catKey)} · ${tv(tk.product)}`;
 
 function sla(tk) {
   const target = PRI[tk.priority].fr;
@@ -1375,7 +1462,9 @@ const SLA_BG = { met: "var(--green-bg)", missed: "var(--red-bg)", breach: "var(-
 
 /* ═══════════════════════ ATOMS ═══════════════════════ */
 
-const Chip = ({ map, k }) => <span className="pill" style={{ background: map[k].bg, color: map[k].c }}><span className="dot" style={{ background: map[k].c }} />{tv(map[k].n)}</span>;
+// tolerant of a key that is no longer in the map — the taxonomy is editable
+// now, so a retired status must degrade to a grey pill, not a white screen
+const Chip = ({ map, k }) => <span className="pill" style={{ background: (map[k] ?? {}).bg ?? "var(--slate-bg)", color: (map[k] ?? {}).c ?? "var(--muted)" }}><span className="dot" style={{ background: (map[k] ?? {}).c ?? "var(--muted)" }} />{map[k] ? tv(map[k].n) : (k || "—")}</span>;
 const ChanChip = ({ k }) => { const c = CH[k]; const I = c.ic; return <span className="pill" style={{ background: c.bg, color: c.c }}><I size={11} />{tv(c.n)}</span>; };
 const SlaChip = ({ t: tk }) => { const s = sla(tk); return <span className={`pill ${s.state === "breach" ? "breach" : ""}`} style={{ background: SLA_BG[s.state], color: SLA_C[s.state] }}><Timer size={11} />{s.label}</span>; };
 
@@ -1658,8 +1747,8 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map((x) => ({
       [t("cCase")]: x.id, [t("cSubject")]: subjectOf(x), [t("cCustomer")]: tv(x.customer), [t("cPhone")]: x.phone,
-      [t("fOrder")]: x.order || "", [t("cChannel")]: tv(CH[x.channel].n), [t("cCategory")]: tv(CAT[x.catKey]),
-      [t("cPriority")]: tv(PRI[x.priority].n), [t("cStatus")]: tv(ST[x.status].n), [t("cOwner")]: uname(x.owner),
+      [t("fOrder")]: x.order || "", [t("cChannel")]: tv(CH[x.channel].n), [t("cCategory")]: catLabel(x.catKey),
+      [t("cPriority")]: tv(PRI[x.priority].n), [t("cStatus")]: ST[x.status] ? tv(ST[x.status].n) : x.status, [t("cOwner")]: uname(x.owner),
       [t("cFirstAvg")]: x.firstResponseMin ?? "", [t("cResAvg")]: x.resolveMin ?? "", CSAT: x.csat ?? "",
       [t("cReopen")]: x.reopened ? "Y" : "N",
     }))), "Cases");
@@ -1738,7 +1827,7 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
                         </div>
                       </td>
                       <td><ChanChip k={x.channel} /></td>
-                      <td style={{ color: "var(--muted)" }}>{tv(CAT[x.catKey])}</td>
+                      <td style={{ color: "var(--muted)" }}>{catLabel(x.catKey)}</td>
                       <td><Chip map={PRI} k={x.priority} /></td>
                       <td><Chip map={ST} k={x.status} /></td>
                       <td><SlaChip t={x} /></td>
@@ -2476,8 +2565,14 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             <div className="p-4 border-b space-y-2.5" style={{ borderColor: "var(--line)" }}>
               <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fOrder")}</span><b className="text-[12.5px]">{tk.order || "—"}</b></div>
               <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fCat")}</span>
-                <select className="fld" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} value={tk.catKey}
+                {/* catKeyOf maps a retired key onto its replacement, so a case
+                    tagged before the taxonomy changed still shows the right
+                    option instead of an empty select */}
+                <select className="fld" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} value={catKeyOf(tk.catKey)}
                         onChange={(e) => patch({ catKey: e.target.value }, t("catSaved"))}>
+                  {!CAT_KEYS.includes(catKeyOf(tk.catKey)) && tk.catKey && (
+                    <option value={catKeyOf(tk.catKey)}>{catLabel(tk.catKey)}</option>
+                  )}
                   {CAT_KEYS.map((k) => <option key={k} value={k}>{tv(CAT[k])}</option>)}
                 </select></div>
               <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("cPriority")}</span>
@@ -3953,6 +4048,117 @@ function SignatureSettings({ me, toast }) {
   );
 }
 
+/* "Case taxonomy" — request types and statuses, editable without a deploy.
+   Retiring is a soft delete: the row stays so historic cases keep their label,
+   it just stops being offered. Hard deletes are deliberately not available
+   here; losing the label off every case that used it is not an undo. */
+function TaxonomySettings({ toast }) {
+  const [cats, setCats] = useState([]);
+  const [sts, setSts] = useState([]);
+  const [newCat, setNewCat] = useState({ en: "", th: "" });
+  const [busy, setBusy] = useState(false);
+
+  const reload = () => Promise.all([
+    supabase.from("case_categories").select("*").order("sort_order"),
+    supabase.from("case_statuses").select("*").order("sort_order"),
+  ]).then(([c, s]) => { setCats(c.data ?? []); setSts(s.data ?? []); });
+
+  useEffect(() => { reload().catch(() => {}); }, []);
+
+  // every write refreshes the module-level maps so the change is live at once
+  const after = async (msg) => { await reload(); await loadTaxonomy(); toast(msg || t("taxSaved")); };
+
+  const setActive = async (table, key, active, isSystem) => {
+    if (!active && isSystem && !window.confirm(t("taxSystemWarn"))) return;
+    setBusy(true);
+    const { error } = await supabase.from(table).update({ active }).eq("key", key);
+    setBusy(false);
+    if (error) return toast(error.message, "error");
+    await after();
+  };
+
+  const rename = async (table, key, patch) => {
+    const { error } = await supabase.from(table).update(patch).eq("key", key);
+    if (error) return toast(error.message, "error");
+    await after();
+  };
+
+  const addCat = async () => {
+    const en = newCat.en.trim();
+    if (!en) return toast(t("taxNeedName"), "error");
+    // slug from the English name; suffix on collision rather than overwriting
+    let key = en.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "cat";
+    if (cats.some((c) => c.key === key)) key = `${key}_${Date.now().toString(36).slice(-4)}`;
+    setBusy(true);
+    const { error } = await supabase.from("case_categories").insert({
+      key, label_en: en, label_th: newCat.th.trim() || en,
+      sort_order: (cats.reduce((m, c) => Math.max(m, c.sort_order || 0), 0) || 0) + 1,
+      is_system: false,
+    });
+    setBusy(false);
+    if (error) return toast(error.message, "error");
+    setNewCat({ en: "", th: "" });
+    await after();
+  };
+
+  const Row = ({ r, table }) => (
+    <tr style={{ opacity: r.active === false ? 0.5 : 1 }}>
+      <td>
+        <input className="fld" style={{ padding: "4px 8px", fontSize: 12.5 }} defaultValue={r.label_en}
+               onBlur={(e) => e.target.value.trim() && e.target.value !== r.label_en && rename(table, r.key, { label_en: e.target.value.trim() })} />
+      </td>
+      <td>
+        <input className="fld" style={{ padding: "4px 8px", fontSize: 12.5 }} defaultValue={r.label_th || ""}
+               onBlur={(e) => e.target.value !== (r.label_th || "") && rename(table, r.key, { label_th: e.target.value.trim() })} />
+      </td>
+      <td style={{ color: "var(--muted)", fontSize: 11.5 }}>{r.key}</td>
+      <td>
+        {r.is_system && <span className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>{t("taxSystem")}</span>}
+        {r.active === false && <span className="pill ml-1" style={{ background: "var(--slate-bg)", color: "var(--muted)" }}>{t("taxRetired")}</span>}
+        {table === "case_statuses" && r.pauses_sla && <span className="pill ml-1" style={{ background: "var(--amber-bg)", color: "var(--amber)" }}>{t("taxPauses")}</span>}
+      </td>
+      <td className="text-right">
+        <button className="btn btn-g" style={{ padding: "4px 10px" }} disabled={busy}
+                onClick={() => setActive(table, r.key, r.active === false, r.is_system)}>
+          {r.active === false ? t("taxRestore") : t("taxRetire")}
+        </button>
+      </td>
+    </tr>
+  );
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="kpi-ic" style={{ background: "var(--sky)" }}><Tag size={20} style={{ color: "var(--blue)" }} /></div>
+        <div><h3 className="font-bold text-[15px]">{t("taxTitle")}</h3>
+          <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("taxSub")}</p></div>
+      </div>
+
+      <label className="lbl">{t("taxCats")}</label>
+      <div className="card overflow-hidden mb-2">
+        <table className="tbl">
+          <thead><tr><th>{t("taxLabelEn")}</th><th>{t("taxLabelTh")}</th><th>key</th><th></th><th></th></tr></thead>
+          <tbody>{cats.map((c) => <Row key={c.key} r={c} table="case_categories" />)}</tbody>
+        </table>
+      </div>
+      <div className="flex gap-2 mb-1">
+        <input className="fld" placeholder={t("taxLabelEn")} value={newCat.en} onChange={(e) => setNewCat((p) => ({ ...p, en: e.target.value }))} />
+        <input className="fld" placeholder={t("taxLabelTh")} value={newCat.th} onChange={(e) => setNewCat((p) => ({ ...p, th: e.target.value }))} />
+        <button className="btn btn-p" disabled={busy} onClick={addCat}><Plus size={15} />{t("taxAdd")}</button>
+      </div>
+      <p className="text-[11.5px] mb-4" style={{ color: "var(--muted)" }}>{t("taxRetiredNote")}</p>
+
+      <label className="lbl">{t("taxStatuses")}</label>
+      <div className="card overflow-hidden">
+        <table className="tbl">
+          <thead><tr><th>{t("taxLabelEn")}</th><th>{t("taxLabelTh")}</th><th>key</th><th></th><th></th></tr></thead>
+          <tbody>{sts.map((s) => <Row key={s.key} r={s} table="case_statuses" />)}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip, setSip, routing, setRouting, ringFor, setRingFor, maxWait, setMaxWait, toast, me }) {
   const rules = [["round", t("asRound"), t("asRoundD")], ["load", t("asLoad"), t("asLoadD")], ["manual", t("asManual"), t("asManualD")]];
   const notifs = [["risk", t("nRisk"), t("nRiskD")], ["unassigned", t("nUnassigned"), t("nUnassignedD")], ["daily", t("nDaily"), t("nDailyD")], ["lowcsat", t("nLowCsat"), t("nLowCsatD")]];
@@ -3960,6 +4166,7 @@ function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip
     <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
       <div className="space-y-4">
         <SignatureSettings me={me} toast={toast} />
+        <TaxonomySettings toast={toast} />
 
         <div className="card p-6">
           <div className="flex items-center gap-3 mb-5">
@@ -4079,6 +4286,7 @@ export default function ServiceCRM({ user, role }) {
     return known ? { ...known, role: crmRole } : { id: "nirm-" + display.toLowerCase(), n: { en: display, th: display }, role: crmRole, team: "cx", email: user || "", active: true };
   });
   const [tab, setTab] = useState("dash");
+  const [taxo, setTaxo] = useState(0);          // bumped when CAT/ST are swapped, to force a repaint
   const [tickets, setTickets] = useState([]);   // real cases only — no demo seeds
   const [unread, setUnread] = useState({});     // ticketId → # new inbound msgs since last opened
   const seenInRef = useRef(null);               // ticketId → inbound msg count at last poll (null = first load)
@@ -4094,8 +4302,12 @@ export default function ServiceCRM({ user, role }) {
      "my cases" matches the id that assignments are stored against. */
   useEffect(() => {
     let dead = false;
-    loadOrgPeople().then((ok) => {
-      if (dead || !ok) return;
+    // taxonomy first — statuses and categories drive how every case renders,
+    // and `taxo` forces one re-render once the module-level maps are swapped
+    Promise.all([loadTaxonomy(), loadOrgPeople()]).then(([taxoOk, peopleOk]) => {
+      if (dead) return;
+      if (taxoOk) setTaxo((n) => n + 1);
+      if (!peopleOk) return;
       setUsers(USERS);
       const mine = USERS.find((u) => u.email && u.email === String(user || "").toLowerCase());
       if (mine) setMe((p) => ({ ...mine, role: p.role }));   // keep the NiRM-derived permission
