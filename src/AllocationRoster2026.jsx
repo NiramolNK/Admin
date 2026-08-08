@@ -1125,6 +1125,41 @@ export default function AllocationPanel({ isAdmin = true }) {
       if (shrinkRefuse("agents", snap.agents, state.agents)) return;
       if (shrinkRefuse("brands", snap.brands, state.brands)) return;
       if (shrinkRefuse("userAccounts", snap.userAccounts, state.userAccounts)) return;
+
+      /* Agents get a tighter rule than the 50% above. On 6-8 Aug 2026 the
+         roster silently went from 32 people to 26 — a 19% drop, so it sailed
+         past every guard — while the six removed agents left 69 shift cells
+         each behind them. Below: refuse anything over a 10% drop, and shout
+         about removals that still own shifts (only a warning, so deleting one
+         person who has history stays possible). */
+      const agBefore = Array.isArray(snap.agents) ? snap.agents : null;
+      const agAfter  = Array.isArray(state.agents) ? state.agents : null;
+      if (agBefore && agAfter && agAfter.length < agBefore.length) {
+        const keptIds = new Set(agAfter.map((a) => String(a?.id)));
+        const dropped = agBefore.filter((a) => !keptIds.has(String(a?.id)));
+        const label   = (a) => `${a?.id}${a?.name ? " " + a.name : ""}`;
+
+        const asgnAll = (state.allAsgn && typeof state.allAsgn === "object") ? state.allAsgn : {};
+        const orphaned = dropped.filter((a) => {
+          const pre = String(a?.id) + "_";
+          return Object.values(asgnAll).some((month) =>
+            month && typeof month === "object" && Object.keys(month).some((k) => k.startsWith(pre)));
+        });
+        if (orphaned.length) {
+          console.warn("[save] Removing agent(s) that still have shifts on the roster — their cells will be orphaned:",
+            orphaned.map(label));
+        }
+        if (agAfter.length < agBefore.length * 0.9) {
+          console.error(`[save] Refused: agents dropped ${agBefore.length} → ${agAfter.length} (more than 10%)`, {
+            removing: dropped.map(label),
+            stillRostered: orphaned.map(label),
+            stack: new Error().stack,
+          });
+          wipeBlocked.current = true;   // keep the banner up — a human needs to look
+          setSaveStatus("error");
+          return;
+        }
+      }
     } else {
       const isEmpty = (a) => !Array.isArray(a) || a.length === 0;
       if (isEmpty(state.agents) && isEmpty(state.brands) && isEmpty(state.userAccounts)) {
@@ -1158,7 +1193,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     // (b) reported with full forensics, so the next occurrence identifies
     // itself. Server-side kv_guard independently rejects such writes from
     // ANY client, so this is belt on top of braces.
-    const WIPE_WATCH = ["nirm-allAsgn","nirm-allBrandAsgn","nirm-allExtraHrs","nirm-monthlyVol","nirm-userProfiles","nirm-fulltimeSalary"];
+    const WIPE_WATCH = ["nirm-agents","nirm-allAsgn","nirm-allBrandAsgn","nirm-allExtraHrs","nirm-monthlyVol","nirm-userProfiles","nirm-fulltimeSalary"];
     for (const storageKey of WIPE_WATCH) {
       if (!dirtyKeys.has(storageKey)) continue;
       const prevJson = lastSavedJson.current[storageKey];
