@@ -780,6 +780,13 @@ const D = {
   replyAllCc: ["Cc", "สำเนาถึง"],
   replyAllNone: ["No one else on this thread", "ไม่มีผู้รับอื่นในอีเมลนี้"],
   replyAllSent: ["Replied to %s people", "ตอบกลับ %s คนแล้ว"],
+  ccAddBtn: ["+ Cc", "+ สำเนา"],
+  ccAddPh: ["add email, press Enter", "พิมพ์อีเมลแล้วกด Enter"],
+  ccBadAddr: ["That doesn't look like an email address", "รูปแบบอีเมลไม่ถูกต้อง"],
+  ccPinned: ["Cc'd on every case from this customer — ✕ skips this reply only", "ใส่สำเนาทุกเคสของลูกค้ารายนี้ — กด ✕ เพื่อข้ามเฉพาะครั้งนี้"],
+  ccSkipped: ["Skipped for this reply — back on the next one", "ข้ามเฉพาะการตอบครั้งนี้ — ครั้งหน้ากลับมาเหมือนเดิม"],
+  ccRestore: ["Put back on this reply", "ใส่กลับในการตอบครั้งนี้"],
+  ccForever: ["Stop Cc'ing on future cases too", "หยุดใส่สำเนาในเคสต่อ ๆ ไปด้วย"],
   /* collision prevention + live monitor */
   colViewing: ["%s is viewing this case", "%s กำลังดูเคสนี้อยู่"],
   colTyping: ["%s is replying now", "%s กำลังพิมพ์ตอบอยู่"],
@@ -2337,20 +2344,43 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   /* reply-all: who else is on this email thread (To + Cc of the last inbound),
      minus the customer and our own support mailboxes — computed server-side */
   const [replyAll, setReplyAll] = useState(true);
-  const [rcpt, setRcpt] = useState({ to: "", cc: [] });
-  const [dropCc, setDropCc] = useState([]);        // chips the agent removed
+  const [rcpt, setRcpt] = useState({ to: "", cc: [], pinned: [] });
+  const [dropCc, setDropCc] = useState([]);        // thread-Cc chips the agent removed
+  const [dropPin, setDropPin] = useState([]);      // saved Cc skipped for THIS reply only
+  const [dropForever, setDropForever] = useState([]); // saved Cc retired for future cases too
+  const [addCc, setAddCc] = useState([]);          // extra Cc the agent typed in
+  const [ccDraft, setCcDraft] = useState(null);    // null = input closed, "" = open
   useEffect(() => {
-    setDropCc([]);
+    setDropCc([]); setDropPin([]); setDropForever([]); setAddCc([]); setCcDraft(null);
     const tkNow = tickets.find((x) => x.id === sel);
-    if (!tkNow?.dbId || tkNow.channel !== "email") { setRcpt({ to: "", cc: [] }); return; }
+    if (!tkNow?.dbId || tkNow.channel !== "email") { setRcpt({ to: "", cc: [], pinned: [] }); return; }
     let dead = false;
     fetch(`${FN_BASE}/email/recipients?ticketId=${tkNow.dbId}`)
       .then((r) => r.json())
-      .then((d) => { if (!dead) setRcpt({ to: d.to || "", cc: d.cc || [] }); })
+      .then((d) => { if (!dead) setRcpt({ to: d.to || "", cc: d.cc || [], pinned: d.pinned || [] }); })
       .catch(() => {});
     return () => { dead = true; };
   }, [sel]);
   const ccFinal = rcpt.cc.filter((a) => !dropCc.includes(a));
+  const pinnedKept = rcpt.pinned.filter((a) => !dropForever.includes(a));    // still saved for the customer
+  const pinnedActive = pinnedKept.filter((a) => !dropPin.includes(a));       // actually going out on this reply
+  /* saved + manual Cc go out even with reply-all off — they're explicit choices */
+  const ccOutgoing = [...new Set([...(replyAll ? ccFinal : []), ...pinnedActive, ...addCc])];
+  /* what stays remembered for the customer's future cases: skip-once chips
+     stay in this list; only "stop for future cases" takes them out */
+  const ccPinList = [...new Set([...pinnedKept, ...addCc])];
+  const commitCcDraft = () => {
+    const parts = String(ccDraft || "").split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (!parts.length) { setCcDraft(null); return; }
+    const good = parts.filter((a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a));
+    if (good.length < parts.length) { toast("✉ " + t("ccBadAddr")); return; }
+    const toNow = (rcpt.to || tk?.email || "").toLowerCase();
+    setAddCc((p) => [...new Set([...p, ...good.filter((a) => a !== toNow && !rcpt.pinned.includes(a))])]);
+    setDropCc((p) => p.filter((a) => !good.includes(a)));   // re-typing a removed chip revives it
+    setDropPin((p) => p.filter((a) => !good.includes(a)));
+    setDropForever((p) => p.filter((a) => !good.includes(a)));
+    setCcDraft("");
+  };
 
   /* signature — resolved server-side so the preview matches what actually sends */
   const [sig, setSig] = useState("");
@@ -2427,9 +2457,10 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             const r = await fetch(`${FN_BASE}/email/send`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: OUTBOUND_MAILBOXES.includes(String(tk.emailTo || "").toLowerCase()) ? tk.emailTo.toLowerCase() : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(), attachments: atts, replyAll, cc: replyAll ? ccFinal : [], noSignature: noSig }),
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: OUTBOUND_MAILBOXES.includes(String(tk.emailTo || "").toLowerCase()) ? tk.emailTo.toLowerCase() : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(), attachments: atts, replyAll: replyAll && !rcpt.to, cc: ccOutgoing, pinCc: ccPinList, noSignature: noSig }),
             });
             if (!r.ok) { const j = await r.json().catch(() => ({})); toast("✉ " + (j.error || `email send failed (${r.status})`)); }
+            else { setRcpt((p) => ({ ...p, pinned: ccPinList })); setAddCc([]); setDropPin([]); setDropForever([]); } // manual chips are now saved; skip-once was for that reply
           } catch (e) { toast("✉ email send failed — network"); }
         })();
       }
@@ -2546,18 +2577,59 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                   </label>
                   <span style={{ color: "var(--muted)" }}>{t("replyAllTo")}:</span>
                   <span className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>{rcpt.to || tk.email}</span>
-                  {replyAll && (
-                    ccFinal.length === 0
-                      ? <span style={{ color: "var(--muted)" }}>· {t("replyAllNone")}</span>
-                      : (<>
-                          <span style={{ color: "var(--muted)" }}>{t("replyAllCc")}:</span>
-                          {ccFinal.map((a) => (
-                            <span key={a} className="pill" style={{ background: "var(--slate-bg)", color: "var(--ink)" }}>
-                              {a}
-                              <button onClick={() => setDropCc((p) => [...p, a])} style={{ display: "flex", opacity: .55 }}><X size={10} /></button>
-                            </span>
-                          ))}
-                        </>)
+                  {replyAll && ccFinal.length === 0 && pinnedKept.length === 0 && addCc.length === 0 && (
+                    <span style={{ color: "var(--muted)" }}>· {t("replyAllNone")}</span>
+                  )}
+                  {((replyAll && ccFinal.length > 0) || pinnedKept.length > 0 || addCc.length > 0) && (
+                    <span style={{ color: "var(--muted)" }}>{t("replyAllCc")}:</span>
+                  )}
+                  {replyAll && ccFinal.map((a) => (
+                    <span key={a} className="pill" style={{ background: "var(--slate-bg)", color: "var(--ink)" }}>
+                      {a}
+                      <button onClick={() => setDropCc((p) => [...p, a])} style={{ display: "flex", opacity: .55 }}><X size={10} /></button>
+                    </span>
+                  ))}
+                  {/* Cc saved for this customer — ✕ skips this reply; skipped chips offer ↩ or stop-forever */}
+                  {pinnedKept.filter((a) => !(replyAll && ccFinal.includes(a))).map((a) => (
+                    dropPin.includes(a)
+                      ? (
+                        <span key={"pin-" + a} className="pill" title={t("ccSkipped")}
+                              style={{ background: "var(--slate-bg)", color: "var(--muted)", textDecoration: "line-through" }}>
+                          {a}
+                          <button onClick={() => setDropPin((p) => p.filter((x) => x !== a))} title={t("ccRestore")}
+                                  style={{ display: "flex", fontWeight: 700, textDecoration: "none" }}>↩</button>
+                          <button onClick={() => { setDropForever((p) => [...p, a]); setDropPin((p) => p.filter((x) => x !== a)); }} title={t("ccForever")}
+                                  style={{ display: "flex", color: "var(--red)", opacity: .8 }}><X size={10} /></button>
+                        </span>
+                      )
+                      : (
+                        <span key={"pin-" + a} className="pill" title={t("ccPinned")} style={{ background: "var(--sky)", color: "var(--blue)" }}>
+                          {a}
+                          <button onClick={() => setDropPin((p) => [...p, a])} style={{ display: "flex", opacity: .55 }}><X size={10} /></button>
+                        </span>
+                      )
+                  ))}
+                  {/* manually added Cc — sent even when reply-all is off, saved for future cases on send */}
+                  {addCc.filter((a) => !(replyAll && ccFinal.includes(a)) && !pinnedKept.includes(a)).map((a) => (
+                    <span key={a} className="pill" title={t("ccPinned")} style={{ background: "var(--sky)", color: "var(--blue)" }}>
+                      {a}
+                      <button onClick={() => setAddCc((p) => p.filter((x) => x !== a))} style={{ display: "flex", opacity: .55 }}><X size={10} /></button>
+                    </span>
+                  ))}
+                  {ccDraft == null ? (
+                    <button onClick={() => setCcDraft("")} className="font-semibold" style={{ color: "var(--blue)" }}>
+                      {t("ccAddBtn")}
+                    </button>
+                  ) : (
+                    <input autoFocus value={ccDraft} placeholder={t("ccAddPh")}
+                           onChange={(e) => setCcDraft(e.target.value)}
+                           onKeyDown={(e) => {
+                             if (e.key === "Enter") { e.preventDefault(); commitCcDraft(); }
+                             if (e.key === "Escape") setCcDraft(null);
+                           }}
+                           onBlur={() => { if (String(ccDraft).trim()) commitCcDraft(); else setCcDraft(null); }}
+                           className="px-2 py-0.5 rounded-md border outline-none"
+                           style={{ borderColor: "var(--line)", fontSize: 11.5, width: 210, background: "#fff" }} />
                   )}
                 </div>
 
