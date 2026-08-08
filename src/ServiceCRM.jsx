@@ -986,6 +986,16 @@ const D = {
   slaHouseDefault: ["House default — no brand contract linked yet", "ค่าเริ่มต้นของบริษัท — ยังไม่ผูกสัญญาแบรนด์"],
   orderSaved: ["Order number saved", "บันทึกเลขคำสั่งซื้อแล้ว"],
 
+  /* brands directory */
+  navBrands: ["Brands", "แบรนด์"],
+  brSearch: ["Search brands…", "ค้นหาแบรนด์…"],
+  brCount: ["%s brands", "%s แบรนด์"],
+  brCsat: ["CSAT target", "เป้า CSAT"],
+  brPic: ["Brand PIC", "ผู้ติดต่อฝั่งแบรนด์"],
+  brEsc: ["Escalation contacts", "ผู้รับเรื่อง Escalation"],
+  brSince: ["Client since", "เริ่มสัญญา"],
+  brNoContract: ["No contract details yet — set SLA targets to activate the clock", "ยังไม่มีข้อมูลสัญญา — ตั้งเป้า SLA เพื่อเริ่มนับเวลา"],
+
   /* misc units */
   uCases: ["cases", "เคส"], uOf5: ["/ 5", "/ 5"], uPct: ["%", "%"],
 };
@@ -4366,6 +4376,127 @@ function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip
 
 /* ═══════════════════════ APP ═══════════════════════ */
 
+/* ═══════════════════ BRANDS — service-contract directory ═══════════════════ */
+/* The prototype's Brands screen, fed by the real `brands` table. Money fields
+   (fees, add-ons) are intentionally not shown — §12: no invented numbers. */
+const SVC_ST_C = {
+  Active:     { c: "var(--green)", bg: "var(--green-bg)" },
+  Onboarding: { c: "var(--amber)", bg: "var(--amber-bg)" },
+  Paused:     { c: "var(--muted)", bg: "var(--slate-bg)" },
+  Terminated: { c: "var(--red)",   bg: "var(--red-bg)" },
+};
+const hhmm5 = (v) => (v ? String(v).slice(0, 5) : null);
+
+function BrandsView() {
+  const [rows, setRows] = useState(null);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      const [{ data: brands }, { data: aliases }] = await Promise.all([
+        supabase.from("brands").select("*").eq("offboarded", false).order("name"),
+        supabase.from("brand_aliases").select("brand_id"),
+      ]);
+      if (dead) return;
+      // show brands that have a service profile, plus any brand wired to a
+      // support mailbox (Enfa, Nestlé Professional) even before its contract
+      // details are filled in
+      const mailbox = new Set((aliases || []).map((a) => a.brand_id));
+      const hasProfile = (b) =>
+        b.sla_first_response_min != null || b.csat_target_pct != null ||
+        b.brand_pic_name || (Array.isArray(b.channels) && b.channels.length > 0);
+      setRows((brands || []).filter((b) => hasProfile(b) || mailbox.has(b.id)));
+    })();
+    return () => { dead = true; };
+  }, []);
+
+  const shown = useMemo(() => {
+    if (!rows) return null;
+    const s = q.trim().toLowerCase();
+    return s ? rows.filter((b) => `${b.name} ${b.group || ""} ${b.category || ""}`.toLowerCase().includes(s)) : rows;
+  }, [rows, q]);
+
+  const Row = ({ l, v }) => v == null ? null : (
+    <div className="flex items-center justify-between py-1 gap-2">
+      <span className="text-[12px] flex-none" style={{ color: "var(--muted)" }}>{l}</span>
+      <b className="text-[12.5px] text-right">{v}</b>
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative" style={{ width: 280 }}>
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted)" }} />
+          <input className="fld w-full" style={{ paddingLeft: 32 }} placeholder={t("brSearch")} value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        {shown && <span className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("brCount", shown.length)}</span>}
+      </div>
+
+      {!shown ? (
+        <div className="card p-6 text-[13px]" style={{ color: "var(--muted)" }}>…</div>
+      ) : (
+        <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))" }}>
+          {shown.map((b) => {
+            const st = SVC_ST_C[b.service_status] || SVC_ST_C.Active;
+            const noContract = b.sla_first_response_min == null && b.csat_target_pct == null;
+            return (
+              <div key={b.id} className="card p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-bold text-[14.5px]">{b.name}</div>
+                    <div className="text-[12px]" style={{ color: "var(--muted)" }}>
+                      {[b.group, b.category, b.service_model].filter(Boolean).join(" · ") || "—"}
+                    </div>
+                  </div>
+                  <span className="pill flex-none" style={{ background: st.bg, color: st.c }}>{b.service_status || "Active"}</span>
+                </div>
+
+                {Array.isArray(b.channels) && b.channels.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {b.channels.map((c) => <span key={c} className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>{c}</span>)}
+                  </div>
+                )}
+
+                <div className="mt-3 pt-2 border-t" style={{ borderColor: "var(--line)" }}>
+                  {noContract ? (
+                    <p className="text-[12px] py-1" style={{ color: "var(--muted)" }}>{t("brNoContract")}</p>
+                  ) : (
+                    <>
+                      <Row l={t("slaWindowLbl")} v={b.operating_hours_start ? `${hhmm5(b.operating_hours_start)} – ${hhmm5(b.operating_hours_end)}` : t("slaAlwaysOn")} />
+                      <Row l={t("slaTargetLbl")} v={b.sla_first_response_min != null ? dur(b.sla_first_response_min) : null} />
+                      <Row l={t("slaResTargetLbl")} v={b.sla_resolution_hrs != null ? dur(b.sla_resolution_hrs * 60) : null} />
+                      <Row l={t("brCsat")} v={b.csat_target_pct != null ? `≥ ${Math.round(b.csat_target_pct)}%` : null} />
+                      <Row l={t("brPic")} v={b.brand_pic_name || null} />
+                      <Row l={t("brSince")} v={b.active_since ? new Date(b.active_since).toLocaleDateString(locale(), { month: "short", year: "numeric" }) : null} />
+                    </>
+                  )}
+                </div>
+
+                {Array.isArray(b.escalation_contacts) && b.escalation_contacts.length > 0 && (
+                  <div className="mt-2 pt-2 border-t" style={{ borderColor: "var(--line)" }}>
+                    <p className="lbl">{t("brEsc")}</p>
+                    {b.escalation_contacts.map((e2, i) => (
+                      <p key={i} className="text-[12px] py-0.5">{e2.name}{e2.role ? <span style={{ color: "var(--muted)" }}> — {e2.role}</span> : null}</p>
+                    ))}
+                  </div>
+                )}
+
+                {Array.isArray(b.platforms) && b.platforms.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {b.platforms.map((p) => <span key={p} className="pill" style={{ background: "var(--slate-bg)", color: "var(--muted)" }}>{p}</span>)}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const NAV = [
   { k: "dash",      key: "navDash",      ic: LayoutDashboard, roles: ["admin", "manager", "agent"] },
   { k: "inbox",     key: "navInbox",     ic: Inbox,           roles: ["admin", "manager", "agent"] },
@@ -4374,6 +4505,7 @@ const NAV = [
   { k: "customers", key: "navCustomers", ic: Users,           roles: ["admin", "manager", "agent"] },
   { k: "kb",        key: "navKb",        ic: BookOpen,        roles: ["admin", "manager", "agent"] },
   { k: "reports",   key: "navReports",   ic: BarChart3,       roles: ["admin", "manager"] },
+  { k: "brands",    key: "navBrands",    ic: ShoppingBag,     roles: ["admin", "manager"] },
   { k: "users",     key: "navUsers",     ic: UserCog,         roles: ["admin"] },
   { k: "settings",  key: "navSettings",  ic: Settings,        roles: ["admin", "manager"] },
 ];
@@ -4753,6 +4885,7 @@ export default function ServiceCRM({ user, role }) {
           {tab === "customers" && <Customers tickets={tickets} open={openTicket} />}
           {tab === "kb"        && <Knowledge kb={kb} setKb={setKb} canned={canned} setCanned={setCanned} me={me} toast={toast} />}
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
+          {tab === "brands"    && <BrandsView />}
           {tab === "users"     && <UsersView users={users} setUsers={setUsers} me={me} toast={toast} />}
           {tab === "settings"  && <SettingsView chans={chans} setChans={setChans} notif={notif} setNotif={setNotif} assign={assign} setAssign={setAssign} sip={sip} setSip={setSip} routing={routing} setRouting={setRouting} ringFor={ringFor} setRingFor={setRingFor} maxWait={maxWait} setMaxWait={setMaxWait} toast={toast} me={me} />}
          </CrmBoundary>
