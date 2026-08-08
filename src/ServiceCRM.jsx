@@ -417,7 +417,10 @@ const safeAttName = (s) => (s || "file").replace(/[^\w.\-\u0E00-\u0E7F ]+/g, "_"
 function mapDbTicket(t, msgs) {
   return {
     id: "TK-E" + t.id, dbId: t.id,
-    catKey: t.category || "inquiry", product: null,
+    // no category in the DB = genuinely uncategorized — show "—", don't
+    // pretend it's a product question (the old "inquiry" fallback made every
+    // unclassified case display as "Product Information")
+    catKey: t.category || null, product: null,
     subject: t.subject || null,
     customer: biText(t.customer_name || t.customer_email || "Customer"),
     phone: t.customer_phone || "", email: t.customer_email || "",
@@ -2426,6 +2429,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
         if (p.status === "closed") upd.closed_at = new Date().toISOString(); }
       if ("owner" in p) upd.owner = p.owner;
       if (p.priority) upd.priority = p.priority;
+      if ("catKey" in p) upd.category = p.catKey || null;   // was never persisted — type reset on every refresh
       if (Object.keys(upd).length) supabase.from("tickets").update(upd).eq("id", tk.dbId).then(() => {});
     }
   };
@@ -2633,8 +2637,9 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                 {/* catKeyOf maps a retired key onto its replacement, so a case
                     tagged before the taxonomy changed still shows the right
                     option instead of an empty select */}
-                <select className="fld" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} value={catKeyOf(tk.catKey)}
-                        onChange={(e) => patch({ catKey: e.target.value }, t("catSaved"))}>
+                <select className="fld" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} value={catKeyOf(tk.catKey) || ""}
+                        onChange={(e) => patch({ catKey: e.target.value || null }, t("catSaved"))}>
+                  {!tk.catKey && <option value="">—</option>}
                   {!CAT_KEYS.includes(catKeyOf(tk.catKey)) && tk.catKey && (
                     <option value={catKeyOf(tk.catKey)}>{catLabel(tk.catKey)}</option>
                   )}
