@@ -659,6 +659,30 @@ const D = {
   c360NoEmail: ["Available for email customers only", "ใช้ได้เฉพาะลูกค้าช่องทางอีเมล"],
   c360CcSaved: ["Saved Cc updated", "อัปเดตสำเนาที่บันทึกแล้ว"],
   c360CcErr: ["Couldn't save — try again", "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง"],
+  /* case record popup */
+  crRecord: ["Case record", "ข้อมูลเคส"],
+  crConvo: ["Conversation", "บทสนทนา"],
+  crChannel: ["Channel", "ช่องทาง"],
+  crFirst: ["First response", "ตอบกลับครั้งแรก"],
+  crRes: ["Resolution", "เวลาปิดงาน"],
+  crTargetMin: ["target %s min", "เป้า %s นาที"],
+  crTargetHr: ["target %s hrs", "เป้า %s ชม."],
+  crInProgress: ["still open", "ยังไม่ปิดงาน"],
+  crNoMsg: ["No messages on this case yet", "ยังไม่มีข้อความในเคสนี้"],
+  crCreated: ["Created", "สร้างเมื่อ"],
+  crOpenInbox: ["Open in Inbox", "เปิดในกล่องข้อความ"],
+  crOpen360: ["Customer 360", "ข้อมูลลูกค้า 360"],
+  crNotRated: ["not rated", "ยังไม่ให้คะแนน"],
+  crSlaClock: ["SLA clock", "นาฬิกา SLA"],
+  crSlaTarget: ["SLA target", "เป้า SLA"], crElapsed: ["Elapsed", "ใช้ไปแล้ว"], crRemaining: ["Remaining", "เหลืออีก"],
+  crTimeline: ["Case timeline", "ไทม์ไลน์เคส"],
+  crEvCreated: ["Case received — %s", "รับเคสเข้าระบบ — %s"],
+  crEvFirst: ["First response sent", "ตอบกลับลูกค้าครั้งแรก"],
+  crEvReopen: ["Customer reopened the case", "ลูกค้าเปิดเคสซ้ำ"],
+  crEvResolved: ["Case resolved", "ปิดเคสเรียบร้อย"],
+  crEvNow: ["now", "ขณะนี้"],
+  crEvStatus: ["Status: %s", "สถานะ: %s"],
+  crPaused: ["Clock paused %s waiting on customer", "หยุดนับ %s ระหว่างรอลูกค้า"],
   mTotal: ["Total cases", "เคสทั้งหมด"], mOpen: ["Open now", "งานค้าง"], mCsat: ["Average CSAT", "CSAT เฉลี่ย"],
   timeline: ["Contact timeline", "ไทม์ไลน์การติดต่อ"],
 
@@ -1824,7 +1848,133 @@ function Dashboard({ tickets, trend, scope, go, open, me }) {
 
 /* ═══════════════════════ TICKETS ═══════════════════════ */
 
-function Tickets({ tickets, setTickets, me, scope, open, toast }) {
+/* ── Case record popup — Tickets row click. Layout mirrors the CX-Ops
+   prototype: KPI tiles, case record, live SLA clock, case timeline. ── */
+function CaseRecord({ x, onClose, open, openCustomer }) {
+  const s = sla(x);
+  const frTarget = x.slaTargetMin ?? PRI[x.priority].fr;
+  const frUsed = x.frtElapsedMin ?? x.firstResponseMin;
+  const frDone = x.firstResponseMin != null;
+  const frOk = frDone && frUsed <= frTarget;
+  const resDone = x.resolveMin != null;
+  const resTargetMin = x.slaResTargetHrs != null ? x.slaResTargetHrs * 60 : null;
+  const resUsed = x.resElapsedMin ?? (resDone ? x.resolveMin : Math.floor((Date.now() - x.createdAt) / MIN));
+  const dts = (ms) => new Date(ms).toLocaleDateString(LANG.cur === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short" }) + " " + clock(ms);
+  const isOpen = OPEN_ST.includes(x.status);
+
+  /* which clock is live: FRT until first reply, then resolution */
+  const clkTarget = frDone ? resTargetMin : frTarget;
+  const clkUsed = frDone ? resUsed : frUsed ?? Math.floor((Date.now() - x.createdAt) / MIN);
+  const clkLeft = clkTarget != null ? clkTarget - clkUsed : null;
+  const clkPct = clkTarget ? Math.min(100, Math.round((clkUsed / clkTarget) * 100)) : null;
+  const clkState = !isOpen ? "met" : clkLeft == null ? "ok" : clkLeft < 0 ? "breach" : clkUsed >= clkTarget * 0.75 ? "risk" : "ok";
+
+  const events = [
+    { at: x.createdAt, txt: t("crEvCreated", tv(CH[x.channel].n)), who: tv(x.customer), c: "var(--blue)" },
+    ...(frDone ? [{ at: x.createdAt + x.firstResponseMin * MIN, off: x.firstResponseMin, txt: t("crEvFirst"), who: uname(x.owner), c: frOk ? "var(--green)" : "var(--red)" }] : []),
+    ...(x.reopened ? [{ at: null, txt: t("crEvReopen"), who: tv(x.customer), c: "var(--red)" }] : []),
+    ...(resDone ? [{ at: x.createdAt + x.resolveMin * MIN, off: x.resolveMin, txt: t("crEvResolved"), who: uname(x.owner), c: "var(--green)" }] : []),
+    ...(isOpen ? [{ at: null, now: true, txt: t("crEvStatus", ST[x.status] ? tv(ST[x.status].n) : x.status), who: uname(x.owner), c: "var(--muted)" }] : []),
+  ];
+
+  const recRows = [
+    ["ID", x.id],
+    [t("cCustomer"), `${tv(x.customer)}${x.email ? " · " + x.email : ""}${x.phone ? " · " + x.phone : ""}`],
+    [t("fOrder"), x.order || "—"],
+    ...(x.channel === "email" && x.emailTo ? [[t("c360Boxes"), x.emailTo]] : []),
+    [t("cCategory"), catLabel(x.catKey)],
+    [t("cOwner"), uname(x.owner)],
+    [t("crCreated"), dts(x.createdAt)],
+    [t("crFirst"), frDone ? dur(x.firstResponseMin) : "—"],
+    [t("crRes"), resDone ? dur(x.resolveMin) : "—"],
+  ];
+
+  return (
+    <Modal title={`${subjectOf(x)} — ${tv(x.customer)}`} sub={`${x.id} · ${tv(CH[x.channel].n)} · ${t("crCreated").toLowerCase()} ${dts(x.createdAt)}`} onClose={onClose} w={880}>
+      <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: "repeat(4, minmax(0,1fr))" }}>
+        <div className="card p-3.5">
+          <p className="text-[10.5px] font-bold uppercase mb-1.5" style={{ color: "var(--muted)", letterSpacing: .4 }}>{t("cStatus")}</p>
+          <div className="flex flex-col gap-1.5 items-start"><Chip map={ST} k={x.status} /><Chip map={PRI} k={x.priority} /></div>
+        </div>
+        <div className="card p-3.5">
+          <p className="text-[10.5px] font-bold uppercase mb-1.5" style={{ color: "var(--muted)", letterSpacing: .4 }}>{t("crFirst")}</p>
+          <p className="text-[19px] font-bold" style={{ color: frDone ? (frOk ? "var(--green)" : "var(--red)") : "var(--ink)" }}>{frDone ? dur(x.firstResponseMin) : "—"}</p>
+          <p className="text-[11px]" style={{ color: "var(--muted)" }}>{t("crTargetMin", frTarget)} {frDone && (frOk ? "✓" : "✗")}</p>
+        </div>
+        <div className="card p-3.5">
+          <p className="text-[10.5px] font-bold uppercase mb-1.5" style={{ color: "var(--muted)", letterSpacing: .4 }}>{t("crRes")}</p>
+          <p className="text-[19px] font-bold">{resDone ? dur(x.resolveMin) : t("crInProgress")}</p>
+          {x.slaResTargetHrs != null && <p className="text-[11px]" style={{ color: "var(--muted)" }}>{t("crTargetHr", x.slaResTargetHrs)}</p>}
+        </div>
+        <div className="card p-3.5">
+          <p className="text-[10.5px] font-bold uppercase mb-1.5" style={{ color: "var(--muted)", letterSpacing: .4 }}>SLA · CSAT</p>
+          <div className="flex flex-col gap-1.5 items-start">
+            <SlaChip t={x} />
+            {x.csat ? <Stars n={x.csat} size={13} /> : <span className="text-[11px]" style={{ color: "var(--muted)" }}>{t("crNotRated")}</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr", alignItems: "start" }}>
+        <div>
+          <p className="lbl mb-2">{t("crRecord")}</p>
+          {recRows.map(([l, v]) => (
+            <div key={l} className="flex justify-between gap-3 py-1.5 border-b text-[12.5px]" style={{ borderColor: "var(--line)" }}>
+              <span className="flex-none" style={{ color: "var(--muted)" }}>{l}</span>
+              <span className="font-semibold text-right break-all">{v}</span>
+            </div>
+          ))}
+          {x.reopened && <div className="mt-2"><span className="pill" style={{ background: "var(--red-bg)", color: "var(--red)" }}><Repeat size={10} />{t("reopenedTag")}</span></div>}
+        </div>
+
+        <div>
+          <p className="lbl mb-2">{t("crSlaClock")}</p>
+          <div className="card p-3.5 mb-4">
+            {[
+              [t("crSlaTarget"), clkTarget != null ? dur(clkTarget) : "—"],
+              [t("crElapsed"), dur(clkUsed)],
+              ...(isOpen && clkLeft != null ? [[t("crRemaining"), (clkLeft < 0 ? "-" : "") + dur(Math.abs(clkLeft))]] : []),
+            ].map(([l, v]) => (
+              <div key={l} className="flex justify-between py-1 text-[12.5px]">
+                <span style={{ color: "var(--muted)" }}>{l}</span>
+                <b style={{ color: l === t("crRemaining") && clkLeft < 0 ? "var(--red)" : "var(--ink)" }}>{v}</b>
+              </div>
+            ))}
+            {clkPct != null && (
+              <div className="mt-2 rounded-full overflow-hidden" style={{ height: 6, background: "var(--slate-bg)" }}>
+                <div style={{ width: `${clkPct}%`, height: "100%", background: SLA_C[clkState], transition: "width .3s" }} />
+              </div>
+            )}
+            {x.slaPausedMin > 0 && <p className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>{t("crPaused", dur(x.slaPausedMin))}</p>}
+          </div>
+
+          <p className="lbl mb-2">{t("crTimeline")}</p>
+          <div className="space-y-0">
+            {events.map((e, i) => (
+              <div key={i} className="flex gap-2.5 pb-3 relative">
+                {i < events.length - 1 && <div className="absolute" style={{ left: 4.5, top: 14, bottom: 0, width: 1.5, background: "var(--line)" }} />}
+                <span className="flex-none rounded-full mt-1" style={{ width: 10, height: 10, border: `2.5px solid ${e.c}`, background: "#fff", zIndex: 1 }} />
+                <div className="min-w-0">
+                  <p className="text-[11px]" style={{ color: "var(--muted)" }}>{e.now ? t("crEvNow") : e.off != null ? `+${dur(e.off)}` : e.at ? dts(e.at) : "—"}</p>
+                  <p className="text-[12.5px] font-semibold">{e.txt}</p>
+                  <p className="text-[11px]" style={{ color: "var(--muted)" }}>{e.who}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mt-5 pt-4 border-t" style={{ borderColor: "var(--line)" }}>
+        <button className="btn btn-p" onClick={() => { onClose(); open(x); }}>{t("crOpenInbox")}</button>
+        <button className="btn btn-g" onClick={() => { onClose(); openCustomer((x.email || x.phone || tv(x.customer)).toLowerCase()); }}>{t("crOpen360")}</button>
+        <button className="btn btn-g ml-auto" onClick={onClose}>✕</button>
+      </div>
+    </Modal>
+  );
+}
+
+function Tickets({ tickets, setTickets, me, scope, open, toast, openCustomer }) {
   const [q, setQ] = useState("");
   const [fs, setFs] = useState("open");
   const [fp, setFp] = useState("all");
@@ -1832,6 +1982,7 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
   const [fo, setFo] = useState("all");
   const [sel, setSel] = useState([]);
   const [nw, setNw] = useState(false);
+  const [rec, setRec] = useState(null);   // case-record popup
   const canAssign = me.role !== "agent";
 
   const rows = useMemo(() => scope(tickets).filter((x) => {
@@ -1919,8 +2070,8 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
                 </tr></thead>
                 <tbody>
                   {rows.map((x) => (
-                    <tr key={x.id}>
-                      <td><input type="checkbox" checked={sel.includes(x.id)} onChange={(e) => setSel((p) => e.target.checked ? [...p, x.id] : p.filter((y) => y !== x.id))} /></td>
+                    <tr key={x.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setRec(x)}>
+                      <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.includes(x.id)} onChange={(e) => setSel((p) => e.target.checked ? [...p, x.id] : p.filter((y) => y !== x.id))} /></td>
                       <td>
                         <div className="font-semibold truncate" style={{ maxWidth: 280 }}>{subjectOf(x)}</div>
                         <div className="text-[11.5px] flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
@@ -1935,7 +2086,7 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
                       <td><Chip map={ST} k={x.status} /></td>
                       <td><SlaChip t={x} /></td>
                       <td style={{ color: x.owner ? "var(--ink)" : "var(--amber)" }}>{uname(x.owner)}</td>
-                      <td><button className="btn btn-g" style={{ padding: "6px 12px" }} onClick={() => open(x)}>{t("openCase")}</button></td>
+                      <td onClick={(e) => e.stopPropagation()}><button className="btn btn-g" style={{ padding: "6px 12px" }} onClick={() => open(x)}>{t("openCase")}</button></td>
                     </tr>
                   ))}
                 </tbody>
@@ -1951,6 +2102,7 @@ function Tickets({ tickets, setTickets, me, scope, open, toast }) {
       </div>
 
       {nw && <NewTicket me={me} onClose={() => setNw(false)} onSave={(x) => { setTickets((p) => [x, ...p]); setNw(false); toast(t("caseOpened", x.id)); }} />}
+      {rec && <CaseRecord x={tickets.find((y) => y.id === rec.id) || rec} onClose={() => setRec(null)} open={open} openCustomer={openCustomer} />}
     </div>
   );
 }
@@ -2931,9 +3083,12 @@ function SavedCcCard({ email, toast }) {
   );
 }
 
-function Customers({ tickets, open, toast }) {
+function Customers({ tickets, open, toast, focusKey, clearFocus }) {
   const [q, setQ] = useState("");
   const [pick, setPick] = useState(null);
+  useEffect(() => {   // deep-link from the case-record popup ("Customer 360" button)
+    if (focusKey) { setPick(focusKey); clearFocus(); }
+  }, [focusKey]);
 
   const list = useMemo(() => {
     const m = new Map();
@@ -4852,6 +5007,8 @@ export default function ServiceCRM({ user, role }) {
   const markRead = (id) => setUnread((u) => { if (!u[id]) return u; const n = { ...u }; delete n[id]; return n; });
   const unreadTotal = Object.values(unread).reduce((a, b) => a + b, 0);
   const openTicket = (x) => { setFocus(x); setTab("inbox"); markRead(x.id); };
+  const [custFocus, setCustFocus] = useState(null);   // deep-link into Customer 360
+  const openCustomer = (key) => { setCustFocus(key); setTab("customers"); };
 
   /* ── ACD: pick the next agent for a waiting call ── */
   const pickAgent = (tried, pres) => {
@@ -5104,9 +5261,9 @@ export default function ServiceCRM({ user, role }) {
          <CrmBoundary>
           {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} me={me} />}
           {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} unread={unread} markRead={markRead} />}
-          {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} />}
+          {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} openCustomer={openCustomer} />}
           {tab === "calls"     && <CallsView tickets={scope(tickets)} allTickets={tickets} calls={calls} queue={queue} callbacks={callbacks} setCallbacks={setCallbacks} presence={presence} setPresence={setPresence} me={me} sip={sip} routing={routing} startCall={startCall} pullCall={pullCall} onPlay={setPlayRec} toast={toast} simulateCall={simulateCall} sf={sf} />}
-          {tab === "customers" && <Customers tickets={tickets} open={openTicket} toast={toast} />}
+          {tab === "customers" && <Customers tickets={tickets} open={openTicket} toast={toast} focusKey={custFocus} clearFocus={() => setCustFocus(null)} />}
           {tab === "kb"        && <Knowledge kb={kb} setKb={setKb} canned={canned} setCanned={setCanned} me={me} toast={toast} />}
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
           {tab === "brands"    && <BrandsView />}
