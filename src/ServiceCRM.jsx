@@ -640,8 +640,25 @@ const D = {
   searchCust: ["Search by name or phone number", "ค้นหาชื่อลูกค้าหรือเบอร์โทร"],
   custCount: ["%s customers · %s contacted more than once", "%s ราย · ติดต่อซ้ำ %s ราย"],
   channelsUsed: ["Channels used", "ช่องทางที่ใช้"],
-  viewHistory: ["View history", "ดูประวัติ"],
+  viewHistory: ["View 360", "ดูข้อมูล 360"],
   custModalSub: ["%s · %s contacts in total", "%s · ติดต่อเข้ามาทั้งหมด %s ครั้ง"],
+  /* customer 360 */
+  c360Back: ["All customers", "ลูกค้าทั้งหมด"],
+  c360Record: ["Customer record", "ข้อมูลลูกค้า"],
+  c360Returning: ["Returning", "ลูกค้าเดิม"],
+  c360Email: ["Email", "อีเมล"], c360Phone: ["Phone", "โทรศัพท์"],
+  c360Boxes: ["Wrote to", "ติดต่อผ่านกล่องเมล"],
+  c360First: ["First contact", "ติดต่อครั้งแรก"], c360Last: ["Last contact", "ติดต่อล่าสุด"],
+  mResolved: ["Resolved", "ปิดแล้ว"], mReopened: ["Reopened", "เปิดซ้ำ"], mEscalated: ["Escalated", "ส่งต่อแบรนด์"],
+  c360OpenCases: ["Open cases", "เคสที่ค้างอยู่"],
+  c360NoOpen: ["No open case — everything is resolved", "ไม่มีเคสค้าง ทุกเคสปิดเรียบร้อย"],
+  c360History: ["Case history", "ประวัติเคสทั้งหมด"],
+  c360SavedCc: ["Saved Cc", "สำเนาอีเมลที่บันทึกไว้"],
+  c360SavedCcSub: ["These addresses are Cc'd on every email reply to this customer", "อีเมลเหล่านี้จะถูกใส่สำเนาในทุกการตอบอีเมลถึงลูกค้ารายนี้"],
+  c360NoCc: ["Nothing saved yet", "ยังไม่มีสำเนาที่บันทึกไว้"],
+  c360NoEmail: ["Available for email customers only", "ใช้ได้เฉพาะลูกค้าช่องทางอีเมล"],
+  c360CcSaved: ["Saved Cc updated", "อัปเดตสำเนาที่บันทึกแล้ว"],
+  c360CcErr: ["Couldn't save — try again", "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง"],
   mTotal: ["Total cases", "เคสทั้งหมด"], mOpen: ["Open now", "งานค้าง"], mCsat: ["Average CSAT", "CSAT เฉลี่ย"],
   timeline: ["Contact timeline", "ไทม์ไลน์การติดต่อ"],
 
@@ -2855,16 +2872,80 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
 
 /* ═══════════════════════ CUSTOMERS ═══════════════════════ */
 
-function Customers({ tickets, open }) {
+/* saved-Cc manager inside Customer 360 — same customer_cc table the email
+   composer reads, so changes here show up as chips on the next reply */
+function SavedCcCard({ email, toast }) {
+  const [list, setList] = useState(null);          // null = loading
+  const [draft, setDraft] = useState("");
+  useEffect(() => {
+    if (!email) { setList([]); return; }
+    let dead = false;
+    supabase.from("customer_cc").select("cc").eq("email", email.toLowerCase()).maybeSingle()
+      .then(({ data }) => { if (!dead) setList(Array.isArray(data?.cc) ? data.cc : []); })
+      .catch(() => { if (!dead) setList([]); });
+    return () => { dead = true; };
+  }, [email]);
+  const save = async (next) => {
+    const prev = list;
+    setList(next);
+    const key = email.toLowerCase();
+    const { error } = next.length
+      ? await supabase.from("customer_cc").upsert({ email: key, cc: next, updated_at: new Date().toISOString() })
+      : await supabase.from("customer_cc").delete().eq("email", key);
+    if (error) { setList(prev); toast("✉ " + t("c360CcErr")); }
+    else toast("✉ " + t("c360CcSaved"));
+  };
+  const add = () => {
+    const parts = draft.split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (!parts.length) return;
+    const good = parts.filter((a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a) && a !== email.toLowerCase());
+    if (good.length < parts.length) { toast("✉ " + t("ccBadAddr")); return; }
+    setDraft("");
+    save([...new Set([...(list || []), ...good])]);
+  };
+  return (
+    <div className="card p-4">
+      <p className="lbl mb-0.5">{t("c360SavedCc")}</p>
+      <p className="text-[11.5px] mb-2.5" style={{ color: "var(--muted)" }}>{email ? t("c360SavedCcSub") : t("c360NoEmail")}</p>
+      {email && (
+        <>
+          <div className="flex gap-1.5 flex-wrap mb-2.5">
+            {list == null && <span className="text-[12px]" style={{ color: "var(--muted)" }}>…</span>}
+            {list != null && list.length === 0 && <span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("c360NoCc")}</span>}
+            {(list || []).map((a) => (
+              <span key={a} className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>
+                {a}
+                <button onClick={() => save(list.filter((x) => x !== a))} style={{ display: "flex", opacity: .55 }}><X size={10} /></button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input className="fld" style={{ fontSize: 12.5 }} placeholder={t("ccAddPh")} value={draft}
+                   onChange={(e) => setDraft(e.target.value)}
+                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} />
+            <button className="btn btn-g flex-none" style={{ padding: "6px 14px" }} onClick={add}>{t("ccAddBtn")}</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Customers({ tickets, open, toast }) {
   const [q, setQ] = useState("");
   const [pick, setPick] = useState(null);
 
   const list = useMemo(() => {
     const m = new Map();
     tickets.forEach((x) => {
-      const key = tv(x.customer);
-      const c = m.get(key) || { name: key, phone: x.phone, tickets: [], channels: new Set(), tags: [] };
+      // email > phone > name: two "Nattaya S." rows with different emails are
+      // different people; the same email with a typo'd name is one person
+      const key = (x.email || x.phone || tv(x.customer)).toLowerCase();
+      const c = m.get(key) || { key, name: tv(x.customer), phone: x.phone, email: x.email, tickets: [], channels: new Set(), boxes: new Set(), tags: [] };
       c.tickets.push(x); c.channels.add(x.channel);
+      if (!c.phone && x.phone) c.phone = x.phone;
+      if (!c.email && x.email) c.email = x.email;
+      if (x.channel === "email" && x.emailTo) c.boxes.add(String(x.emailTo).toLowerCase());
       x.tags.forEach((g) => { if (!c.tags.some((y) => tv(y) === tv(g))) c.tags.push(g); });
       m.set(key, c);
     });
@@ -2872,11 +2953,106 @@ function Customers({ tickets, open }) {
       const rated = c.tickets.filter((x) => x.csat);
       return { ...c, open: c.tickets.filter((x) => OPEN_ST.includes(x.status)).length,
                csat: rated.length ? (rated.reduce((s, x) => s + x.csat, 0) / rated.length).toFixed(1) : null,
-               last: Math.max(...c.tickets.map((x) => x.createdAt)) };
+               last: Math.max(...c.tickets.map((x) => x.createdAt)),
+               first: Math.min(...c.tickets.map((x) => x.createdAt)) };
     }).sort((a, b) => b.tickets.length - a.tickets.length);
   }, [tickets]);
 
-  const rows = list.filter((c) => !q.trim() || `${c.name} ${c.phone}`.toLowerCase().includes(q.toLowerCase()));
+  const rows = list.filter((c) => !q.trim() || `${c.name} ${c.phone} ${c.email}`.toLowerCase().includes(q.toLowerCase()));
+  const cur = pick ? list.find((c) => c.key === pick) : null;   // re-derive so live ticket updates flow in
+
+  /* ── Customer 360 ── */
+  if (cur) {
+    const initials = cur.name.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join("").toUpperCase();
+    const openTk = cur.tickets.filter((x) => OPEN_ST.includes(x.status)).sort((a, b) => a.createdAt - b.createdAt);
+    const nRes = cur.tickets.filter((x) => ["resolved", "closed"].includes(x.status)).length;
+    const nReo = cur.tickets.filter((x) => x.reopened).length;
+    const nEsc = cur.tickets.filter((x) => x.status === "escalated").length;
+    const dt = (ms) => new Date(ms).toLocaleDateString(LANG.cur === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short", year: "numeric" });
+    return (
+      <div className="space-y-4">
+        <div className="card p-4 flex items-center gap-3.5 flex-wrap">
+          <button className="btn btn-g flex-none" style={{ padding: "6px 12px" }} onClick={() => setPick(null)}>← {t("c360Back")}</button>
+          <div className="flex-none rounded-full flex items-center justify-center font-bold text-white" style={{ width: 44, height: 44, background: "var(--blue)", fontSize: 16 }}>{initials || "?"}</div>
+          <div className="min-w-0">
+            <div className="font-bold text-[15.5px] flex items-center gap-2 flex-wrap">{cur.name}
+              {cur.tickets.length > 1 && <span className="pill" style={{ background: "var(--violet-bg)", color: "var(--violet)" }}>{t("c360Returning")}</span>}
+              {cur.tags.map((g, i) => <span key={i} className="pill" style={{ background: "var(--violet-bg)", color: "var(--violet)" }}>{tv(g)}</span>)}
+            </div>
+            <div className="text-[12px] mt-0.5" style={{ color: "var(--muted)" }}>{[cur.email, cur.phone].filter(Boolean).join(" · ") || "—"}</div>
+          </div>
+          <div className="ml-auto flex gap-1 flex-wrap">{[...cur.channels].map((k) => <ChanChip key={k} k={k} />)}</div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-3" style={{ gridTemplateColumns: "repeat(6, minmax(0,1fr))" }}>
+          {[[t("mTotal"), cur.tickets.length], [t("mOpen"), cur.open], [t("mResolved"), nRes], [t("mReopened"), nReo], [t("mEscalated"), nEsc], [t("mCsat"), cur.csat || "—"]].map(([l, v]) => (
+            <div key={l} className="card p-3.5 text-center"><p className="text-[11.5px]" style={{ color: "var(--muted)" }}>{l}</p><p className="text-[21px] font-bold">{v}</p></div>
+          ))}
+        </div>
+
+        <div className="grid gap-4" style={{ gridTemplateColumns: "340px 1fr", alignItems: "start" }}>
+          <div className="space-y-4">
+            <div className="card p-4">
+              <p className="lbl mb-2.5">{t("c360Record")}</p>
+              {[
+                [t("c360Email"), cur.email || "—"],
+                [t("c360Phone"), cur.phone || "—"],
+                [t("c360First"), dt(cur.first)],
+                [t("c360Last"), `${dt(cur.last)} · ${ago(cur.last)}`],
+              ].map(([l, v]) => (
+                <div key={l} className="flex justify-between gap-3 py-1.5 border-b text-[12.5px]" style={{ borderColor: "var(--line)" }}>
+                  <span className="flex-none" style={{ color: "var(--muted)" }}>{l}</span><span className="font-semibold text-right break-all">{v}</span>
+                </div>
+              ))}
+              {cur.boxes.size > 0 && (
+                <div className="flex justify-between gap-3 py-1.5 text-[12.5px]">
+                  <span className="flex-none" style={{ color: "var(--muted)" }}>{t("c360Boxes")}</span>
+                  <span className="flex gap-1 flex-wrap justify-end">{[...cur.boxes].map((b) => <span key={b} className="pill" style={{ background: "var(--slate-bg)", color: "var(--ink)" }}>{b}</span>)}</span>
+                </div>
+              )}
+              {cur.csat && <div className="mt-2.5 flex items-center gap-2"><Stars n={Math.round(cur.csat)} size={13} /><b className="text-[13px]">{cur.csat} / 5</b></div>}
+            </div>
+            <SavedCcCard email={cur.email} toast={toast} />
+          </div>
+
+          <div className="space-y-4">
+            <div className="card p-4">
+              <p className="lbl mb-2.5">{t("c360OpenCases")}</p>
+              {openTk.length === 0 && <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("c360NoOpen")}</p>}
+              <div className="space-y-2">
+                {openTk.map((x) => (
+                  <button key={x.id} onClick={() => open(x)} className="w-full text-left card p-3.5 hover:bg-slate-50">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="pill" style={{ background: "var(--slate-bg)", color: "var(--muted)" }}>{x.id}</span>
+                      <ChanChip k={x.channel} /><Chip map={ST} k={x.status} /><Chip map={PRI} k={x.priority} />
+                      <span className="ml-auto text-[11.5px]" style={{ color: "var(--muted)" }}>{ago(x.createdAt)}</span>
+                    </div>
+                    <div className="font-semibold text-[13.5px]">{subjectOf(x)}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="card p-4">
+              <p className="lbl mb-2.5">{t("c360History")}</p>
+              <div className="space-y-2 max-h-[480px] overflow-auto scroll pr-1">
+                {[...cur.tickets].sort((a, b) => b.createdAt - a.createdAt).map((x) => (
+                  <button key={x.id} onClick={() => open(x)} className="w-full text-left card p-3.5 hover:bg-slate-50">
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <ChanChip k={x.channel} /><Chip map={ST} k={x.status} />
+                      <span className="ml-auto text-[11.5px]" style={{ color: "var(--muted)" }}>{ago(x.createdAt)}</span>
+                    </div>
+                    <div className="font-semibold text-[13.5px]">{subjectOf(x)}</div>
+                    <div className="text-[12px] mt-0.5 truncate" style={{ color: "var(--muted)" }}>{tv(x.messages[0].text)}</div>
+                    {x.csat && <div className="mt-1.5"><Stars n={x.csat} size={12} /></div>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -2893,47 +3069,23 @@ function Customers({ tickets, open }) {
           <thead><tr><th>{t("cCustomer")}</th><th>{t("channelsUsed")}</th><th className="text-right">{t("cTotal")}</th><th className="text-right">{t("cOpen")}</th><th>{t("cCsat")}</th><th>{t("cLast")}</th><th></th></tr></thead>
           <tbody>
             {rows.slice(0, 40).map((c) => (
-              <tr key={c.name}>
+              <tr key={c.key} className="cursor-pointer hover:bg-slate-50" onClick={() => setPick(c.key)}>
                 <td>
                   <div className="font-semibold flex items-center gap-1.5">{c.name}
                     {c.tags.map((g, i) => <span key={i} className="pill" style={{ background: "var(--violet-bg)", color: "var(--violet)", padding: "1px 7px" }}>{tv(g)}</span>)}</div>
-                  <div className="text-[11.5px]" style={{ color: "var(--muted)" }}>{c.phone}</div>
+                  <div className="text-[11.5px]" style={{ color: "var(--muted)" }}>{[c.email, c.phone].filter(Boolean).join(" · ")}</div>
                 </td>
                 <td><div className="flex gap-1 flex-wrap">{[...c.channels].slice(0, 3).map((k) => <ChanChip key={k} k={k} />)}</div></td>
                 <td className="text-right font-semibold">{c.tickets.length}</td>
                 <td className="text-right">{c.open > 0 ? <span className="pill" style={{ background: "var(--amber-bg)", color: "var(--amber)" }}>{c.open}</span> : <span style={{ color: "var(--muted)" }}>—</span>}</td>
                 <td>{c.csat ? <span className="flex items-center gap-1.5"><Stars n={Math.round(c.csat)} size={12} /><b className="text-[12.5px]">{c.csat}</b></span> : <span style={{ color: "var(--muted)" }}>—</span>}</td>
                 <td style={{ color: "var(--muted)" }}>{ago(c.last)}</td>
-                <td><button className="btn btn-g" style={{ padding: "6px 12px" }} onClick={() => setPick(c)}>{t("viewHistory")}</button></td>
+                <td><button className="btn btn-g" style={{ padding: "6px 12px" }} onClick={(e) => { e.stopPropagation(); setPick(c.key); }}>{t("viewHistory")}</button></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-
-      {pick && (
-        <Modal title={pick.name} sub={t("custModalSub", pick.phone, pick.tickets.length)} onClose={() => setPick(null)} w={680}>
-          <div className="grid grid-cols-3 gap-3 mb-5">
-            {[[t("mTotal"), pick.tickets.length], [t("mOpen"), pick.open], [t("mCsat"), pick.csat || "—"]].map(([l, v]) => (
-              <div key={l} className="card p-3.5 text-center"><p className="text-[11.5px]" style={{ color: "var(--muted)" }}>{l}</p><p className="text-[21px] font-bold">{v}</p></div>
-            ))}
-          </div>
-          <p className="lbl">{t("timeline")}</p>
-          <div className="space-y-2 max-h-80 overflow-auto scroll pr-1">
-            {[...pick.tickets].sort((a, b) => b.createdAt - a.createdAt).map((x) => (
-              <button key={x.id} onClick={() => { setPick(null); open(x); }} className="w-full text-left card p-3.5 hover:bg-slate-50">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <ChanChip k={x.channel} /><Chip map={ST} k={x.status} />
-                  <span className="ml-auto text-[11.5px]" style={{ color: "var(--muted)" }}>{ago(x.createdAt)}</span>
-                </div>
-                <div className="font-semibold text-[13.5px]">{subjectOf(x)}</div>
-                <div className="text-[12px] mt-0.5 truncate" style={{ color: "var(--muted)" }}>{tv(x.messages[0].text)}</div>
-                {x.csat && <div className="mt-1.5"><Stars n={x.csat} size={12} /></div>}
-              </button>
-            ))}
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
@@ -4954,7 +5106,7 @@ export default function ServiceCRM({ user, role }) {
           {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} unread={unread} markRead={markRead} />}
           {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} />}
           {tab === "calls"     && <CallsView tickets={scope(tickets)} allTickets={tickets} calls={calls} queue={queue} callbacks={callbacks} setCallbacks={setCallbacks} presence={presence} setPresence={setPresence} me={me} sip={sip} routing={routing} startCall={startCall} pullCall={pullCall} onPlay={setPlayRec} toast={toast} simulateCall={simulateCall} sf={sf} />}
-          {tab === "customers" && <Customers tickets={tickets} open={openTicket} />}
+          {tab === "customers" && <Customers tickets={tickets} open={openTicket} toast={toast} />}
           {tab === "kb"        && <Knowledge kb={kb} setKb={setKb} canned={canned} setCanned={setCanned} me={me} toast={toast} />}
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
           {tab === "brands"    && <BrandsView />}
