@@ -825,8 +825,12 @@ const D = {
   sigVars: ["Use {{agent}} for the sender's name", "ใช้ {{agent}} แทนชื่อผู้ส่ง"],
   sigSaved: ["Signature saved", "บันทึกลายเซ็นแล้ว"],
   sigSave: ["Save signature", "บันทึกลายเซ็น"],
-  sigLogoTitle: ["Company logo", "โลโก้บริษัท"],
-  sigLogoSub: ["Shown on the left of every email signature — all agents, all mailboxes", "แสดงด้านซ้ายของลายเซ็นอีเมลทุกคน ทุกกล่องเมล"],
+  sigLogoTitle: ["Signature logo", "โลโก้ในลายเซ็น"],
+  sigLogoSub: ["Each brand mailbox can carry its own logo — the default covers the rest", "แต่ละกล่องเมลแบรนด์ใช้โลโก้ของตัวเองได้ — ค่าเริ่มต้นใช้กับที่เหลือ"],
+  sigLogoScope: ["Logo for", "โลโก้สำหรับ"],
+  sigLogoDefault: ["Default — every mailbox", "ค่าเริ่มต้น — ทุกกล่องเมล"],
+  sigLogoInherit: ["Using the default logo — upload one to give this brand its own", "ใช้โลโก้เริ่มต้นอยู่ — อัปโหลดเพื่อกำหนดของแบรนด์นี้เอง"],
+  sigLogoUseDefault: ["Use default logo", "กลับไปใช้โลโก้เริ่มต้น"],
   sigLogoNone: ["No logo yet — emails send with text only", "ยังไม่มีโลโก้ — อีเมลจะมีเฉพาะข้อความ"],
   sigLogoUpload: ["Upload logo", "อัปโหลดโลโก้"],
   sigLogoWidth: ["Width", "ความกว้าง"],
@@ -4839,8 +4843,11 @@ function SignatureSettings({ me, toast }) {
 
   const key = (me.email || me.id || "").toLowerCase();
 
-  /* org-wide bits of the signature config (logo) — saved immediately,
-     independent of the personal signature form below */
+  /* org-wide bits of the signature config (logos) — saved immediately,
+     independent of the personal signature form below. Logos are per-mailbox:
+     cfg.logoByMailbox[box] = { url, width } overrides the default
+     logoUrl/logoWidth, so Enfa mail can carry the Enfa logo. */
+  const [logoBox, setLogoBox] = useState(SIG_ALL);
   const saveOrg = async (patch) => {
     const next = { ...cfg, ...patch };
     const { error } = await supabase.from("kv_state")
@@ -4848,18 +4855,30 @@ function SignatureSettings({ me, toast }) {
     if (error) toast(error.message, "error");
     else { setCfg(next); toast(t("sigLogoSaved")); }
   };
+  const logoOwn = logoBox === SIG_ALL ? null : (cfg?.logoByMailbox || {})[logoBox] || null;   // this box's own logo
+  const logoUrlShown = logoBox === SIG_ALL ? cfg?.logoUrl : (logoOwn?.url ?? cfg?.logoUrl);   // what actually sends
+  const logoWShown = logoBox === SIG_ALL ? (Number(cfg?.logoWidth) || 150) : (Number(logoOwn?.width) || Number(cfg?.logoWidth) || 150);
+  const saveLogo = (entryOrNull) => {
+    if (logoBox === SIG_ALL) {
+      return saveOrg({ logoUrl: entryOrNull?.url ?? "", logoWidth: entryOrNull?.width ?? (Number(cfg?.logoWidth) || 150) });
+    }
+    const map = { ...(cfg?.logoByMailbox || {}) };
+    if (entryOrNull) map[logoBox] = entryOrNull; else delete map[logoBox];
+    return saveOrg({ logoByMailbox: map });
+  };
   const uploadLogo = async (file) => {
     if (!file) return;
     if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) { toast(t("sigLogoType"), "error"); return; }
     if (file.size > 1024 * 1024) { toast(t("sigLogoBig"), "error"); return; }
     setLogoBusy(true);
     const ext = (file.name.split(".").pop() || "png").toLowerCase();
-    const path = `signature/logo-${Date.now()}.${ext}`;
+    const slug = logoBox === SIG_ALL ? "default" : logoBox.split("@")[0].replace(/[^a-z0-9.-]/gi, "");
+    const path = `signature/logo-${slug}-${Date.now()}.${ext}`;
     const up = await supabase.storage.from("brand-assets").upload(path, file, { contentType: file.type, upsert: true });
     setLogoBusy(false);
     if (up.error) { toast(up.error.message, "error"); return; }
     const { data } = supabase.storage.from("brand-assets").getPublicUrl(path);
-    saveOrg({ logoUrl: data.publicUrl });
+    saveLogo({ url: data.publicUrl, width: logoWShown });
   };
 
   useEffect(() => {
@@ -4972,31 +4991,56 @@ function SignatureSettings({ me, toast }) {
         </div>
       </div>
 
-      {/* ── company logo — org-wide, sits left of every signature in the email HTML ── */}
+      {/* ── signature logo — per mailbox, with an org-wide default fallback ── */}
       {me.role !== "agent" && (
         <div className="mb-5 p-4 rounded-xl border" style={{ borderColor: "var(--line)" }}>
           <p className="font-bold text-[13.5px]">{t("sigLogoTitle")}</p>
           <p className="text-[11.5px] mb-3" style={{ color: "var(--muted)" }}>{t("sigLogoSub")}</p>
+          <label className="lbl">{t("sigLogoScope")}</label>
+          <select className="fld mb-3" value={logoBox} onChange={(e) => setLogoBox(e.target.value)}>
+            <option value={SIG_ALL}>{t("sigLogoDefault")}</option>
+            {sendBoxes.map((m) => (
+              <option key={m} value={m}>
+                {(cfg.brandByMailbox?.[m] || m.split("@")[0])} — {m}{(cfg.logoByMailbox || {})[m] ? " ✳" : ""}
+              </option>
+            ))}
+          </select>
           <div className="flex items-center gap-4 flex-wrap">
-            {cfg.logoUrl
-              ? <img src={cfg.logoUrl} alt="logo" style={{ width: Number(cfg.logoWidth) || 150, maxHeight: 90, objectFit: "contain", border: "1px solid var(--line)", borderRadius: 8, padding: 6, background: "#fff" }} />
+            {logoUrlShown
+              ? <img src={logoUrlShown} alt="logo" style={{ width: logoWShown, maxHeight: 90, objectFit: "contain", border: "1px solid var(--line)", borderRadius: 8, padding: 6, background: "#fff", opacity: logoBox !== SIG_ALL && !logoOwn ? .55 : 1 }} />
               : <div className="text-[12px] px-4 py-3 rounded-lg" style={{ background: "var(--slate-bg)", color: "var(--muted)" }}>{t("sigLogoNone")}</div>}
             <div className="flex flex-col gap-2">
+              {logoBox !== SIG_ALL && !logoOwn && (
+                <p className="text-[11.5px]" style={{ color: "var(--muted)", maxWidth: 260 }}>{t("sigLogoInherit")}</p>
+              )}
               <label className="btn btn-p" style={{ cursor: "pointer" }}>
                 {logoBusy ? "…" : t("sigLogoUpload")}
                 <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }}
                        onChange={(e) => { uploadLogo(e.target.files && e.target.files[0]); e.target.value = ""; }} />
               </label>
-              <div className="flex items-center gap-2">
-                <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>{t("sigLogoWidth")}</span>
-                <input className="fld" type="number" min={60} max={400} style={{ width: 88 }}
-                       value={Number(cfg.logoWidth) || 150}
-                       onChange={(e) => setCfg({ ...cfg, logoWidth: e.target.value })}
-                       onBlur={(e) => saveOrg({ logoWidth: Math.min(400, Math.max(60, Number(e.target.value) || 150)) })} />
-                <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>px</span>
-              </div>
-              {cfg.logoUrl && (
-                <button className="btn btn-g" style={{ color: "var(--red)" }} onClick={() => saveOrg({ logoUrl: "" })}>{t("sigLogoRemove")}</button>
+              {(logoBox === SIG_ALL ? !!cfg.logoUrl : !!logoOwn) && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>{t("sigLogoWidth")}</span>
+                  <input className="fld" type="number" min={60} max={400} style={{ width: 88 }}
+                         value={logoWShown}
+                         onChange={(e) => {
+                           const w = e.target.value;
+                           if (logoBox === SIG_ALL) setCfg({ ...cfg, logoWidth: w });
+                           else setCfg({ ...cfg, logoByMailbox: { ...(cfg.logoByMailbox || {}), [logoBox]: { ...logoOwn, width: w } } });
+                         }}
+                         onBlur={(e) => {
+                           const w = Math.min(400, Math.max(60, Number(e.target.value) || 150));
+                           if (logoBox === SIG_ALL) saveOrg({ logoWidth: w });
+                           else saveLogo({ ...logoOwn, width: w });
+                         }} />
+                  <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>px</span>
+                </div>
+              )}
+              {logoBox === SIG_ALL && cfg.logoUrl && (
+                <button className="btn btn-g" style={{ color: "var(--red)" }} onClick={() => saveLogo(null)}>{t("sigLogoRemove")}</button>
+              )}
+              {logoBox !== SIG_ALL && logoOwn && (
+                <button className="btn btn-g" onClick={() => saveLogo(null)}>{t("sigLogoUseDefault")}</button>
               )}
             </div>
           </div>
