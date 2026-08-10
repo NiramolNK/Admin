@@ -534,6 +534,39 @@ const D = {
 
   /* dashboard */
   kToday: ["Cases opened today", "เคสเข้าวันนี้"], kTodaySub: ["%s already closed", "ปิดไปแล้ว %s เคส"],
+  /* management dashboard */
+  secVolume: ["Volume", "ปริมาณงาน"], secCases: ["Cases", "เคส"], secQuality: ["Service quality", "คุณภาพบริการ"],
+  vTotal: ["Total cases", "เคสทั้งหมด"],
+  vPrev: ["%s vs prev 30d", "%s เทียบ 30 วันก่อนหน้า"],
+  vShare: ["%s of volume", "%s ของทั้งหมด"],
+  vDaily: ["Daily cases by channel", "เคสรายวันแยกตามช่องทาง"],
+  vDailySub: ["Last 30 days", "30 วันล่าสุด"],
+  vMix: ["Channel mix", "สัดส่วนช่องทาง"],
+  vMixSub: ["Share of cases this period", "สัดส่วนเคสในช่วงนี้"],
+  convEsc: ["Case → escalation", "เคส → ส่งต่อแบรนด์"],
+  convEscSub: ["%s escalations raised", "ส่งต่อแบรนด์ %s งาน"],
+  convReopen: ["Reopen rate", "อัตราเปิดเคสซ้ำ"],
+  convReopenSub: ["%s cases reopened", "เปิดซ้ำ %s เคส"],
+  kResolved30: ["Resolved cases", "เคสที่ปิดแล้ว"],
+  kClosure: ["%s closure rate", "อัตราปิดงาน %s"],
+  kEscTile: ["Escalated", "ส่งต่อแบรนด์"],
+  kEscSub: ["%s still open", "ค้างอยู่ %s งาน"],
+  kPastSla: ["Open cases past SLA", "เคสค้างเกิน SLA"],
+  gSla: ["SLA achievement", "ทำตาม SLA"],
+  gSlaSub: ["%s of %s replies in target", "ตอบทัน %s จาก %s เคส"],
+  gFcr: ["First contact resolution", "จบในการตอบครั้งเดียว"],
+  gFcrSub: ["resolved with a single reply", "ปิดได้ด้วยการตอบครั้งเดียว"],
+  gCsatSub: ["average %s / 5", "เฉลี่ย %s / 5"],
+  gRr: ["Response & resolution", "เวลาตอบและปิดงาน"],
+  gBlend: ["Blended across channels", "รวมทุกช่องทาง"],
+  gFrt: ["First response time", "เวลาตอบครั้งแรก"],
+  gRes: ["Resolution time", "เวลาปิดงาน"],
+  tOpenSub: ["%s at risk · %s breached", "เสี่ยง %s · เกิน SLA %s"],
+  tSlaAch: ["SLA %s achieved", "ทำตาม SLA %s"],
+  tAvgFrt: ["Avg first response", "ตอบครั้งแรกเฉลี่ย"],
+  tAvgRes: ["Avg resolution", "ปิดงานเฉลี่ย"],
+  tPipe: ["Case pipeline by status", "สถานะเคสในระบบ"],
+  tPipeSub: ["Live workload distribution", "การกระจายงานปัจจุบัน"],
   kBacklog: ["Open backlog", "งานค้างในระบบ"], kBacklogSub: ["%s still unassigned", "ยังไม่มีผู้รับผิดชอบ %s เคส"],
   kSla: ["Replied within SLA", "ตอบกลับทัน SLA"], kSlaSub: ["Average %s", "เฉลี่ย %s"],
   kCsat: ["Satisfaction score", "คะแนนความพึงพอใจ"], kCsatSub: ["From %s responses", "จาก %s คำตอบ"],
@@ -673,6 +706,43 @@ const D = {
   crOpenInbox: ["Open in Inbox", "เปิดในกล่องข้อความ"],
   crOpen360: ["Customer 360", "ข้อมูลลูกค้า 360"],
   crNotRated: ["not rated", "ยังไม่ให้คะแนน"],
+  /* escalations */
+  navEsc: ["Escalations", "ส่งต่อแบรนด์"],
+  escRaiseTitle: ["Escalate to brand", "ส่งต่อให้แบรนด์"],
+  escRaiseSub: ["Hands this case to the brand team and starts the response clock", "ส่งเคสให้ทีมแบรนด์ พร้อมเริ่มจับเวลารอคำตอบ"],
+  escSeverity: ["Severity", "ระดับความรุนแรง"],
+  escSevLow: ["Low", "ต่ำ"], escSevMed: ["Medium", "กลาง"], escSevHigh: ["High", "สูง"], escSevCrit: ["Critical", "วิกฤต"],
+  escContact: ["Brand contact", "ผู้ติดต่อฝั่งแบรนด์"],
+  escContactPh: ["name or email at the brand", "ชื่อหรืออีเมลฝั่งแบรนด์"],
+  escNote: ["What do you need from the brand?", "ต้องการอะไรจากแบรนด์?"],
+  escNotePh: ["e.g. approve replacement for order #12345", "เช่น ขออนุมัติส่งสินค้าใหม่ ออเดอร์ #12345"],
+  escDueIn: ["Brand response due in %s", "แบรนด์ควรตอบภายใน %s"],
+  escRaised: ["Escalated %s to the brand", "ส่งต่อ %s ให้แบรนด์แล้ว"],
+  escRaiseBtn: ["Escalate", "ส่งต่อ"],
+  escOpenN: ["Open escalations", "งานส่งต่อค้างอยู่"],
+  escAwaiting: ["Awaiting brand", "รอแบรนด์ตอบ"],
+  escOverdue: ["Overdue", "เกินกำหนด"],
+  escAvgResp: ["Avg brand response", "แบรนด์ตอบเฉลี่ย"],
+  escStOpen: ["Awaiting brand", "รอแบรนด์"],
+  escStResponded: ["Brand responded", "แบรนด์ตอบแล้ว"],
+  escStResolved: ["Resolved", "ปิดแล้ว"],
+  escCase: ["Case", "เคส"], escBrand: ["Brand", "แบรนด์"], escAge: ["Age", "อายุงาน"], escDue: ["Due", "กำหนดตอบ"],
+  escRaisedBy: ["Raised by", "ผู้ส่งต่อ"],
+  escMarkResp: ["Mark brand responded", "บันทึกว่าแบรนด์ตอบแล้ว"],
+  escMarkRes: ["Mark resolved", "ปิดงานส่งต่อ"],
+  escReopenBtn: ["Reopen", "เปิดใหม่"],
+  escResolution: ["Resolution", "ผลสรุป"],
+  escResolutionPh: ["what the brand agreed / did", "สิ่งที่แบรนด์ตกลงหรือดำเนินการ"],
+  escRootCause: ["Root cause", "สาเหตุ"],
+  escPreventive: ["Preventive action", "การป้องกันซ้ำ"],
+  escComp: ["Compensation (฿)", "ค่าชดเชย (฿)"],
+  escBrandCmt: ["Brand comment", "ความเห็นฝั่งแบรนด์"],
+  escCreaCmt: ["CREA comment", "ความเห็นฝั่ง CREA"],
+  escSaved: ["Escalation updated", "อัปเดตงานส่งต่อแล้ว"],
+  escNone: ["No escalations yet", "ยังไม่มีงานส่งต่อแบรนด์"],
+  escNoneSub: ["Escalate a case from the Inbox when you need the brand team to act", "กดส่งต่อจากกล่องข้อความเมื่อจำเป็นต้องให้ทีมแบรนด์ดำเนินการ"],
+  escRespondedIn: ["responded in %s", "ตอบใน %s"],
+  escSaveBtn: ["Save", "บันทึก"],
   crSlaClock: ["SLA clock", "นาฬิกา SLA"],
   crSlaTarget: ["SLA target", "เป้า SLA"], crElapsed: ["Elapsed", "ใช้ไปแล้ว"], crRemaining: ["Remaining", "เหลืออีก"],
   crTimeline: ["Case timeline", "ไทม์ไลน์เคส"],
@@ -1657,6 +1727,37 @@ const Kpi = ({ icon: Ic, label, value, unit, sub, tint, bg }) => (
   </div>
 );
 
+/* flat stat tile — the management-dashboard style (label over number) */
+const Tile = ({ label, value, sub, subC, accent }) => (
+  <div className="card p-4" style={accent ? { borderLeft: `3px solid ${accent}` } : {}}>
+    <p className="text-[10.5px] font-bold uppercase" style={{ color: "var(--muted)", letterSpacing: .5 }}>{label}</p>
+    <p className="text-[24px] font-bold leading-tight mt-1 tracking-tight">{value}</p>
+    {sub != null && <p className="text-[11.5px] mt-0.5" style={{ color: subC || "var(--muted)" }}>{sub}</p>}
+  </div>
+);
+
+/* donut gauge for the Service-quality row */
+const Gauge = ({ pct, label, sub, color = "var(--green)" }) => {
+  const C = 2 * Math.PI * 46;
+  const p = Math.max(0, Math.min(100, Number(pct) || 0));
+  return (
+    <div className="card p-4 text-center">
+      <p className="text-[12.5px] font-bold mb-1.5">{label}</p>
+      <svg viewBox="0 0 110 110" style={{ width: 104, height: 104, margin: "0 auto", display: "block" }}>
+        <circle cx="55" cy="55" r="46" fill="none" stroke="var(--slate-bg)" strokeWidth="9" />
+        <circle cx="55" cy="55" r="46" fill="none" stroke={color} strokeWidth="9" strokeLinecap="round"
+                strokeDasharray={`${C * p / 100} ${C}`} transform="rotate(-90 55 55)" />
+        <text x="55" y="61" textAnchor="middle" style={{ fontSize: 19, fontWeight: 700, fill: "var(--ink)" }}>{Math.round(p)}%</text>
+      </svg>
+      {sub && <p className="text-[11.5px] mt-1.5" style={{ color: "var(--muted)" }}>{sub}</p>}
+    </div>
+  );
+};
+
+const SecHead = ({ children }) => (
+  <p className="text-[11px] font-bold uppercase" style={{ color: "var(--muted)", letterSpacing: .8 }}>{children}</p>
+);
+
 /* ═══════════════════════ LOGIN ═══════════════════════ */
 
 function Login({ onLogin, lang, setLang }) {
@@ -1729,13 +1830,49 @@ function Dashboard({ tickets, trend, scope, go, open, me }) {
   const todayIn = rows.filter((x) => x.createdAt >= days0());
   const backlog = rows.filter((x) => OPEN_ST.includes(x.status));
   const answered = rows.filter((x) => x.firstResponseMin != null);
-  const met = answered.filter((x) => x.firstResponseMin <= PRI[x.priority].fr);
+  const met = answered.filter((x) => x.firstResponseMin <= (x.slaTargetMin ?? PRI[x.priority].fr));
   const slaPct = answered.length ? Math.round((met.length / answered.length) * 100) : 0;
   const rated = rows.filter((x) => x.csat);
   const csat = rated.length ? (rated.reduce((s, x) => s + x.csat, 0) / rated.length).toFixed(2) : "—";
   const atRisk = backlog.filter((x) => ["breach", "risk"].includes(sla(x).state)).sort((a, b) => sla(a).left - sla(b).left);
 
-  const byChan = CH_KEYS.map((k) => ({ name: tv(CH[k].n), value: rows.filter((x) => x.channel === k).length, c: CH[k].c })).filter((d) => d.value);
+  /* ── management view: 30-day window ── */
+  const nowMs = Date.now();
+  const last30 = rows.filter((x) => x.createdAt >= nowMs - 30 * DAY_MS);
+  const prev30 = rows.filter((x) => x.createdAt >= nowMs - 60 * DAY_MS && x.createdAt < nowMs - 30 * DAY_MS);
+  const delta30 = prev30.length ? Math.round(((last30.length - prev30.length) / prev30.length) * 100) : null;
+  const chanTiles = CH_KEYS.map((k) => ({ k, n: last30.filter((x) => x.channel === k).length }))
+    .filter((c) => c.n > 0).sort((a, b) => b.n - a.n).slice(0, 3);
+  const daily = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date(nowMs - (29 - i) * DAY_MS);
+    return { day: `${d.getDate()}/${d.getMonth() + 1}`, ...Object.fromEntries(CH_KEYS.map((k) => [k, 0])) };
+  });
+  last30.forEach((x) => {
+    const idx = 29 - Math.floor((nowMs - x.createdAt) / DAY_MS);
+    if (daily[idx]) daily[idx][x.channel] = (daily[idx][x.channel] || 0) + 1;
+  });
+  const resolved30 = last30.filter((x) => ["resolved", "closed"].includes(x.status));
+  const reopen30 = last30.filter((x) => x.reopened);
+  const pastSla = backlog.filter((x) => sla(x).state === "breach");
+  const resTimes = resolved30.filter((x) => x.resolveMin != null);
+  const avgRes = resTimes.length ? Math.round(resTimes.reduce((s, x) => s + x.resolveMin, 0) / resTimes.length) : null;
+  const avgFrt = answered.length ? Math.round(answered.reduce((s, x) => s + x.firstResponseMin, 0) / answered.length) : null;
+  const fcrBase = resolved30.filter((x) => x.messages);
+  const fcr = fcrBase.length ? Math.round(fcrBase.filter((x) => !x.reopened && x.messages.filter((m) => m.from === "agent").length <= 1).length / fcrBase.length * 100) : 0;
+  const [escStat, setEscStat] = useState({ n: 0, open: 0 });
+  useEffect(() => {
+    let dead = false;
+    supabase.from("escalations").select("id,status,raised_at").then(({ data }) => {
+      if (dead) return;
+      const es = (data || []).filter((e) => new Date(e.raised_at).getTime() >= nowMs - 30 * DAY_MS);
+      setEscStat({ n: es.length, open: (data || []).filter((e) => e.status === "open").length });
+    });
+    return () => { dead = true; };
+  }, []);
+  const escRate = last30.length ? ((escStat.n / last30.length) * 100).toFixed(1) : "0.0";
+  const reopenRate = last30.length ? ((reopen30.length / last30.length) * 100).toFixed(1) : "0.0";
+  const csatPct = rated.length ? (rated.reduce((s, x) => s + x.csat, 0) / rated.length) / 5 * 100 : 0;
+
   const byCat = CAT_KEYS.map((k) => ({ name: tv(CAT[k]), v: rows.filter((x) => x.catKey === k).length })).sort((a, b) => b.v - a.v);
   const load = AGENTS.map((a) => {
     const ts = tickets.filter((x) => x.owner === a.id);
@@ -1748,11 +1885,96 @@ function Dashboard({ tickets, trend, scope, go, open, me }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(215px,1fr))" }}>
-        <Kpi icon={Inbox} label={t("kToday")} value={todayIn.length} unit={t("uCases")} sub={t("kTodaySub", todayIn.filter((x) => ["resolved", "closed"].includes(x.status)).length)} tint="var(--blue)" bg="var(--sky)" />
-        <Kpi icon={Ticket} label={t("kBacklog")} value={backlog.length} unit={t("uCases")} sub={t("kBacklogSub", backlog.filter((x) => !x.owner).length)} tint="var(--cyan)" bg="var(--cyan-bg)" />
-        <Kpi icon={Timer} label={t("kSla")} value={slaPct} unit="%" sub={t("kSlaSub", dur(Math.round(answered.reduce((s, x) => s + x.firstResponseMin, 0) / (answered.length || 1))))} tint={slaPct >= 85 ? "var(--green)" : "var(--amber)"} bg={slaPct >= 85 ? "var(--green-bg)" : "var(--amber-bg)"} />
-        <Kpi icon={ThumbsUp} label={t("kCsat")} value={csat} unit={t("uOf5")} sub={t("kCsatSub", rated.length)} tint="var(--amber)" bg="var(--amber-bg)" />
+      {/* ── VOLUME ── */}
+      <SecHead>{t("secVolume")}</SecHead>
+      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${2 + chanTiles.length}, minmax(0,1fr))`, marginTop: 8 }}>
+        <Tile label={t("vTotal")} value={last30.length} accent="var(--blue)"
+              sub={delta30 != null ? t("vPrev", `${delta30 >= 0 ? "▲ +" : "▼ "}${delta30}%`) : t("vDailySub")}
+              subC={delta30 != null && delta30 > 0 ? "var(--green)" : undefined} />
+        {chanTiles.map(({ k, n }) => (
+          <Tile key={k} label={tv(CH[k].n)} value={n} sub={t("vShare", `${last30.length ? Math.round(n / last30.length * 100) : 0}%`)} />
+        ))}
+        <Tile label={t("kEscTile")} value={escStat.n} sub={t("kEscSub", escStat.open)} subC={escStat.open > 0 ? "var(--amber)" : undefined} />
+      </div>
+
+      <div className="grid gap-4" style={{ gridTemplateColumns: "1.55fr 1fr" }}>
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold text-[15px]">{t("vDaily")}</h3>
+            <span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("vDailySub")}</span>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={daily} margin={{ top: 4, right: 6, left: -22, bottom: 0 }} barCategoryGap="22%">
+              <CartesianGrid strokeDasharray="3 4" stroke="#E2E8F0" vertical={false} />
+              <XAxis dataKey="day" tick={{ fontSize: 10.5, fill: "#94A3B8" }} axisLine={false} tickLine={false} interval={4} />
+              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} allowDecimals={false} />
+              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E8F0", fontSize: 12.5 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" iconSize={7} />
+              {CH_KEYS.filter((k) => last30.some((x) => x.channel === k)).map((k) => (
+                <Bar key={k} dataKey={k} name={tv(CH[k].n)} stackId="a" fill={CH[k].c} />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="card p-5">
+          <h3 className="font-bold text-[15px] mb-0.5">{t("vMix")}</h3>
+          <p className="text-[12px] mb-3" style={{ color: "var(--muted)" }}>{t("vMixSub")}</p>
+          <div className="flex rounded-lg overflow-hidden mb-2" style={{ height: 26 }}>
+            {CH_KEYS.filter((k) => last30.some((x) => x.channel === k)).map((k) => {
+              const n = last30.filter((x) => x.channel === k).length;
+              return <div key={k} style={{ width: `${n / (last30.length || 1) * 100}%`, background: CH[k].c }} title={`${tv(CH[k].n)} ${n}`} />;
+            })}
+          </div>
+          <div className="flex gap-3 flex-wrap mb-4">
+            {CH_KEYS.filter((k) => last30.some((x) => x.channel === k)).map((k) => {
+              const n = last30.filter((x) => x.channel === k).length;
+              return <span key={k} className="flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--muted)" }}><span className="dot" style={{ background: CH[k].c }} />{tv(CH[k].n)} · {Math.round(n / (last30.length || 1) * 100)}%</span>;
+            })}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="card p-3.5">
+              <p className="text-[10.5px] font-bold uppercase" style={{ color: "var(--muted)", letterSpacing: .5 }}>{t("convEsc")}</p>
+              <p className="text-[21px] font-bold mt-0.5">{escRate}%</p>
+              <p className="text-[11px]" style={{ color: "var(--muted)" }}>{t("convEscSub", escStat.n)}</p>
+            </div>
+            <div className="card p-3.5">
+              <p className="text-[10.5px] font-bold uppercase" style={{ color: "var(--muted)", letterSpacing: .5 }}>{t("convReopen")}</p>
+              <p className="text-[21px] font-bold mt-0.5">{reopenRate}%</p>
+              <p className="text-[11px]" style={{ color: "var(--muted)" }}>{t("convReopenSub", reopen30.length)}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── CASES ── */}
+      <SecHead>{t("secCases")}</SecHead>
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(5, minmax(0,1fr))", marginTop: 8 }}>
+        <Tile label={t("kToday")} value={todayIn.length} sub={t("kTodaySub", todayIn.filter((x) => ["resolved", "closed"].includes(x.status)).length)} />
+        <Tile label={t("kBacklog")} value={backlog.length} sub={t("kBacklogSub", backlog.filter((x) => !x.owner).length)} subC={backlog.some((x) => !x.owner) ? "var(--amber)" : undefined} />
+        <Tile label={t("kResolved30")} value={resolved30.length} sub={t("kClosure", `${last30.length ? Math.round(resolved30.length / last30.length * 100) : 0}%`)} />
+        <Tile label={t("kEscTile")} value={escStat.n} sub={t("kEscSub", escStat.open)} />
+        <Tile label={t("kPastSla")} value={pastSla.length} accent={pastSla.length > 0 ? "var(--red)" : undefined} sub={pastSla.length > 0 ? "■" : "—"} subC="var(--red)" />
+      </div>
+
+      {/* ── SERVICE QUALITY ── */}
+      <SecHead>{t("secQuality")}</SecHead>
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(4, minmax(0,1fr))", marginTop: 8 }}>
+        <Gauge pct={slaPct} label={t("gSla")} sub={t("gSlaSub", met.length, answered.length)} color={slaPct >= 85 ? "var(--green)" : slaPct >= 60 ? "var(--amber)" : "var(--red)"} />
+        <Gauge pct={fcr} label={t("gFcr")} sub={t("gFcrSub")} color={fcr >= 70 ? "var(--green)" : "var(--amber)"} />
+        <Gauge pct={csatPct} label={t("gCsat")} sub={t("gCsatSub", csat)} color={csatPct >= 80 ? "var(--green)" : "var(--amber)"} />
+        <div className="card p-4">
+          <p className="text-[12.5px] font-bold">{t("gRr")}</p>
+          <p className="text-[11.5px] mb-3" style={{ color: "var(--muted)" }}>{t("gBlend")}</p>
+          <div className="card p-3 mb-2">
+            <p className="text-[10.5px] font-bold uppercase" style={{ color: "var(--muted)", letterSpacing: .5 }}>{t("gFrt")}</p>
+            <p className="text-[19px] font-bold">{avgFrt != null ? dur(avgFrt) : "—"}</p>
+          </div>
+          <div className="card p-3">
+            <p className="text-[10.5px] font-bold uppercase" style={{ color: "var(--muted)", letterSpacing: .5 }}>{t("gRes")}</p>
+            <p className="text-[19px] font-bold">{avgRes != null ? dur(avgRes) : "—"}</p>
+          </div>
+        </div>
       </div>
 
         <div className="card overflow-hidden">
@@ -1780,47 +2002,6 @@ function Dashboard({ tickets, trend, scope, go, open, me }) {
             </table>
           )}
         </div>
-
-      <div className="grid gap-4" style={{ gridTemplateColumns: "1.55fr 1fr" }}>
-        <div className="card p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-[15px]">{t("chVolume")}</h3>
-            <span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("last14")}</span>
-          </div>
-          <ResponsiveContainer width="100%" height={230}>
-            <AreaChart data={trend} margin={{ top: 4, right: 6, left: -22, bottom: 0 }}>
-              <defs><linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#0D9488" stopOpacity={.28} /><stop offset="100%" stopColor="#0D9488" stopOpacity={0} /></linearGradient></defs>
-              <CartesianGrid strokeDasharray="3 4" stroke="#E2E8F0" vertical={false} />
-              <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#94A3B8" }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E8F0", fontSize: 12.5 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" iconSize={7} />
-              <Area type="monotone" dataKey="opened" name={t("sNew")} stroke="#0D9488" strokeWidth={2.4} fill="url(#gIn)" />
-              <Line type="monotone" dataKey="closed" name={t("sClosed")} stroke="#12A150" strokeWidth={2.2} dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="card p-5">
-          <h3 className="font-bold text-[15px] mb-1">{t("chChannel")}</h3>
-          <p className="text-[12px] mb-1" style={{ color: "var(--muted)" }}>{t("totalCases", rows.length)}</p>
-          <ResponsiveContainer width="100%" height={190}>
-            <PieChart>
-              <Pie data={byChan} dataKey="value" innerRadius={52} outerRadius={78} paddingAngle={2} stroke="none">
-                {byChan.map((d) => <Cell key={d.name} fill={d.c} />)}
-              </Pie>
-              <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid #E2E8F0", fontSize: 12.5 }} />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-1">
-            {byChan.map((d) => (
-              <div key={d.name} className="flex items-center gap-2 text-[12px]">
-                <span className="dot" style={{ background: d.c }} /><span className="truncate" style={{ color: "var(--muted)" }}>{d.name}</span><b className="ml-auto">{d.value}</b>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
 
       {me && ["admin", "manager"].includes(me.role) && <LiveMonitor tickets={tickets} open={open} />}
 
@@ -2001,6 +2182,26 @@ function Tickets({ tickets, setTickets, me, scope, open, toast, openCustomer }) 
   const [rec, setRec] = useState(null);   // case-record popup
   const canAssign = me.role !== "agent";
 
+  /* ── management strip + pipeline, over the whole scope (unfiltered) ── */
+  const all = scope(tickets);
+  const openAll = all.filter((x) => OPEN_ST.includes(x.status));
+  const resolvedAll = all.filter((x) => ["resolved", "closed"].includes(x.status));
+  const answeredAll = all.filter((x) => x.firstResponseMin != null);
+  const avgF = answeredAll.length ? Math.round(answeredAll.reduce((s, x) => s + x.firstResponseMin, 0) / answeredAll.length) : null;
+  const slaAch = answeredAll.length ? Math.round(answeredAll.filter((x) => x.firstResponseMin <= (x.slaTargetMin ?? PRI[x.priority].fr)).length / answeredAll.length * 100) : 0;
+  const resT = resolvedAll.filter((x) => x.resolveMin != null);
+  const avgR = resT.length ? Math.round(resT.reduce((s, x) => s + x.resolveMin, 0) / resT.length) : null;
+  const [escN, setEscN] = useState({ n: 0, open: 0 });
+  useEffect(() => {
+    let dead = false;
+    supabase.from("escalations").select("id,status").then(({ data }) => {
+      if (!dead) setEscN({ n: (data || []).length, open: (data || []).filter((e) => e.status === "open").length });
+    });
+    return () => { dead = true; };
+  }, []);
+  const pipe = ST_KEYS.map((k) => ({ k, n: all.filter((x) => x.status === k).length })).filter((p) => p.n > 0);
+  const pipeMax = Math.max(...pipe.map((p) => p.n), 1);
+
   const rows = useMemo(() => scope(tickets).filter((x) => {
     const s = q.trim().toLowerCase();
     if (s && !`${subjectOf(x)} ${tv(x.customer)} ${x.id} ${x.order || ""} ${x.phone}`.toLowerCase().includes(s)) return false;
@@ -2028,6 +2229,33 @@ function Tickets({ tickets, setTickets, me, scope, open, toast, openCustomer }) 
 
   return (
     <div className="space-y-4">
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(6, minmax(0,1fr))" }}>
+        <Tile label={t("vTotal")} value={all.length} accent="var(--blue)" />
+        <Tile label={t("kBacklog")} value={openAll.length}
+              sub={t("tOpenSub", openAll.filter((x) => sla(x).state === "risk").length, openAll.filter((x) => sla(x).state === "breach").length)}
+              subC={openAll.some((x) => sla(x).state === "breach") ? "var(--red)" : "var(--amber)"} />
+        <Tile label={t("kResolved30")} value={resolvedAll.length} sub={t("kClosure", `${all.length ? Math.round(resolvedAll.length / all.length * 100) : 0}%`)} />
+        <Tile label={t("kEscTile")} value={escN.n} sub={t("kEscSub", escN.open)} subC={escN.open > 0 ? "var(--amber)" : undefined} />
+        <Tile label={t("tAvgFrt")} value={avgF != null ? dur(avgF) : "—"} sub={t("tSlaAch", `${slaAch}%`)} subC={slaAch >= 85 ? "var(--green)" : "var(--amber)"} />
+        <Tile label={t("tAvgRes")} value={avgR != null ? dur(avgR) : "—"} />
+      </div>
+
+      <div className="card p-5">
+        <h3 className="font-bold text-[15px] mb-0.5">{t("tPipe")}</h3>
+        <p className="text-[12px] mb-3" style={{ color: "var(--muted)" }}>{t("tPipeSub")}</p>
+        <div className="space-y-1.5">
+          {pipe.map(({ k, n }) => (
+            <div key={k} className="flex items-center gap-3 text-[12.5px]">
+              <span className="flex-none text-right" style={{ width: 150, color: "var(--muted)" }}>{ST[k] ? tv(ST[k].n) : k}</span>
+              <div className="flex-1 rounded-full overflow-hidden" style={{ height: 10, background: "var(--slate-bg)" }}>
+                <div style={{ width: `${n / pipeMax * 100}%`, height: "100%", background: (ST[k] || {}).c || "var(--blue)" }} />
+              </div>
+              <b className="flex-none text-right" style={{ width: 36 }}>{n}</b>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <div className="card p-4 flex flex-wrap gap-2.5 items-center">
         <div className="relative flex-1" style={{ minWidth: 220 }}>
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted)" }} />
@@ -2607,6 +2835,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   };
 
   const [compose, setCompose] = useState(false);  // New message window
+  const [escOpen, setEscOpen] = useState(false);  // escalate-to-brand modal
   const [collide, setCollide] = useState(null);   // { name } — confirm before double-replying
 
   const send = (force) => {
@@ -2982,7 +3211,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             <div className="p-4">
               <p className="lbl">{t("caseActions")}</p>
               <div className="space-y-1.5">
-                <button className="btn btn-g w-full justify-start" onClick={() => patch({ status: "escalated", priority: "high" }, t("escalated"))}><ArrowUpRight size={14} />{t("escalate")}</button>
+                <button className="btn btn-g w-full justify-start" onClick={() => setEscOpen(true)}><ArrowUpRight size={14} />{t("escalate")}</button>
                 <button className="btn btn-g w-full justify-start" onClick={() => patch({ status: "pending" }, t("pendingSet"))}><Clock size={14} />{t("waitCust")}</button>
                 <button className="btn btn-d w-full justify-start" onClick={() => patch({ status: "resolved", resolveMin: Math.round((Date.now() - tk.createdAt) / MIN) }, t("resolvedMsg"))}><CheckCircle2 size={14} />{t("resolveClose")}</button>
                 {me.role === "admin" && (
@@ -3008,6 +3237,11 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
       {compose && (
         <NewMessage me={me} toast={toast} onClose={() => setCompose(false)}
                     onSent={(x) => { setTickets((p) => [x, ...p]); setCompose(false); setSel(x.id); }} />
+      )}
+
+      {escOpen && tk && (
+        <EscalateModal tk={tk} me={me} toast={toast} onClose={() => setEscOpen(false)}
+                       onDone={(ref) => { setEscOpen(false); patch({ status: "escalated", priority: tk.priority === "critical" ? "critical" : "high" }, t("escRaised", ref)); }} />
       )}
 
       {/* ── collision confirm: two agents replying to the same case ── */}
@@ -3049,6 +3283,221 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
 }
 
 /* ═══════════════════════ CUSTOMERS ═══════════════════════ */
+
+/* ═══════════════════════ ESCALATIONS ═══════════════════════ */
+
+const ESC_SEV = {
+  low:      { n: { en: "Low", th: "ต่ำ" },      c: "var(--muted)",  bg: "var(--slate-bg)", hrs: 72 },
+  medium:   { n: { en: "Medium", th: "กลาง" },  c: "var(--blue)",   bg: "var(--sky)",      hrs: 48 },
+  high:     { n: { en: "High", th: "สูง" },     c: "var(--amber)",  bg: "var(--amber-bg)", hrs: 24 },
+  critical: { n: { en: "Critical", th: "วิกฤต" }, c: "var(--red)",  bg: "var(--red-bg)",   hrs: 8 },
+};
+const ESC_ST = {
+  open:      { n: { en: "Awaiting brand", th: "รอแบรนด์" },   c: "var(--amber)", bg: "var(--amber-bg)" },
+  responded: { n: { en: "Brand responded", th: "แบรนด์ตอบแล้ว" }, c: "var(--blue)", bg: "var(--sky)" },
+  resolved:  { n: { en: "Resolved", th: "ปิดแล้ว" },          c: "var(--green)", bg: "var(--green-bg)" },
+};
+
+/* raise an escalation from the Inbox — writes the escalations row and flips
+   the case to "escalated" so the SLA view treats it as waiting on the brand */
+function EscalateModal({ tk, me, onDone, onClose, toast }) {
+  const [sev, setSev] = useState("high");
+  const [contact, setContact] = useState("");
+  const [note, setNote] = useState("");
+  const [contacts, setContacts] = useState([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!tk.brandId) return;
+    let dead = false;
+    supabase.from("brands").select("brand_pic_name, brand_pic_email, escalation_contacts").eq("id", tk.brandId).maybeSingle()
+      .then(({ data }) => {
+        if (dead || !data) return;
+        const opts = [];
+        if (data.brand_pic_email) opts.push(`${data.brand_pic_name || ""} <${data.brand_pic_email}>`.trim());
+        (Array.isArray(data.escalation_contacts) ? data.escalation_contacts : []).forEach((c) => {
+          const s = typeof c === "string" ? c : `${c.name || ""} <${c.email || ""}>`.trim();
+          if (s && !opts.includes(s)) opts.push(s);
+        });
+        setContacts(opts);
+        if (opts[0]) setContact(opts[0]);
+      });
+    return () => { dead = true; };
+  }, [tk.brandId]);
+  const raise = async () => {
+    if (busy) return;
+    setBusy(true);
+    const ref = `ESC-${tk.dbId || tk.id}-${String(Date.now()).slice(-5)}`;
+    const dueMs = Date.now() + ESC_SEV[sev].hrs * 3600 * 1000;
+    const { error } = await supabase.from("escalations").insert({
+      escalation_ref: ref,
+      case_id: tk.dbId || null,
+      brand_id: tk.brandId || null,
+      severity: sev,
+      raised_by_agent_id: (me.email || me.id || "").toLowerCase(),
+      raised_to_contact: contact || null,
+      raised_at: new Date().toISOString(),
+      due_at: new Date(dueMs).toISOString(),
+      status: "open",
+      crea_comment: note || null,
+    });
+    setBusy(false);
+    if (error) { toast("⇧ " + error.message); return; }
+    onDone(ref);
+  };
+  return (
+    <Modal title={t("escRaiseTitle")} sub={t("escRaiseSub")} onClose={onClose} w={520}>
+      <p className="lbl mb-1.5">{t("escSeverity")}</p>
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {Object.keys(ESC_SEV).map((k) => (
+          <button key={k} onClick={() => setSev(k)} className="pill"
+                  style={{ background: sev === k ? ESC_SEV[k].bg : "transparent", color: ESC_SEV[k].c,
+                           border: `1.5px solid ${sev === k ? ESC_SEV[k].c : "var(--line)"}`, padding: "5px 12px", cursor: "pointer" }}>
+            {tv(ESC_SEV[k].n)}
+          </button>
+        ))}
+      </div>
+      <p className="lbl mb-1.5">{t("escContact")}</p>
+      {contacts.length > 0 ? (
+        <select className="fld mb-4" value={contact} onChange={(e) => setContact(e.target.value)}>
+          {contacts.map((c) => <option key={c} value={c}>{c}</option>)}
+          <option value="">—</option>
+        </select>
+      ) : (
+        <input className="fld mb-4" placeholder={t("escContactPh")} value={contact} onChange={(e) => setContact(e.target.value)} />
+      )}
+      <p className="lbl mb-1.5">{t("escNote")}</p>
+      <textarea className="fld mb-3" rows={3} placeholder={t("escNotePh")} value={note} onChange={(e) => setNote(e.target.value)} />
+      <p className="text-[12px] mb-4" style={{ color: "var(--muted)" }}>{t("escDueIn", dur(ESC_SEV[sev].hrs * 60))}</p>
+      <div className="flex gap-2">
+        <button className="btn btn-p" disabled={busy} onClick={raise}><ArrowUpRight size={14} />{t("escRaiseBtn")}</button>
+        <button className="btn btn-g ml-auto" onClick={onClose}>✕</button>
+      </div>
+    </Modal>
+  );
+}
+
+function EscalationsView({ tickets, open, toast }) {
+  const [rows, setRows] = useState(null);
+  const [brands, setBrands] = useState({});
+  const [pick, setPick] = useState(null);   // escalation id being edited
+  const [bump, setBump] = useState(0);      // reload counter
+  useEffect(() => {
+    let dead = false;
+    Promise.all([
+      supabase.from("escalations").select("*").order("raised_at", { ascending: false }).limit(200),
+      supabase.from("brands").select("id,name"),
+    ]).then(([e, b]) => {
+      if (dead) return;
+      setRows(e.data || []);
+      setBrands(Object.fromEntries((b.data || []).map((x) => [x.id, x.name])));
+    });
+    return () => { dead = true; };
+  }, [bump]);
+
+  const list = rows || [];
+  const openEsc = list.filter((e) => e.status === "open");
+  const overdue = openEsc.filter((e) => e.due_at && new Date(e.due_at) < new Date());
+  const responded = list.filter((e) => e.brand_response_hrs != null);
+  const avgResp = responded.length ? (responded.reduce((s, e) => s + Number(e.brand_response_hrs), 0) / responded.length).toFixed(1) : null;
+  const tkOf = (e) => tickets.find((x) => x.dbId === e.case_id);
+  const cur = pick != null ? list.find((e) => e.id === pick) : null;
+
+  const save = async (id, patch, msg) => {
+    const { error } = await supabase.from("escalations").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", id);
+    if (error) { toast("⇧ " + error.message); return; }
+    toast("⇧ " + (msg || t("escSaved")));
+    setBump((v) => v + 1);
+  };
+  const markResponded = (e) => {
+    const hrs = Math.max(0.1, (Date.now() - new Date(e.raised_at).getTime()) / 3600000);
+    save(e.id, { status: "responded", brand_responded_at: new Date().toISOString(), brand_response_hrs: Math.round(hrs * 10) / 10 });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(4, minmax(0,1fr))" }}>
+        {[[t("escOpenN"), openEsc.length], [t("escAwaiting"), openEsc.length - overdue.length], [t("escOverdue"), overdue.length, overdue.length > 0 ? "var(--red)" : null], [t("escAvgResp"), avgResp != null ? `${avgResp} h` : "—"]].map(([l, v, c]) => (
+          <div key={l} className="card p-3.5 text-center"><p className="text-[11.5px]" style={{ color: "var(--muted)" }}>{l}</p><p className="text-[21px] font-bold" style={c ? { color: c } : {}}>{v}</p></div>
+        ))}
+      </div>
+
+      <div className="card overflow-hidden">
+        {rows == null ? <div className="p-8 text-center" style={{ color: "var(--muted)" }}>…</div>
+        : list.length === 0 ? <Empty icon={ArrowUpRight} title={t("escNone")} sub={t("escNoneSub")} />
+        : (
+          <table className="tbl">
+            <thead><tr><th>{t("escCase")}</th><th>{t("escBrand")}</th><th>{t("escSeverity")}</th><th>{t("escRaisedBy")}</th><th>{t("escAge")}</th><th>{t("escDue")}</th><th>{t("cStatus")}</th><th></th></tr></thead>
+            <tbody>
+              {list.map((e) => {
+                const tk = tkOf(e);
+                const late = e.status === "open" && e.due_at && new Date(e.due_at) < new Date();
+                return (
+                  <tr key={e.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setPick(e.id)}>
+                    <td>
+                      <div className="font-semibold truncate" style={{ maxWidth: 260 }}>{tk ? subjectOf(tk) : `#${e.case_id ?? "—"}`}</div>
+                      <div className="text-[11.5px]" style={{ color: "var(--muted)" }}>{e.escalation_ref}{tk ? ` · ${tv(tk.customer)}` : ""}</div>
+                    </td>
+                    <td>{brands[e.brand_id] || e.brand_id || "—"}</td>
+                    <td><span className="pill" style={{ background: (ESC_SEV[e.severity] || {}).bg, color: (ESC_SEV[e.severity] || {}).c }}>{ESC_SEV[e.severity] ? tv(ESC_SEV[e.severity].n) : e.severity}</span></td>
+                    <td className="text-[12px]" style={{ color: "var(--muted)" }}>{(e.raised_by_agent_id || "—").split("@")[0]}</td>
+                    <td style={{ color: "var(--muted)" }}>{ago(new Date(e.raised_at).getTime())}</td>
+                    <td style={{ color: late ? "var(--red)" : "var(--muted)", fontWeight: late ? 700 : 400 }}>
+                      {e.status !== "open" ? (e.brand_response_hrs != null ? t("escRespondedIn", dur(Math.round(e.brand_response_hrs * 60))) : "—")
+                        : e.due_at ? ago(new Date(e.due_at).getTime()) : "—"}
+                    </td>
+                    <td><Chip map={ESC_ST} k={e.status} /></td>
+                    <td onClick={(ev) => ev.stopPropagation()}>
+                      {tk && <button className="btn btn-g" style={{ padding: "6px 12px" }} onClick={() => open(tk)}>{t("openCase")}</button>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {cur && (
+        <Modal title={cur.escalation_ref} sub={`${brands[cur.brand_id] || cur.brand_id || "—"} · ${tv((ESC_SEV[cur.severity] || { n: { en: cur.severity, th: cur.severity } }).n)} · ${cur.raised_to_contact || "—"}`} onClose={() => setPick(null)} w={640}>
+        <EscalationEditor e={cur} onSave={save} onResponded={() => markResponded(cur)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function EscalationEditor({ e, onSave, onResponded }) {
+  const [f, setF] = useState({ resolution: e.resolution || "", root_cause: e.root_cause || "", preventive_action: e.preventive_action || "", compensation_value: e.compensation_value ?? "", brand_comment: e.brand_comment || "", crea_comment: e.crea_comment || "" });
+  const set = (k) => (ev) => setF((p) => ({ ...p, [k]: ev.target.value }));
+  const commit = (extra = {}, msg) => onSave(e.id, {
+    resolution: f.resolution || null, root_cause: f.root_cause || null, preventive_action: f.preventive_action || null,
+    compensation_value: f.compensation_value === "" ? null : Number(f.compensation_value),
+    brand_comment: f.brand_comment || null, crea_comment: f.crea_comment || null, ...extra,
+  }, msg);
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Chip map={ESC_ST} k={e.status} />
+        {e.status === "open" && <button className="btn btn-g" style={{ padding: "6px 12px" }} onClick={onResponded}>{t("escMarkResp")}</button>}
+        {e.status !== "resolved" && <button className="btn btn-p" style={{ padding: "6px 12px" }} onClick={() => commit({ status: "resolved" }, t("escStResolved"))}>{t("escMarkRes")}</button>}
+        {e.status === "resolved" && <button className="btn btn-g" style={{ padding: "6px 12px" }} onClick={() => commit({ status: "open" }, t("escStOpen"))}>{t("escReopenBtn")}</button>}
+      </div>
+      {[[t("escResolution"), "resolution", t("escResolutionPh")], [t("escRootCause"), "root_cause", ""], [t("escPreventive"), "preventive_action", ""]].map(([l, k, ph]) => (
+        <div key={k} className="mb-3">
+          <p className="lbl mb-1">{l}</p>
+          <textarea className="fld" rows={2} placeholder={ph} value={f[k]} onChange={set(k)} />
+        </div>
+      ))}
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div><p className="lbl mb-1">{t("escComp")}</p><input className="fld" type="number" value={f.compensation_value} onChange={set("compensation_value")} /></div>
+        <div><p className="lbl mb-1">{t("escBrandCmt")}</p><input className="fld" value={f.brand_comment} onChange={set("brand_comment")} /></div>
+      </div>
+      <p className="lbl mb-1">{t("escCreaCmt")}</p>
+      <textarea className="fld mb-4" rows={2} value={f.crea_comment} onChange={set("crea_comment")} />
+      <button className="btn btn-p" onClick={() => commit()}>{t("escSaveBtn")}</button>
+    </div>
+  );
+}
 
 /* saved-Cc manager inside Customer 360 — same customer_cc table the email
    composer reads, so changes here show up as chips on the next reply */
@@ -4908,6 +5357,7 @@ const NAV = [
   { k: "tickets",   key: "navTickets",   ic: Ticket,          roles: ["admin", "manager", "agent"] },
   { k: "calls",     key: "navCalls",     ic: PhoneCall,       roles: ["admin", "manager", "agent"] },
   { k: "customers", key: "navCustomers", ic: Users,           roles: ["admin", "manager", "agent"] },
+  { k: "esc",       key: "navEsc",       ic: ArrowUpRight,    roles: ["admin", "manager", "agent"] },
   { k: "kb",        key: "navKb",        ic: BookOpen,        roles: ["admin", "manager", "agent"] },
   { k: "reports",   key: "navReports",   ic: BarChart3,       roles: ["admin", "manager"] },
   { k: "brands",    key: "navBrands",    ic: ShoppingBag,     roles: ["admin", "manager"] },
@@ -4915,7 +5365,14 @@ const NAV = [
   { k: "settings",  key: "navSettings",  ic: Settings,        roles: ["admin", "manager"] },
 ];
 
-export default function ServiceCRM({ user, role }) {
+/* NiRM's sidebar renders the CRM sections as its own sub-items — these two
+   exports give it the list without duplicating role mapping or labels */
+export const crmRoleOf = (rosterRole) => rosterRole === "manager" ? "admin" : rosterRole === "fulltime" ? "manager" : "agent";
+export const crmTabsFor = (rosterRole, lang = "en") =>
+  NAV.filter((n) => n.roles.includes(crmRoleOf(rosterRole)))
+     .map((n) => ({ k: n.k, label: (D[n.key] || [n.k, n.k])[lang === "th" ? 1 : 0] }));
+
+export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav }) {
   const [lang, setLangState] = useState("en");
   LANG.cur = lang;                       // keep module helpers in sync before children render
   const setLang = (l) => { LANG.cur = l; setLangState(l); };
@@ -4928,7 +5385,12 @@ export default function ServiceCRM({ user, role }) {
     const known = USERS.find((u) => tv(u.n).toLowerCase().startsWith(display.toLowerCase()));
     return known ? { ...known, role: crmRole } : { id: "nirm-" + display.toLowerCase(), n: { en: display, th: display }, role: crmRole, team: "cx", email: user || "", active: true };
   });
-  const [tab, setTab] = useState("dash");
+  const [tab, setTab] = useState(extTab || "dash");
+  /* controlled from the NiRM sidebar: parent picks a section → follow it;
+     internal jumps (open case → Inbox, etc.) report back so the sidebar
+     highlight stays in sync */
+  useEffect(() => { if (extTab && extTab !== tab) setTab(extTab); }, [extTab]);
+  useEffect(() => { if (onTab) onTab(tab); }, [tab]);
   const [taxo, setTaxo] = useState(0);          // bumped when CAT/ST are swapped, to force a repaint
   const [tickets, setTickets] = useState([]);   // real cases only — no demo seeds
   const [unread, setUnread] = useState({});     // ticketId → # new inbound msgs since last opened
@@ -5260,9 +5722,11 @@ export default function ServiceCRM({ user, role }) {
     <div className={`svc ${lang}`} lang={lang}>
       <style>{CSS}</style>
 
-      {/* horizontal top bar (was a left sidebar) — NiRM already owns the left rail */}
+      {/* horizontal top bar (was a left sidebar) — NiRM already owns the left rail.
+          With hideNav the sections live in NiRM's sidebar instead; keep only a
+          slim status strip (SLA health + softphone state). */}
       <div className="flex items-center gap-1.5 px-4 py-2" style={{ background: "var(--navy)", position: "sticky", top: 0, zIndex: 40, overflowX: "auto" }}>
-        {nav.map((n) => (
+        {!hideNav && nav.map((n) => (
           <button key={n.k} className={`nav-i ${tab === n.k ? "on" : ""}`} style={{ width: "auto", flex: "none", padding: "8px 12px", gap: 8, whiteSpace: "nowrap" }} onClick={() => setTab(n.k)}>
             <n.ic size={16} className="flex-none" />{t(n.key)}
             {n.k === "inbox" && unreadTotal > 0 && <span className="pill" style={{ background: "var(--amber)", color: "#0F172A", padding: "1px 7px", fontWeight: 700 }}>{unreadTotal}</span>}
@@ -5290,6 +5754,7 @@ export default function ServiceCRM({ user, role }) {
           {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} openCustomer={openCustomer} />}
           {tab === "calls"     && <CallsView tickets={scope(tickets)} allTickets={tickets} calls={calls} queue={queue} callbacks={callbacks} setCallbacks={setCallbacks} presence={presence} setPresence={setPresence} me={me} sip={sip} routing={routing} startCall={startCall} pullCall={pullCall} onPlay={setPlayRec} toast={toast} simulateCall={simulateCall} sf={sf} />}
           {tab === "customers" && <Customers tickets={tickets} open={openTicket} toast={toast} focusKey={custFocus} clearFocus={() => setCustFocus(null)} />}
+          {tab === "esc"       && <EscalationsView tickets={tickets} open={openTicket} toast={toast} />}
           {tab === "kb"        && <Knowledge kb={kb} setKb={setKb} canned={canned} setCanned={setCanned} me={me} toast={toast} />}
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
           {tab === "brands"    && <BrandsView />}
