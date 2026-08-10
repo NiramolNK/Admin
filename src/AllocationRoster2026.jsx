@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import CSAnalyticsTab from "./CSAnalyticsTab.jsx";
-import ServiceCRM from "./ServiceCRM.jsx";
+import ServiceCRM, { crmTabsFor } from "./ServiceCRM.jsx";
 import KnowledgeBase, { normalizeBrandName } from "./KnowledgeBase.jsx";
 import { supabase, onStateChange } from "./supabase.js";
 
@@ -779,6 +779,7 @@ const TAB_TITLES = { roster:"Roster", payment:"My Invoice", allocation:"Allocati
 
 export default function AllocationPanel({ isAdmin = true }) {
   const [allocTab, setAllocTab]     = useState("roster");
+  const [crmTab, setCrmTab]         = useState("dash");   // Service CRM section, shown as sidebar sub-items
   // Hash present when the page was opened (a deliberate deep-link beats saved prefs)
   const initialHash = useRef((window.location.hash || "").replace("#", ""));
 
@@ -2384,7 +2385,8 @@ export default function AllocationPanel({ isAdmin = true }) {
             const active2 = allocTab===t;
             const iconColor = active2?"#0D9488":"#94A3B8";
             return (
-              <button key={t} onClick={()=>setAllocTab(t)} style={{
+              <div key={t} style={{display:"contents"}}>
+              <button onClick={()=>setAllocTab(t)} style={{
                 display:"flex",alignItems:"center",gap:10,padding:sidebarOpen?"9px 14px":"9px 0",
                 justifyContent:sidebarOpen?"flex-start":"center",
                 border:"none",cursor:"pointer",fontFamily:"inherit",
@@ -2405,6 +2407,20 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {t==="kb"&&<IconBook size={18} color={iconColor}/>}
                 {sidebarOpen && l}
               </button>
+              {/* Service CRM sections live here in the sidebar — the CRM's own
+                  green tab bar is hidden (hideNav) so there is one navigation */}
+              {t==="crm" && active2 && sidebarOpen && crmTabsFor(role).map(it => (
+                <button key={it.k} onClick={()=>setCrmTab(it.k)} style={{
+                  display:"flex",alignItems:"center",gap:8,padding:"6px 14px 6px 42px",
+                  border:"none",cursor:"pointer",fontFamily:"inherit",borderRadius:8,
+                  fontSize:12.5,fontWeight:crmTab===it.k?600:450,width:"100%",textAlign:"left",
+                  background:crmTab===it.k?"#F0FDFA":"transparent",
+                  color:crmTab===it.k?"#0D9488":"#94A3B8",transition:"all 0.15s",
+                }}>
+                  {it.label}
+                </button>
+              ))}
+              </div>
             );
           })}
         </div>
@@ -6229,7 +6245,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         ══════════════════════════════════════════ */}
         {allocTab==="crm" && (
           <div style={{margin:"-24px -28px"}}>
-            <ServiceCRM user={loginUser} role={role} />
+            <ServiceCRM user={loginUser} role={role} tab={crmTab} onTab={setCrmTab} hideNav />
           </div>
         )}
 
