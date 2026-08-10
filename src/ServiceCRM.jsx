@@ -4852,7 +4852,6 @@ function SignatureSettings({ me, toast }) {
      independent of the personal signature form below. Logos are per-mailbox:
      cfg.logoByMailbox[box] = { url, width } overrides the default
      logoUrl/logoWidth, so Enfa mail can carry the Enfa logo. */
-  const [logoBox, setLogoBox] = useState(SIG_ALL);
   const saveOrg = async (patch) => {
     const next = { ...cfg, ...patch };
     const { error } = await supabase.from("kv_state")
@@ -4860,6 +4859,7 @@ function SignatureSettings({ me, toast }) {
     if (error) toast(error.message, "error");
     else { setCfg(next); toast(t("sigLogoSaved")); }
   };
+  const logoBox = box;   // one selector: the logo follows the "Signature for" mailbox choice
   const logoOwn = logoBox === SIG_ALL ? null : (cfg?.logoByMailbox || {})[logoBox] || null;   // this box's own logo
   const logoUrlShown = logoBox === SIG_ALL ? cfg?.logoUrl : (logoOwn?.url ?? cfg?.logoUrl);   // what actually sends
   const logoWShown = logoBox === SIG_ALL ? (Number(cfg?.logoWidth) || 150) : (Number(logoOwn?.width) || Number(cfg?.logoWidth) || 150);
@@ -4996,20 +4996,41 @@ function SignatureSettings({ me, toast }) {
         </div>
       </div>
 
-      {/* ── signature logo — per mailbox, with an org-wide default fallback ── */}
+      {/* Which mailbox am I editing? The default covers every box; pick a
+          mailbox to give it its own name, role, phone — anything. The logo
+          card below follows this same choice: pick once, edit both. */}
+      <label className="lbl">{t("sigScope")}</label>
+      <select className="fld" value={box} onChange={(e) => setBox(e.target.value)}>
+        <option value={SIG_ALL}>{t("sigScopeAll")}</option>
+        {sendBoxes.map((m) => (
+          <option key={m} value={m}>
+            {(cfg.brandByMailbox?.[m] || m.split("@")[0])} — {m}{perBox[m] ? " ✳" : ""}
+          </option>
+        ))}
+      </select>
+
+      {box === SIG_ALL ? (
+        <p className="text-[11.5px] mt-1.5 mb-3" style={{ color: "var(--muted)" }}>{t("sigDefaultNote")}</p>
+      ) : (
+        <div className="mt-2 mb-3 px-3 py-2.5 rounded-lg" style={{ background: "var(--slate-bg)" }}>
+          <label className="flex items-center gap-2 text-[12.5px] font-semibold" style={{ cursor: "pointer" }}>
+            <input type="checkbox" checked={overridden} onChange={(e) => toggleOverride(e.target.checked)} />
+            {t("sigOverride")}
+          </label>
+          {!overridden && (
+            <p className="text-[11.5px] mt-1" style={{ color: "var(--muted)" }}>
+              {t("sigInherit", cfg.brandByMailbox?.[box] || box.split("@")[0])}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── signature logo — follows the mailbox chosen above; default scope
+             edits the org-wide fallback logo ── */}
       {me.role !== "agent" && (
-        <div className="mb-5 p-4 rounded-xl border" style={{ borderColor: "var(--line)" }}>
-          <p className="font-bold text-[13.5px]">{t("sigLogoTitle")}</p>
+        <div className="mb-4 mt-1 p-4 rounded-xl border" style={{ borderColor: "var(--line)" }}>
+          <p className="font-bold text-[13.5px]">{t("sigLogoTitle")}{logoBox !== SIG_ALL ? ` — ${cfg.brandByMailbox?.[logoBox] || logoBox.split("@")[0]}` : ""}</p>
           <p className="text-[11.5px] mb-3" style={{ color: "var(--muted)" }}>{t("sigLogoSub")}</p>
-          <label className="lbl">{t("sigLogoScope")}</label>
-          <select className="fld mb-3" value={logoBox} onChange={(e) => setLogoBox(e.target.value)}>
-            <option value={SIG_ALL}>{t("sigLogoDefault")}</option>
-            {sendBoxes.map((m) => (
-              <option key={m} value={m}>
-                {(cfg.brandByMailbox?.[m] || m.split("@")[0])} — {m}{(cfg.logoByMailbox || {})[m] ? " ✳" : ""}
-              </option>
-            ))}
-          </select>
           <div className="flex items-center gap-4 flex-wrap">
             {logoUrlShown
               ? <img src={logoUrlShown} alt="logo" style={{ width: logoWShown, maxHeight: 90, objectFit: "contain", border: "1px solid var(--line)", borderRadius: 8, padding: 6, background: "#fff", opacity: logoBox !== SIG_ALL && !logoOwn ? .55 : 1 }} />
@@ -5050,34 +5071,6 @@ function SignatureSettings({ me, toast }) {
             </div>
           </div>
           <p className="text-[11px] mt-2.5" style={{ color: "var(--muted)" }}>{t("sigLogoNote")}</p>
-        </div>
-      )}
-
-      {/* Which mailbox am I editing? The default covers every box; pick a
-          mailbox to give it its own name, role, phone — anything. */}
-      <label className="lbl">{t("sigScope")}</label>
-      <select className="fld" value={box} onChange={(e) => setBox(e.target.value)}>
-        <option value={SIG_ALL}>{t("sigScopeAll")}</option>
-        {sendBoxes.map((m) => (
-          <option key={m} value={m}>
-            {(cfg.brandByMailbox?.[m] || m.split("@")[0])} — {m}{perBox[m] ? " ✳" : ""}
-          </option>
-        ))}
-      </select>
-
-      {box === SIG_ALL ? (
-        <p className="text-[11.5px] mt-1.5 mb-3" style={{ color: "var(--muted)" }}>{t("sigDefaultNote")}</p>
-      ) : (
-        <div className="mt-2 mb-3 px-3 py-2.5 rounded-lg" style={{ background: "var(--slate-bg)" }}>
-          <label className="flex items-center gap-2 text-[12.5px] font-semibold" style={{ cursor: "pointer" }}>
-            <input type="checkbox" checked={overridden} onChange={(e) => toggleOverride(e.target.checked)} />
-            {t("sigOverride")}
-          </label>
-          {!overridden && (
-            <p className="text-[11.5px] mt-1" style={{ color: "var(--muted)" }}>
-              {t("sigInherit", cfg.brandByMailbox?.[box] || box.split("@")[0])}
-            </p>
-          )}
         </div>
       )}
 
