@@ -2659,6 +2659,11 @@ function NewTicket({ me, onClose, onSave }) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) return setErr(t("errCustEmail"));
       if (!f.subject.trim()) return setErr(t("errSubjReq"));
       setBusy(true);
+      // if the send fails after the case row exists, remove the row again —
+      // an orphan case with zero messages used to crash every list that
+      // previews "the first message" (the recurring error-reload)
+      let tkId = null;
+      const undo = () => { if (tkId) supabase.from("tickets").delete().eq("id", tkId).then(() => {}); };
       try {
         const { data: tkRow, error } = await supabase.from("tickets").insert({
           brand: "CREA", channel: "email",
@@ -2667,6 +2672,7 @@ function NewTicket({ me, onClose, onSave }) {
           ...(f.order ? { meta: { order: f.order } } : {}),
         }).select("id").single();
         if (error) { setBusy(false); return setErr(error.message); }
+        tkId = tkRow.id;
         const { data: s } = await supabase.auth.getSession();
         const r = await fetch(`${FN_BASE}/email/send`, {
           method: "POST",
@@ -2674,7 +2680,7 @@ function NewTicket({ me, onClose, onSave }) {
           // agentKey → the sender's own signature, same as a reply
           body: JSON.stringify({ ticketId: tkRow.id, body: f.detail, fromAddress: f.fromBox, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase() }),
         });
-        if (!r.ok) { const j = await r.json().catch(() => ({})); setBusy(false); return setErr("✉ " + (j.error || `send failed (${r.status})`)); }
+        if (!r.ok) { const j = await r.json().catch(() => ({})); undo(); setBusy(false); return setErr("✉ " + (j.error || `send failed (${r.status})`)); }
         onSave({
           id: "TK-E" + tkRow.id, dbId: tkRow.id,
           subject: { en: f.subject.trim(), th: f.subject.trim() },
@@ -2685,7 +2691,7 @@ function NewTicket({ me, onClose, onSave }) {
           firstResponseMin: null, resolveMin: null, csat: null, reopened: false, tags: [],
           messages: [{ from: "agent", text: biText(f.detail), at: Date.now(), by: tv(me.n) }],
         });
-      } catch (e) { setBusy(false); return setErr("✉ network error"); }
+      } catch (e) { undo(); setBusy(false); return setErr("✉ network error"); }
       return;
     }
     const sub = f.subject.trim();
@@ -2933,7 +2939,10 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
         <div className="flex-1 overflow-auto scroll">
           {list.length === 0 && <Empty icon={CheckCircle2} title={t("inboxEmpty")} sub={t("inboxEmptySub")} />}
           {list.map((x) => {
-            const s = sla(x); const last = x.messages[x.messages.length - 1];
+            // a case can exist without messages (outbound send failed mid-create,
+            // or realtime delivered the ticket before its first message row) —
+            // fall back to the subject instead of crashing the whole inbox
+            const s = sla(x); const last = x.messages[x.messages.length - 1] || { from: "customer", text: subjectOf(x) || "" };
             return (
               <button key={x.id} className={`conv ${sel === x.id ? "on" : ""}`} onClick={() => setSel(x.id)}>
                 <div className="flex items-center gap-2 mb-1">
@@ -3682,7 +3691,7 @@ function Customers({ tickets, open, toast, focusKey, clearFocus }) {
                       <span className="ml-auto text-[11.5px]" style={{ color: "var(--muted)" }}>{ago(x.createdAt)}</span>
                     </div>
                     <div className="font-semibold text-[13.5px]">{subjectOf(x)}</div>
-                    <div className="text-[12px] mt-0.5 truncate" style={{ color: "var(--muted)" }}>{tv(x.messages[0].text)}</div>
+                    <div className="text-[12px] mt-0.5 truncate" style={{ color: "var(--muted)" }}>{tv((x.messages[0] || { text: subjectOf(x) || "" }).text)}</div>
                     {x.csat && <div className="mt-1.5"><Stars n={x.csat} size={12} /></div>}
                   </button>
                 ))}
