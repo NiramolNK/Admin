@@ -825,6 +825,16 @@ const D = {
   sigVars: ["Use {{agent}} for the sender's name", "ใช้ {{agent}} แทนชื่อผู้ส่ง"],
   sigSaved: ["Signature saved", "บันทึกลายเซ็นแล้ว"],
   sigSave: ["Save signature", "บันทึกลายเซ็น"],
+  sigLogoTitle: ["Company logo", "โลโก้บริษัท"],
+  sigLogoSub: ["Shown on the left of every email signature — all agents, all mailboxes", "แสดงด้านซ้ายของลายเซ็นอีเมลทุกคน ทุกกล่องเมล"],
+  sigLogoNone: ["No logo yet — emails send with text only", "ยังไม่มีโลโก้ — อีเมลจะมีเฉพาะข้อความ"],
+  sigLogoUpload: ["Upload logo", "อัปโหลดโลโก้"],
+  sigLogoWidth: ["Width", "ความกว้าง"],
+  sigLogoRemove: ["Remove logo", "ลบโลโก้"],
+  sigLogoSaved: ["Logo updated — the next email uses it", "อัปเดตโลโก้แล้ว อีเมลฉบับถัดไปจะใช้ทันที"],
+  sigLogoType: ["Please choose a PNG, JPG or WebP image", "กรุณาเลือกไฟล์ PNG, JPG หรือ WebP"],
+  sigLogoBig: ["Keep the logo under 1 MB", "ไฟล์โลโก้ต้องไม่เกิน 1 MB"],
+  sigLogoNote: ["A PNG with a transparent background looks best. The email layout adds the teal divider line automatically.", "แนะนำ PNG พื้นหลังโปร่งใส เลย์เอาต์อีเมลจะใส่เส้นคั่นสีเขียวให้อัตโนมัติ"],
   sigMine: ["My signature", "ลายเซ็นของฉัน"],
   sigMineSub: ["Your details, used in every email you send", "ข้อมูลของคุณ ใช้กับอีเมลทุกฉบับที่คุณส่ง"],
   sigTemplate: ["Template", "รูปแบบ"],
@@ -2173,7 +2183,7 @@ function CaseRecord({ x, onClose, open, openCustomer }) {
 
 function Tickets({ tickets, setTickets, me, scope, open, toast, openCustomer }) {
   const [q, setQ] = useState("");
-  const [fs, setFs] = useState("open");
+  const [fs, setFs] = useState("all");   // default: all statuses (was open-only)
   const [fp, setFp] = useState("all");
   const [fc, setFc] = useState("all");
   const [fo, setFo] = useState("all");
@@ -4816,8 +4826,32 @@ function SignatureSettings({ me, toast }) {
   const [box, setBox] = useState(SIG_ALL);
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
+  const [logoBusy, setLogoBusy] = useState(false);
 
   const key = (me.email || me.id || "").toLowerCase();
+
+  /* org-wide bits of the signature config (logo) — saved immediately,
+     independent of the personal signature form below */
+  const saveOrg = async (patch) => {
+    const next = { ...cfg, ...patch };
+    const { error } = await supabase.from("kv_state")
+      .upsert({ key: "nirm-crm-signatures", value: next }, { onConflict: "key" });
+    if (error) toast(error.message, "error");
+    else { setCfg(next); toast(t("sigLogoSaved")); }
+  };
+  const uploadLogo = async (file) => {
+    if (!file) return;
+    if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) { toast(t("sigLogoType"), "error"); return; }
+    if (file.size > 1024 * 1024) { toast(t("sigLogoBig"), "error"); return; }
+    setLogoBusy(true);
+    const ext = (file.name.split(".").pop() || "png").toLowerCase();
+    const path = `signature/logo-${Date.now()}.${ext}`;
+    const up = await supabase.storage.from("brand-assets").upload(path, file, { contentType: file.type, upsert: true });
+    setLogoBusy(false);
+    if (up.error) { toast(up.error.message, "error"); return; }
+    const { data } = supabase.storage.from("brand-assets").getPublicUrl(path);
+    saveOrg({ logoUrl: data.publicUrl });
+  };
 
   useEffect(() => {
     supabase.from("kv_state").select("value").eq("key", "nirm-crm-signatures").maybeSingle()
@@ -4928,6 +4962,38 @@ function SignatureSettings({ me, toast }) {
           <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("sigMineSub")}</p>
         </div>
       </div>
+
+      {/* ── company logo — org-wide, sits left of every signature in the email HTML ── */}
+      {me.role !== "agent" && (
+        <div className="mb-5 p-4 rounded-xl border" style={{ borderColor: "var(--line)" }}>
+          <p className="font-bold text-[13.5px]">{t("sigLogoTitle")}</p>
+          <p className="text-[11.5px] mb-3" style={{ color: "var(--muted)" }}>{t("sigLogoSub")}</p>
+          <div className="flex items-center gap-4 flex-wrap">
+            {cfg.logoUrl
+              ? <img src={cfg.logoUrl} alt="logo" style={{ width: Number(cfg.logoWidth) || 150, maxHeight: 90, objectFit: "contain", border: "1px solid var(--line)", borderRadius: 8, padding: 6, background: "#fff" }} />
+              : <div className="text-[12px] px-4 py-3 rounded-lg" style={{ background: "var(--slate-bg)", color: "var(--muted)" }}>{t("sigLogoNone")}</div>}
+            <div className="flex flex-col gap-2">
+              <label className="btn btn-p" style={{ cursor: "pointer" }}>
+                {logoBusy ? "…" : t("sigLogoUpload")}
+                <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }}
+                       onChange={(e) => { uploadLogo(e.target.files && e.target.files[0]); e.target.value = ""; }} />
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>{t("sigLogoWidth")}</span>
+                <input className="fld" type="number" min={60} max={400} style={{ width: 88 }}
+                       value={Number(cfg.logoWidth) || 150}
+                       onChange={(e) => setCfg({ ...cfg, logoWidth: e.target.value })}
+                       onBlur={(e) => saveOrg({ logoWidth: Math.min(400, Math.max(60, Number(e.target.value) || 150)) })} />
+                <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>px</span>
+              </div>
+              {cfg.logoUrl && (
+                <button className="btn btn-g" style={{ color: "var(--red)" }} onClick={() => saveOrg({ logoUrl: "" })}>{t("sigLogoRemove")}</button>
+              )}
+            </div>
+          </div>
+          <p className="text-[11px] mt-2.5" style={{ color: "var(--muted)" }}>{t("sigLogoNote")}</p>
+        </div>
+      )}
 
       {/* Which mailbox am I editing? The default covers every box; pick a
           mailbox to give it its own name, role, phone — anything. */}
