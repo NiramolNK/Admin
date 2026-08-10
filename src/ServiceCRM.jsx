@@ -5723,10 +5723,10 @@ export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav }) 
       <style>{CSS}</style>
 
       {/* horizontal top bar (was a left sidebar) — NiRM already owns the left rail.
-          With hideNav the sections live in NiRM's sidebar instead; keep only a
-          slim status strip (SLA health + softphone state). */}
+          With hideNav (sections in NiRM's sidebar) the bar disappears entirely. */}
+      {!hideNav && (
       <div className="flex items-center gap-1.5 px-4 py-2" style={{ background: "var(--navy)", position: "sticky", top: 0, zIndex: 40, overflowX: "auto" }}>
-        {!hideNav && nav.map((n) => (
+        {nav.map((n) => (
           <button key={n.k} className={`nav-i ${tab === n.k ? "on" : ""}`} style={{ width: "auto", flex: "none", padding: "8px 12px", gap: 8, whiteSpace: "nowrap" }} onClick={() => setTab(n.k)}>
             <n.ic size={16} className="flex-none" />{t(n.key)}
             {n.k === "inbox" && unreadTotal > 0 && <span className="pill" style={{ background: "var(--amber)", color: "#0F172A", padding: "1px 7px", fontWeight: 700 }}>{unreadTotal}</span>}
@@ -5745,6 +5745,7 @@ export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav }) 
           </span>
         </div>
       </div>
+      )}
 
       <div className="flex-1 min-w-0 flex flex-col">
         <main className="p-6 flex-1" style={{ paddingBottom: playRec && !call ? 130 : 24 }}>
