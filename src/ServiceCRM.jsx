@@ -909,6 +909,8 @@ const D = {
   ccAddPh: ["add email, press Enter", "พิมพ์อีเมลแล้วกด Enter"],
   ccBadAddr: ["That doesn't look like an email address", "รูปแบบอีเมลไม่ถูกต้อง"],
   ccPinned: ["Cc'd on every case from this customer — ✕ skips this reply only", "ใส่สำเนาทุกเคสของลูกค้ารายนี้ — กด ✕ เพื่อข้ามเฉพาะครั้งนี้"],
+  ccCountN: ["%s recipients", "%s คน"],
+  ccHideBtn: ["hide", "ซ่อน"],
   ccSkipped: ["Skipped for this reply — back on the next one", "ข้ามเฉพาะการตอบครั้งนี้ — ครั้งหน้ากลับมาเหมือนเดิม"],
   ccRestore: ["Put back on this reply", "ใส่กลับในการตอบครั้งนี้"],
   ccForever: ["Stop Cc'ing on future cases too", "หยุดใส่สำเนาในเคสต่อ ๆ ไปด้วย"],
@@ -2793,8 +2795,9 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const [dropForever, setDropForever] = useState([]); // saved Cc retired for future cases too
   const [addCc, setAddCc] = useState([]);          // extra Cc the agent typed in
   const [ccDraft, setCcDraft] = useState(null);    // null = input closed, "" = open
+  const [ccOpen, setCcOpen] = useState(false);     // big Cc lists collapse to a count
   useEffect(() => {
-    setDropCc([]); setDropPin([]); setDropForever([]); setAddCc([]); setCcDraft(null);
+    setDropCc([]); setDropPin([]); setDropForever([]); setAddCc([]); setCcDraft(null); setCcOpen(false);
     const tkNow = tickets.find((x) => x.id === sel);
     if (!tkNow?.dbId || tkNow.channel !== "email") { setRcpt({ to: "", cc: [], pinned: [] }); return; }
     let dead = false;
@@ -2812,6 +2815,9 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   /* what stays remembered for the customer's future cases: skip-once chips
      stay in this list; only "stop for future cases" takes them out */
   const ccPinList = [...new Set([...pinnedKept, ...addCc])];
+  const ccChipCount = (replyAll ? ccFinal.length : 0)
+    + pinnedKept.filter((a) => !(replyAll && ccFinal.includes(a))).length
+    + addCc.filter((a) => !(replyAll && ccFinal.includes(a)) && !pinnedKept.includes(a)).length;
   const commitCcDraft = () => {
     const parts = String(ccDraft || "").split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
     if (!parts.length) { setCcDraft(null); return; }
@@ -3031,6 +3037,15 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                   {((replyAll && ccFinal.length > 0) || pinnedKept.length > 0 || addCc.length > 0) && (
                     <span style={{ color: "var(--muted)" }}>{t("replyAllCc")}:</span>
                   )}
+                  {/* big Nestlé threads carry 15+ Cc — collapsed to a count by
+                      default, click to manage individual chips */}
+                  {!ccOpen && ccChipCount > 3 && (
+                    <button className="pill" onClick={() => setCcOpen(true)}
+                            style={{ background: "var(--slate-bg)", color: "var(--ink)", cursor: "pointer", fontWeight: 600 }}>
+                      {t("ccCountN", ccChipCount)} ▾
+                    </button>
+                  )}
+                  {(ccOpen || ccChipCount <= 3) && (<>
                   {replyAll && ccFinal.map((a) => (
                     <span key={a} className="pill" style={{ background: "var(--slate-bg)", color: "var(--ink)" }}>
                       {a}
@@ -3064,6 +3079,10 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                       <button onClick={() => setAddCc((p) => p.filter((x) => x !== a))} style={{ display: "flex", opacity: .55 }}><X size={10} /></button>
                     </span>
                   ))}
+                  {ccOpen && ccChipCount > 3 && (
+                    <button className="font-semibold" style={{ color: "var(--muted)" }} onClick={() => setCcOpen(false)}>{t("ccHideBtn")} ▴</button>
+                  )}
+                  </>)}
                   {ccDraft == null ? (
                     <button onClick={() => setCcDraft("")} className="font-semibold" style={{ color: "var(--blue)" }}>
                       {t("ccAddBtn")}
