@@ -914,6 +914,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     setLoginUser(account.username);
     setLoggedIn(true);
     setLoginError("");
+    try { window.localStorage.setItem("nirm-local-session", JSON.stringify({ u: account.username, r: account.role })); } catch (_) {}
   };
 
   const handleLogout = () => {
@@ -923,6 +924,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     }
     setRole(null); setLoggedIn(false); setLoginUser(""); setLoginPass(""); setLoginError("");
     setAllocTab("roster");
+    try { window.localStorage.removeItem("nirm-local-session"); } catch (_) {}
   };
 
   const canEdit = role ? (ROLES[role]?.canEdit ?? false) : false;
@@ -1032,7 +1034,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   const stateRef = useRef({});
   stateRef.current = {
     agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, userProfiles, userAccounts,
-    prefs: { rosterYear, rosterMonth, allocTab, volYear, volMonth, loginUser },
+    prefs: { rosterYear, rosterMonth, allocTab, volYear, volMonth },   // loginUser removed — identity never enters shared storage
     allAsgn, allExtraHrs, allBrandAsgn, globalFlags,
   };
 
@@ -1374,7 +1376,15 @@ export default function AllocationPanel({ isAdmin = true }) {
               setFulltimeSalary(d.fulltimeSalary);
             }
           }
-          if (d.role && ROLES[d.role]) { setRole(d.role); setLoggedIn(true); }
+          // SECURITY FIX (identity leak): role/loginUser used to be restored from
+          // the SHARED kv_state row — whoever used NiRM last became "you" on the
+          // next load (April opened Settings and saw AJ's signature). Identity
+          // now restores ONLY from this browser's own localStorage; the shared
+          // d.role / d.prefs.loginUser are ignored for auth.
+          try {
+            const ls = JSON.parse(window.localStorage.getItem("nirm-local-session") || "null");
+            if (ls?.u && ls?.r && ROLES[ls.r]) { setLoginUser(ls.u); setRole(ls.r); setLoggedIn(true); }
+          } catch (_) { /* no local session — show the login screen */ }
           // FIX (duplicate-accounts cleanup): legacy name-only accounts (username
           // without "@", from the pre-Supabase login) were removed from storage.
           // Filter them on every load so a stale tab can't re-introduce them.
@@ -1395,7 +1405,8 @@ export default function AllocationPanel({ isAdmin = true }) {
             if (d.prefs.allocTab && !TAB_TITLES[initialHash.current]) setAllocTab(d.prefs.allocTab);
             if (d.prefs.volYear) setVolYear(d.prefs.volYear);
             if (d.prefs.volMonth) setVolMonth(d.prefs.volMonth);
-            if (d.prefs.loginUser) setLoginUser(d.prefs.loginUser);
+            // d.prefs.loginUser intentionally NOT restored — prefs are shared
+            // org-wide; identity must never come from there (see fix above).
           }
           // Override loginUser with the actual signed-in Supabase user's email.
           // This prevents the shared prefs.loginUser from showing the wrong account
@@ -1451,6 +1462,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               });
               setRole(effectiveRole);
               setLoggedIn(true);
+              try { window.localStorage.setItem("nirm-local-session", JSON.stringify({ u: supaEmail, r: effectiveRole })); } catch (_) {}
             }
           } catch(authErr) { /* non-fatal */ }
         }
