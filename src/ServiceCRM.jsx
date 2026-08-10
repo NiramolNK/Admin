@@ -4994,6 +4994,9 @@ function SignatureSettings({ me, toast }) {
           <h3 className="font-bold text-[15px]">{t("sigMine")}</h3>
           <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("sigMineSub")}</p>
         </div>
+        {/* whose record this form edits — the NiRM login. Makes a shared or
+            leftover login instantly visible instead of a mystery. */}
+        <span className="pill flex-none" style={{ background: "var(--sky)", color: "var(--blue)" }}>{key}</span>
       </div>
 
       {/* Which mailbox am I editing? The default covers every box; pick a
@@ -5512,8 +5515,10 @@ export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav }) 
   const [me, setMe] = useState(() => {
     const crmRole = role === "manager" ? "admin" : role === "fulltime" ? "manager" : "agent";
     const display = (user || "User").replace(/@.*/, "");
-    const known = USERS.find((u) => tv(u.n).toLowerCase().startsWith(display.toLowerCase()));
-    return known ? { ...known, role: crmRole } : { id: "nirm-" + display.toLowerCase(), n: { en: display, th: display }, role: crmRole, team: "cx", email: user || "", active: true };
+    // identity comes from the NiRM login ONLY. The old nickname-prefix guess
+    // ("mark…@" → "Marker") could assign someone else's queue and signature;
+    // the exact-email effect below upgrades to the roster identity safely.
+    return { id: "nirm-" + display.toLowerCase(), n: { en: display, th: display }, role: crmRole, team: "cx", email: (user || "").toLowerCase(), active: true };
   });
   const [tab, setTab] = useState(extTab || "dash");
   /* controlled from the NiRM sidebar: parent picks a section → follow it;
