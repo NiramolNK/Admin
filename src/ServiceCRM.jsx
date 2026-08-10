@@ -600,7 +600,7 @@ const D = {
 
   /* inbox */
   searchInbox: ["Search the inbox", "ค้นหาในกล่องงาน"],
-  inboxCount: ["%s open · sorted by SLA remaining", "งานค้าง %s เคส · เรียงตาม SLA ที่เหลือ"],
+  inboxCount: ["%s open · new mail first, by SLA remaining", "งานค้าง %s เคส · เคสใหม่ขึ้นก่อน เรียงตาม SLA ที่เหลือ"],
   inboxEmpty: ["Inbox is clear", "กล่องงานว่าง"], inboxEmptySub: ["Nothing waiting on you right now", "ไม่มีเคสค้างในตอนนี้"],
   pickCase: ["Pick a case from the left", "เลือกเคสจากรายการด้านซ้าย"],
   pickCaseSub: ["Messages and customer history appear here", "ข้อความและประวัติลูกค้าจะแสดงที่นี่"],
@@ -2499,7 +2499,17 @@ function NewTicket({ me, onClose, onSave }) {
 /* ═══════════════════════ INBOX ═══════════════════════ */
 
 function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clearFocus, startCall, unread = {}, markRead = () => {} }) {
-  const rows = scope(tickets).filter((x) => OPEN_ST.includes(x.status)).sort((a, b) => sla(a).left - sla(b).left);
+  /* new mail first: cases still waiting for a first reply outrank replied
+     ones (sla().left is null once replied, which used to float answered cases
+     above fresh unanswered mail). Within the waiting group, least SLA time
+     left wins; replied cases follow, freshest activity first. */
+  const lastAt = (x) => x.messages.length ? x.messages[x.messages.length - 1].at : x.createdAt;
+  const rows = scope(tickets).filter((x) => OPEN_ST.includes(x.status)).sort((a, b) => {
+    const aw = a.firstResponseMin == null, bw = b.firstResponseMin == null;
+    if (aw !== bw) return aw ? -1 : 1;
+    if (aw) return (sla(a).left ?? 0) - (sla(b).left ?? 0);
+    return lastAt(b) - lastAt(a);
+  });
   const [sel, setSel] = useState(focus?.id || rows[0]?.id || null);
   const [text, setText] = useState("");
   const [files, setFiles] = useState([]);          // pending attachments (real email cases)
