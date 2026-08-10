@@ -2829,15 +2829,16 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const [sig, setSig] = useState("");
   const [noSig, setNoSig] = useState(false);
   const [showSig, setShowSig] = useState(false);
+  const [sigHtmlPv, setSigHtmlPv] = useState("");   // the exact HTML the email carries — logo included
   useEffect(() => {
     setNoSig(false); setShowSig(false);
     const tkNow = tickets.find((x) => x.id === sel);
-    if (!tkNow?.dbId || tkNow.channel !== "email") { setSig(""); return; }
+    if (!tkNow?.dbId || tkNow.channel !== "email") { setSig(""); setSigHtmlPv(""); return; }
     const box = (tkNow.emailTo && !tkNow.emailTo.includes("@parse.")) ? tkNow.emailTo : EMAIL_FROM;
     let dead = false;
     fetch(`${FN_BASE}/email/signature?mailbox=${encodeURIComponent(box)}&agent=${encodeURIComponent(tv(me.n))}&agentKey=${encodeURIComponent((me.email || me.id || "").toLowerCase())}`)
       .then((r) => r.json())
-      .then((d) => { if (!dead) setSig(d.signature || ""); })
+      .then((d) => { if (!dead) { setSig(d.signature || ""); setSigHtmlPv(d.html || ""); } })
       .catch(() => {});
     return () => { dead = true; };
   }, [sel]);
@@ -3095,8 +3096,12 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                       )}
                     </div>
                     {showSig && !noSig && (
-                      <pre className="mt-1.5 px-3 py-2 rounded-lg whitespace-pre-wrap"
-                           style={{ background: "var(--slate-bg)", color: "var(--muted)", fontFamily: "inherit", fontSize: 11.5 }}>{sig}</pre>
+                      sigHtmlPv
+                        // exact render of what the customer receives — logo, divider, links
+                        ? <div className="mt-1.5 px-3 py-2 rounded-lg" style={{ background: "#fff", border: "1px solid var(--line)", overflowX: "auto" }}
+                               dangerouslySetInnerHTML={{ __html: sigHtmlPv }} />
+                        : <pre className="mt-1.5 px-3 py-2 rounded-lg whitespace-pre-wrap"
+                               style={{ background: "var(--slate-bg)", color: "var(--muted)", fontFamily: "inherit", fontSize: 11.5 }}>{sig}</pre>
                     )}
                   </div>
                 )}
@@ -5129,8 +5134,21 @@ function SignatureSettings({ me, toast }) {
         {t("sigPreviewAs", cfg.brandByMailbox?.[box === SIG_ALL ? OUTBOUND_MAILBOXES[0] : box] || String(box).split("@")[0])}
         {overridden ? ` · ${t("sigCustomised", cfg.brandByMailbox?.[box] || box.split("@")[0])}` : ""}
       </label>
-      <pre className="px-3 py-2.5 rounded-lg whitespace-pre-wrap"
-           style={{ background: "var(--slate-bg)", color: "var(--ink)", fontFamily: "inherit", fontSize: 12.5 }}>{preview}</pre>
+      {(() => {
+        // mirror the email layout: this mailbox's logo (or the default) on the
+        // left, teal divider, then the signature text — what you see is what sends
+        const pvBox = box === SIG_ALL ? OUTBOUND_MAILBOXES[0] : box;
+        const pvLg = (cfg.logoByMailbox || {})[pvBox] || {};
+        const pvUrl = pvLg.url ?? cfg.logoUrl;
+        const pvW = Number(pvLg.width) || Number(cfg.logoWidth) || 150;
+        return (
+          <div className="px-3 py-2.5 rounded-lg flex items-start gap-3.5" style={{ background: "#fff", border: "1px solid var(--line)", overflowX: "auto" }}>
+            {pvUrl && <img src={pvUrl} alt="" style={{ width: Math.min(pvW, 180), flex: "none", objectFit: "contain" }} />}
+            <pre className="whitespace-pre-wrap" style={{ color: "var(--ink)", fontFamily: "inherit", fontSize: 12.5, margin: 0,
+                   borderLeft: pvUrl ? "2px solid #0D9488" : "none", paddingLeft: pvUrl ? 14 : 0 }}>{preview}</pre>
+          </div>
+        );
+      })()}
 
       <button className="btn btn-p mt-3" disabled={busy} onClick={save}><Save size={15} />{t("sigSave")}</button>
     </div>
