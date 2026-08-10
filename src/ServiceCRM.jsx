@@ -889,7 +889,7 @@ const D = {
   slaTitle: ["Service level agreement", "ข้อตกลงระดับบริการ (SLA)"],
   slaSub: ["Reply and resolution targets by priority", "กรอบเวลาตอบกลับและปิดงานตามความเร่งด่วน"],
   cFirstIn: ["First reply within", "ตอบครั้งแรกภายใน"], cCloseIn: ["Close within", "ปิดงานภายใน"],
-  slaNote: ["The clock only runs during business hours, 09:00–19:00. Cases that arrive after hours start counting when you open the next day.", "นับเฉพาะเวลาทำการ 09:00–19:00 น. เคสที่เข้ามานอกเวลาจะเริ่มนับตอนเปิดทำการวันถัดไป"],
+  slaNote: ["The clock only runs during service hours — 09:30–18:30, Monday to Friday, excluding bank holidays. Cases that arrive outside the window start counting at the next working day's open.", "นับเฉพาะเวลาทำการ 09:30–18:30 น. จันทร์–ศุกร์ ยกเว้นวันหยุดธนาคาร เคสที่เข้ามานอกเวลาจะเริ่มนับเมื่อเปิดทำการวันทำงานถัดไป"],
   notifSettings: ["Notifications", "การแจ้งเตือน"],
   notifSettingsSub: ["Choose what the system should alert you about", "เลือกสิ่งที่อยากให้ระบบเตือน"],
   nRisk: ["Warn before SLA breach", "เตือนก่อนเกิน SLA"], nRiskD: ["Alerts when under 30% of the reply window is left", "แจ้งเมื่อเหลือเวลาตอบไม่ถึง 30%"],
@@ -1541,6 +1541,21 @@ const subjectOf = (tk) => tk.subject ? tv(tk.subject) : `${catLabel(tk.catKey)} 
    Thailand has no DST, so a fixed +07:00 offset is exact.                     */
 const TZ_OFF_MS = 7 * 60 * 60 * 1000;
 const DAY_MS = 86400000;
+
+/* Thai bank holidays — the SLA clock skips them (and weekends) whenever a
+   brand has a service window on file. Loaded once from the `holidays` table,
+   which the business_minutes() SQL function reads server-side; falling back
+   to an empty set only costs accuracy until the fetch lands. */
+const HOLIDAYS = new Set();
+supabase.from("holidays").select("day").then(({ data }) => {
+  (data || []).forEach((h) => HOLIDAYS.add(h.day));
+}).catch(() => {});
+const isWorkDay = (dayIdx) => {                       // dayIdx = days since epoch, TZ-shifted
+  const dow = (dayIdx + 4) % 7;                        // epoch day 0 = Thursday(4); Sat=6, Sun=0
+  if (dow === 6 || dow === 0) return false;
+  const iso = new Date(dayIdx * DAY_MS).toISOString().slice(0, 10);
+  return !HOLIDAYS.has(iso);
+};
 const hhmmMin = (s) => {
   if (!s) return null;
   const [h, m] = String(s).split(":");
@@ -1557,6 +1572,7 @@ function businessMinutes(fromMs, toMs, startT, endT) {
   if (d1 - d0 > 400) return (toMs - fromMs) / 60000;   // runaway guard
   let total = 0;
   for (let d = d0; d <= d1; d++) {
+    if (!isWorkDay(d)) continue;                       // Mon–Fri only, skip bank holidays
     const ws = d * DAY_MS + s * 60000;
     // a window like AESTURA's 07:00–01:00 closes on the following day
     const we = d * DAY_MS + e * 60000 + (e <= s ? DAY_MS : 0);
