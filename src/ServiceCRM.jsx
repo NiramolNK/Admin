@@ -1157,7 +1157,12 @@ const CSS = `
   --red:#B91C1C; --red-bg:#FEE2E2; --cyan:#0891B2; --cyan-bg:#E0F4F8;
   --violet:#4F46E5; --violet-bg:#EEF2FF; --slate-bg:#F1F5F9;
   --shadow:0 1px 2px rgba(15,23,42,.06), 0 8px 24px -12px rgba(15,23,42,.16);
-  background:var(--bg); color:var(--ink); min-height:100vh; -webkit-font-smoothing:antialiased;
+  /* FIX (dead scroll space below the desk): min-height:100vh made the CRM
+     demand a full viewport of height BELOW NiRM's 61px sticky header, so the
+     page always overflowed and scrolling down revealed an empty band (which
+     reads as a black region in full-page screenshots). The CRM is embedded —
+     NiRM's root already guarantees full-page height — so size to content. */
+  background:var(--bg); color:var(--ink); min-height:0; -webkit-font-smoothing:antialiased;
 }
 .svc.th, .svc.th * { font-family:'IBM Plex Sans Thai','Galano Grotesque','IBM Plex Sans',system-ui,sans-serif; }
 .svc button { font-family:inherit; cursor:pointer; border:none; background:none; color:inherit; }
