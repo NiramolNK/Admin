@@ -1923,11 +1923,37 @@ export default function AllocationPanel({ isAdmin = true }) {
   };
 
   const openBrand = b => { setEditBrand({...b, platforms:[...(b.platforms||[])]}); setBrandModal(true); };
+  /* FIX (Add Brand overwrote an existing brand):
+     The Allocation tab minted new brand IDs as `b${brands.length+1}`. That is
+     only safe while the list has never shrunk. Two seeded brands had been
+     deleted, so with 77 brands in the list the "next" ID came out as b78 —
+     already taken by Shiseido - CPB. saveBrand matches on ID, found that row,
+     and REPLACED it instead of appending. The count stayed at 77, so the next
+     Add Brand produced b78 again and overwrote the brand added just before.
+     Observed live: slot b78 ping-ponged between "NARS - CPB" and
+     "Shiseido - CPB" across ~15 saves this morning, never reaching 78 brands.
+     Now: one past the highest bNN actually in use, and never an ID already
+     present (imported brands use imp… IDs and are skipped by the pattern). */
+  const nextBrandId = (list) => {
+    const arr  = Array.isArray(list) ? list : [];
+    const used = new Set(arr.map(b => b?.id));
+    let n = arr.reduce((max, b) => {
+      const hit = /^b(\d+)$/.exec(b?.id || "");
+      return hit ? Math.max(max, Number(hit[1])) : max;
+    }, 0);
+    let id;
+    do { n += 1; id = `b${String(n).padStart(2,"0")}`; } while (used.has(id));
+    return id;
+  };
   const saveBrand = () => {
     setBrands(p => {
       // Strip modal-only scratch fields (e.g. the custom-channel input buffer)
-      const { _newChannel, ...clean } = editBrand;
+      const { _newChannel, _isNew, ...clean } = editBrand;
       const i=p.findIndex(b=>b.id===clean.id);
+      // Second line of defence: a brand created via "+ Add Brand" must never
+      // land on an existing row, even if the list changed while the modal was
+      // open (another tab saving, a sync landing). Re-mint and append instead.
+      if(_isNew && i>=0) return [...p,{...clean,id:nextBrandId(p)}];
       if(i>=0){const n=[...p];n[i]=clean;return n;}
       return [...p,clean];
     });
@@ -4391,10 +4417,16 @@ export default function AllocationPanel({ isAdmin = true }) {
             const gs = ROLES[role]?.groupScope;
             const hasCallCC = (b.platforms||[]).includes("Call CC"); // brands with a CC channel are visible to CC-role users
             if (gs && !hasCallCC && !(((b.group||"")+" "+(b.wh||"")+" "+(b.name||"")).toLowerCase().includes(gs))) return false;
-            // FIX (Start Date): hide brands whose startDate is after the
-            // date currently selected in the allocation header. They're not
-            // yet active so they shouldn't appear on this day's grid.
-            if (b.startDate && selDate?.date && b.startDate > selDate.date) return false;
+            // FIX (Start Date, round 2): originally hid brands whose startDate
+            // was after the selected DAY, which made a brand starting mid-month
+            // invisible for the earlier days of its own start month — e.g.
+            // Shiseido (starts 26/6) showed "0 brands" when browsing 1/6 June,
+            // which read as the brand having vanished. Now a brand is shown for
+            // its ENTIRE start month (and later); it only stays hidden in
+            // months that end before it starts. Days before the startDate show
+            // a "Starts…" badge, and auto-allocate still skips them (it checks
+            // startDate per-day itself).
+            if (b.startDate && selDate?.date && b.startDate.slice(0,7) > selDate.date.slice(0,7)) return false;
             // ME shift: only show high-volume brands
             if (allocShiftF==="ME" && !highVolIds.has(b.id)) return false;
             const matchesSearch = brandSearch==="" || b.name.toLowerCase().includes(brandSearch.toLowerCase());
@@ -4428,8 +4460,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   ))}
                 </div>
                 <button onClick={()=>{
-                  const newId=`b${String(brands.length+1).padStart(2,"0")}`;
-                  setEditBrand({id:newId,name:"",group:"",wh:"",platforms:[]});
+                  setEditBrand({id:nextBrandId(brands),name:"",group:"",wh:"",platforms:[],_isNew:true});
                   setBrandModal(true);
                 }} style={{padding:"8px 14px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
                   + Add Brand
@@ -4623,6 +4654,14 @@ export default function AllocationPanel({ isAdmin = true }) {
                               {pi===0 && (
                                 <td rowSpan={visPlats.length} style={{padding:"8px 12px",verticalAlign:"top",paddingTop:12,borderRight:"1px solid #F1F5F9"}}>
                                   <div style={{fontWeight:700,color:"#1A1D2E",fontSize:12}}>{b.name}</div>
+                                  {/* Pre-start-date cue: the brand is visible all month
+                                      (see startDate month filter above) but not yet live
+                                      on this day — auto-allocate leaves it unstaffed. */}
+                                  {b.startDate && selDate?.date && b.startDate > selDate.date && (
+                                    <span style={{display:"inline-block",marginTop:3,fontSize:9,fontWeight:700,padding:"1px 7px",borderRadius:5,background:"#FEF3C7",color:"#92400E"}}>
+                                      Starts {b.startDate.slice(8,10)}/{Number(b.startDate.slice(5,7))}
+                                    </span>
+                                  )}
                                 </td>
                               )}
                               {pi===0 && (
@@ -5914,8 +5953,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                     Clear Month
                   </button>
                   <button onClick={()=>{
-                    const newId=`b${String(brands.length+1).padStart(2,"0")}${Date.now().toString(36).slice(-3)}`;
-                    setEditBrand({id:newId,name:"",group:"",wh:"",platforms:[],chats:{}});
+                    // Same ID source as the Allocation tab's Add Brand. This one
+                    // used to dodge collisions with a Date.now() suffix, which
+                    // worked but left IDs like "b78k4f" in the data.
+                    setEditBrand({id:nextBrandId(brands),name:"",group:"",wh:"",platforms:[],chats:{},_isNew:true});
                     setBrandModal(true);
                   }} style={{padding:"5px 12px",borderRadius:7,border:"none",background:"#0D9488",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
                     + Add Brand
