@@ -599,7 +599,7 @@ const D = {
   exportBtn: ["Export", "ส่งออก"], newCase: ["New case", "เปิดเคสใหม่"],
   selectedN: ["%s cases selected", "เลือกไว้ %s เคส"],
   takeSelf: ["Assign to me", "รับเคสเอง"], assignTo: ["Assign to…", "มอบหมายให้…"],
-  setPri: ["Change priority…", "ปรับความเร่งด่วน…"], closeCases: ["Close cases", "ปิดงาน"],
+  setPri: ["Change priority…", "ปรับความเร่งด่วน…"], closeCases: ["Resolve cases", "ปิดงาน (แก้ไขแล้ว)"],
   clearSel: ["Clear selection", "ยกเลิกการเลือก"],
   showingOf: ["Showing %s of %s cases", "แสดง %s จาก %s เคส"],
   breachedN: ["%s past SLA", "เกิน SLA %s เคส"],
@@ -1467,7 +1467,7 @@ function seedTickets() {
     const pri = ["urgent", "high", "normal", "normal", "normal", "low"][ri(6)];
     const created = now - ri(6000) * MIN;
     const closedish = Math.random() < 0.52;
-    const status = closedish ? (Math.random() < 0.55 ? "closed" : "resolved") : rnd(["new", "open", "open", "pending", "escalated"]);
+    const status = closedish ? "resolved" : rnd(["new", "open", "open", "pending", "escalated"]); // "closed" retired — merged into resolved
     const responded = status !== "new" && Math.random() < 0.92;
     const frMin = responded ? Math.round(PRI[pri].fr * (0.25 + Math.random() * 1.9)) : null;
     const resMin = ["resolved", "closed"].includes(status) ? Math.round(PRI[pri].res * (0.2 + Math.random() * 1.6)) : null;
@@ -1520,7 +1520,7 @@ function seedDemoTickets(count = 420, days = 90) {
     const age = (Date.now() - created) / 86400000;
     // older cases are almost always finished; recent ones are still moving
     const closedish = age > 5 ? Math.random() < 0.94 : Math.random() < 0.45;
-    const status = closedish ? (Math.random() < 0.62 ? "closed" : "resolved")
+    const status = closedish ? "resolved" // "closed" retired — merged into resolved
       : rnd(["new", "open", "open", "pending", "escalated"]);
     const responded = status !== "new" && Math.random() < 0.95;
     // SLA attainment ~86%
@@ -2330,7 +2330,10 @@ function Tickets({ tickets, setTickets, me, scope, open, toast, openCustomer }) 
                   onChange={(e) => e.target.value && bulk({ priority: e.target.value }, t("priChanged"))}>
             <option value="">{t("setPri")}</option>{PRI_KEYS.map((k) => <option key={k} value={k}>{tv(PRI[k].n)}</option>)}
           </select>
-          <button className="btn btn-d" style={{ padding: "7px 13px" }} onClick={() => bulk({ status: "closed" }, t("closedN"))}>{t("closeCases")}</button>
+          {/* FIX (merge Closed into Resolved): "closed" is retired — one
+              finished state only. Bulk-close now lands on "resolved", same
+              as the single-case flow, so reports/CSAT count one bucket. */}
+          <button className="btn btn-d" style={{ padding: "7px 13px" }} onClick={() => bulk({ status: "resolved" }, tv(ST.resolved.n))}>{t("closeCases")}</button>
           <button className="btn btn-g" style={{ padding: "7px 13px" }} onClick={() => setSel([])}>{t("clearSel")}</button>
         </div>
       )}
