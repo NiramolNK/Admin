@@ -1473,7 +1473,10 @@ function seedTickets() {
     const resMin = ["resolved", "closed"].includes(status) ? Math.round(PRI[pri].res * (0.2 + Math.random() * 1.6)) : null;
     const f = rnd(FIRST), l = rnd(LAST);
     const product = rnd(PRODUCTS);
-    const msgs = [{ from: "customer", text: rnd(OPENING[catK]), at: created }];
+    // OPENING is keyed by the ORIGINAL seed categories — the live taxonomy is
+    // editable, so a custom category has no entry here. Fall back instead of
+    // crashing the whole tab (this took down Reports for every custom category).
+    const msgs = [{ from: "customer", text: rnd(OPENING[catK] || [{ en: "Hello, I need help with my order.", th: "สวัสดีค่ะ ต้องการสอบถามเกี่ยวกับคำสั่งซื้อค่ะ" }]), at: created }];
     if (responded) msgs.push({ from: "agent", at: created + frMin * MIN, text: { en: "Hello, thank you for getting in touch. Could you share your order number so I can look into this right away?", th: "สวัสดีค่ะ ขอบคุณที่แจ้งเข้ามานะคะ ขอรบกวนเลขที่คำสั่งซื้อเพื่อตรวจสอบให้ทันทีค่ะ" } });
     if (responded && Math.random() < 0.6) {
       const so = `SO${240000 + ri(9999)}`;
@@ -1526,7 +1529,10 @@ function seedDemoTickets(count = 420, days = 90) {
       : null;
     const resMin = ["resolved", "closed"].includes(status) ? Math.round(PRI[pri].res * (0.2 + Math.random() * 1.5)) : null;
     const f = rnd(FIRST), l = rnd(LAST);
-    const msgs = [{ from: "customer", text: rnd(OPENING[catK]), at: created }];
+    // OPENING is keyed by the ORIGINAL seed categories — the live taxonomy is
+    // editable, so a custom category has no entry here. Fall back instead of
+    // crashing the whole tab (this took down Reports for every custom category).
+    const msgs = [{ from: "customer", text: rnd(OPENING[catK] || [{ en: "Hello, I need help with my order.", th: "สวัสดีค่ะ ต้องการสอบถามเกี่ยวกับคำสั่งซื้อค่ะ" }]), at: created }];
     if (responded) msgs.push({ from: "agent", at: created + frMin * MIN, text: { en: "Thank you for getting in touch — checking this for you now.", th: "ขอบคุณที่แจ้งเข้ามานะคะ กำลังตรวจสอบให้ค่ะ" } });
     out.push({
       id: "DEMO-" + String(1000 + i),
@@ -4486,7 +4492,9 @@ function RecPlayer({ rec, onClose }) {
 function Reports({ tickets: realTickets, trend: realTrend, toast }) {
   const [period, setPeriod] = useState("daily");
   const [demo, setDemo] = useState(realTickets.length < 20);
-  const [demoAll] = useState(() => seedDemoTickets(420, 90));
+  // generate demo data only when demo mode is actually on — generating it
+  // eagerly meant a seeding crash killed the tab even with demo off
+  const demoAll = useMemo(() => (demo ? seedDemoTickets(420, 90) : []), [demo]);
   const win = period === "daily" ? 14 : 30;
   const demoSet = useMemo(() => {
     const from = Date.now() - win * 86400000;
@@ -5903,7 +5911,9 @@ export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav }) 
 
       <div className="flex-1 min-w-0 flex flex-col">
         <main className="p-6 flex-1" style={{ paddingBottom: playRec && !call ? 130 : 24 }}>
-         <CrmBoundary>
+         {/* keyed by tab: a crash in one view no longer locks every other
+             tab into the error screen — switching tabs gets a fresh boundary */}
+         <CrmBoundary key={tab}>
           {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} me={me} />}
           {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} unread={unread} markRead={markRead} />}
           {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} openCustomer={openCustomer} />}
