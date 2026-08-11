@@ -1673,6 +1673,19 @@ function businessMinutes(fromMs, toMs, startT, endT) {
   return total;
 }
 
+/* Reported first-response / resolution durations, in business minutes.
+
+   v_ticket_sla already does this properly server-side: the service window only,
+   weekends and Thai bank holidays skipped, paused time deducted. The wall-clock
+   values on the case (firstResponseMin / resolveMin) are only a fallback for
+   demo seeds and for optimistic local updates the view has not caught up with.
+
+   Both return null until the case has actually been answered / resolved, so
+   `x.firstResponseMin != null` stays the "has this been answered?" test
+   everywhere else - do not swap that for these. */
+const frtOf = (x) => (x.firstResponseMin == null ? null : x.frtElapsedMin ?? x.firstResponseMin);
+const resOf = (x) => (x.resolveMin == null ? null : x.resElapsedMin ?? x.resolveMin);
+
 function sla(tk) {
   // Real cases carry their brand's contracted first-response target and
   // service window. Demo seeds have neither, so they fall back to the
@@ -1852,7 +1865,7 @@ function Dashboard({ tickets, trend, scope, go, open, me }) {
   const todayIn = rows.filter((x) => x.createdAt >= days0());
   const backlog = rows.filter((x) => OPEN_ST.includes(x.status));
   const answered = rows.filter((x) => x.firstResponseMin != null);
-  const met = answered.filter((x) => x.firstResponseMin <= (x.slaTargetMin ?? PRI[x.priority].fr));
+  const met = answered.filter((x) => frtOf(x) <= (x.slaTargetMin ?? PRI[x.priority].fr));
   const slaPct = answered.length ? Math.round((met.length / answered.length) * 100) : 0;
   const rated = rows.filter((x) => x.csat);
   const csat = rated.length ? (rated.reduce((s, x) => s + x.csat, 0) / rated.length).toFixed(2) : "—";
@@ -1877,8 +1890,8 @@ function Dashboard({ tickets, trend, scope, go, open, me }) {
   const reopen30 = last30.filter((x) => x.reopened);
   const pastSla = backlog.filter((x) => sla(x).state === "breach");
   const resTimes = resolved30.filter((x) => x.resolveMin != null);
-  const avgRes = resTimes.length ? Math.round(resTimes.reduce((s, x) => s + x.resolveMin, 0) / resTimes.length) : null;
-  const avgFrt = answered.length ? Math.round(answered.reduce((s, x) => s + x.firstResponseMin, 0) / answered.length) : null;
+  const avgRes = resTimes.length ? Math.round(resTimes.reduce((s, x) => s + resOf(x), 0) / resTimes.length) : null;
+  const avgFrt = answered.length ? Math.round(answered.reduce((s, x) => s + frtOf(x), 0) / answered.length) : null;
   const fcrBase = resolved30.filter((x) => x.messages);
   const fcr = fcrBase.length ? Math.round(fcrBase.filter((x) => !x.reopened && x.messages.filter((m) => m.from === "agent").length <= 1).length / fcrBase.length * 100) : 0;
   const [escStat, setEscStat] = useState({ n: 0, open: 0 });
@@ -2077,22 +2090,22 @@ function CaseRecord({ x, onClose, open, openCustomer }) {
   const frOk = frDone && frUsed <= frTarget;
   const resDone = x.resolveMin != null;
   const resTargetMin = x.slaResTargetHrs != null ? x.slaResTargetHrs * 60 : null;
-  const resUsed = x.resElapsedMin ?? (resDone ? x.resolveMin : Math.floor((Date.now() - x.createdAt) / MIN));
+  const resUsed = x.resElapsedMin ?? (resDone ? x.resolveMin : Math.floor(businessMinutes(x.createdAt, Date.now(), x.slaHoursStart, x.slaHoursEnd)));
   const dts = (ms) => new Date(ms).toLocaleDateString(LANG.cur === "th" ? "th-TH" : "en-GB", { day: "numeric", month: "short" }) + " " + clock(ms);
   const isOpen = OPEN_ST.includes(x.status);
 
   /* which clock is live: FRT until first reply, then resolution */
   const clkTarget = frDone ? resTargetMin : frTarget;
-  const clkUsed = frDone ? resUsed : frUsed ?? Math.floor((Date.now() - x.createdAt) / MIN);
+  const clkUsed = frDone ? resUsed : frUsed ?? Math.floor(businessMinutes(x.createdAt, Date.now(), x.slaHoursStart, x.slaHoursEnd));
   const clkLeft = clkTarget != null ? clkTarget - clkUsed : null;
   const clkPct = clkTarget ? Math.min(100, Math.round((clkUsed / clkTarget) * 100)) : null;
   const clkState = !isOpen ? "met" : clkLeft == null ? "ok" : clkLeft < 0 ? "breach" : clkUsed >= clkTarget * 0.75 ? "risk" : "ok";
 
   const events = [
     { at: x.createdAt, txt: t("crEvCreated", tv(CH[x.channel].n)), who: tv(x.customer), c: "var(--blue)" },
-    ...(frDone ? [{ at: x.createdAt + x.firstResponseMin * MIN, off: x.firstResponseMin, txt: t("crEvFirst"), who: uname(x.owner), c: frOk ? "var(--green)" : "var(--red)" }] : []),
+    ...(frDone ? [{ at: x.createdAt + x.firstResponseMin * MIN, off: frtOf(x), txt: t("crEvFirst"), who: uname(x.owner), c: frOk ? "var(--green)" : "var(--red)" }] : []),
     ...(x.reopened ? [{ at: null, txt: t("crEvReopen"), who: tv(x.customer), c: "var(--red)" }] : []),
-    ...(resDone ? [{ at: x.createdAt + x.resolveMin * MIN, off: x.resolveMin, txt: t("crEvResolved"), who: uname(x.owner), c: "var(--green)" }] : []),
+    ...(resDone ? [{ at: x.createdAt + x.resolveMin * MIN, off: resOf(x), txt: t("crEvResolved"), who: uname(x.owner), c: "var(--green)" }] : []),
     ...(isOpen ? [{ at: null, now: true, txt: t("crEvStatus", ST[x.status] ? tv(ST[x.status].n) : x.status), who: uname(x.owner), c: "var(--muted)" }] : []),
   ];
 
@@ -2104,8 +2117,8 @@ function CaseRecord({ x, onClose, open, openCustomer }) {
     [t("cCategory"), catLabel(x.catKey)],
     [t("cOwner"), uname(x.owner)],
     [t("crCreated"), dts(x.createdAt)],
-    [t("crFirst"), frDone ? dur(x.firstResponseMin) : "—"],
-    [t("crRes"), resDone ? dur(x.resolveMin) : "—"],
+    [t("crFirst"), frDone ? dur(frtOf(x)) : "—"],
+    [t("crRes"), resDone ? dur(resOf(x)) : "—"],
   ];
 
   return (
@@ -2117,12 +2130,12 @@ function CaseRecord({ x, onClose, open, openCustomer }) {
         </div>
         <div className="card p-3.5">
           <p className="text-[10.5px] font-bold uppercase mb-1.5" style={{ color: "var(--muted)", letterSpacing: .4 }}>{t("crFirst")}</p>
-          <p className="text-[19px] font-bold" style={{ color: frDone ? (frOk ? "var(--green)" : "var(--red)") : "var(--ink)" }}>{frDone ? dur(x.firstResponseMin) : "—"}</p>
+          <p className="text-[19px] font-bold" style={{ color: frDone ? (frOk ? "var(--green)" : "var(--red)") : "var(--ink)" }}>{frDone ? dur(frtOf(x)) : "—"}</p>
           <p className="text-[11px]" style={{ color: "var(--muted)" }}>{t("crTargetMin", frTarget)} {frDone && (frOk ? "✓" : "✗")}</p>
         </div>
         <div className="card p-3.5">
           <p className="text-[10.5px] font-bold uppercase mb-1.5" style={{ color: "var(--muted)", letterSpacing: .4 }}>{t("crRes")}</p>
-          <p className="text-[19px] font-bold">{resDone ? dur(x.resolveMin) : t("crInProgress")}</p>
+          <p className="text-[19px] font-bold">{resDone ? dur(resOf(x)) : t("crInProgress")}</p>
           {x.slaResTargetHrs != null && <p className="text-[11px]" style={{ color: "var(--muted)" }}>{t("crTargetHr", x.slaResTargetHrs)}</p>}
         </div>
         <div className="card p-3.5">
@@ -2209,10 +2222,10 @@ function Tickets({ tickets, setTickets, me, scope, open, toast, openCustomer }) 
   const openAll = all.filter((x) => OPEN_ST.includes(x.status));
   const resolvedAll = all.filter((x) => ["resolved", "closed"].includes(x.status));
   const answeredAll = all.filter((x) => x.firstResponseMin != null);
-  const avgF = answeredAll.length ? Math.round(answeredAll.reduce((s, x) => s + x.firstResponseMin, 0) / answeredAll.length) : null;
-  const slaAch = answeredAll.length ? Math.round(answeredAll.filter((x) => x.firstResponseMin <= (x.slaTargetMin ?? PRI[x.priority].fr)).length / answeredAll.length * 100) : 0;
+  const avgF = answeredAll.length ? Math.round(answeredAll.reduce((s, x) => s + frtOf(x), 0) / answeredAll.length) : null;
+  const slaAch = answeredAll.length ? Math.round(answeredAll.filter((x) => frtOf(x) <= (x.slaTargetMin ?? PRI[x.priority].fr)).length / answeredAll.length * 100) : 0;
   const resT = resolvedAll.filter((x) => x.resolveMin != null);
-  const avgR = resT.length ? Math.round(resT.reduce((s, x) => s + x.resolveMin, 0) / resT.length) : null;
+  const avgR = resT.length ? Math.round(resT.reduce((s, x) => s + resOf(x), 0) / resT.length) : null;
   const [escN, setEscN] = useState({ n: 0, open: 0 });
   useEffect(() => {
     let dead = false;
@@ -2242,7 +2255,7 @@ function Tickets({ tickets, setTickets, me, scope, open, toast, openCustomer }) 
       [t("cCase")]: x.id, [t("cSubject")]: subjectOf(x), [t("cCustomer")]: tv(x.customer), [t("cPhone")]: x.phone,
       [t("fOrder")]: x.order || "", [t("cChannel")]: tv(CH[x.channel].n), [t("cCategory")]: catLabel(x.catKey),
       [t("cPriority")]: tv(PRI[x.priority].n), [t("cStatus")]: ST[x.status] ? tv(ST[x.status].n) : x.status, [t("cOwner")]: uname(x.owner),
-      [t("cFirstAvg")]: x.firstResponseMin ?? "", [t("cResAvg")]: x.resolveMin ?? "", CSAT: x.csat ?? "",
+      [t("cFirstAvg")]: frtOf(x) ?? "", [t("cResAvg")]: resOf(x) ?? "", CSAT: x.csat ?? "",
       [t("cReopen")]: x.reopened ? "Y" : "N",
     }))), "Cases");
     XLSX.writeFile(wb, `cases-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -4507,15 +4520,15 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
   const perf = AGENTS.map((a) => {
     const ts = tickets.filter((x) => x.owner === a.id);
     const ansd = ts.filter((x) => x.firstResponseMin != null);
-    const met = ansd.filter((x) => x.firstResponseMin <= PRI[x.priority].fr);
+    const met = ansd.filter((x) => frtOf(x) <= PRI[x.priority].fr);
     const done = ts.filter((x) => ["resolved", "closed"].includes(x.status));
     const withRes = done.filter((x) => x.resolveMin);
     const rated = ts.filter((x) => x.csat);
     return {
       id: a.id, name: tv(a.n), team: tv(TEAMS[a.team]), total: ts.length,
       done: done.length,
-      fr: ansd.length ? Math.round(ansd.reduce((s, x) => s + x.firstResponseMin, 0) / ansd.length) : null,
-      res: withRes.length ? Math.round(withRes.reduce((s, x) => s + x.resolveMin, 0) / withRes.length) : null,
+      fr: ansd.length ? Math.round(ansd.reduce((s, x) => s + frtOf(x), 0) / ansd.length) : null,
+      res: withRes.length ? Math.round(withRes.reduce((s, x) => s + resOf(x), 0) / withRes.length) : null,
       sla: ansd.length ? Math.round((met.length / ansd.length) * 100) : 0,
       csat: rated.length ? +(rated.reduce((s, x) => s + x.csat, 0) / rated.length).toFixed(2) : null,
       reopen: ts.length ? Math.round((ts.filter((x) => x.reopened).length / ts.length) * 100) : 0,
@@ -4527,7 +4540,7 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
   const catRep = CAT_KEYS.map((k) => {
     const ts = tickets.filter((x) => x.catKey === k);
     const done = ts.filter((x) => x.resolveMin);
-    return { name: tv(CAT[k]), n: ts.length, avg: done.length ? Math.round(done.reduce((s, x) => s + x.resolveMin, 0) / done.length) : null };
+    return { name: tv(CAT[k]), n: ts.length, avg: done.length ? Math.round(done.reduce((s, x) => s + resOf(x), 0) / done.length) : null };
   }).sort((a, b) => b.n - a.n);
 
   const chanRep = CH_KEYS.map((k) => {
@@ -4536,7 +4549,7 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
     const rt = ts.filter((x) => x.csat);
     return {
       key: k, name: tv(CH[k].n), c: CH[k].c, n: ts.length,
-      fr: ansd.length ? Math.round(ansd.reduce((s, x) => s + x.firstResponseMin, 0) / ansd.length) : null,
+      fr: ansd.length ? Math.round(ansd.reduce((s, x) => s + frtOf(x), 0) / ansd.length) : null,
       csat: rt.length ? +(rt.reduce((s, x) => s + x.csat, 0) / rt.length).toFixed(2) : null,
     };
   }).filter((c) => c.n > 0).sort((a, b) => b.n - a.n);
@@ -4581,8 +4594,8 @@ function Reports({ tickets: realTickets, trend: realTrend, toast }) {
 
       <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(205px,1fr))" }}>
         <Kpi icon={Ticket} label={t("rTotal")} value={fmt(tickets.length)} unit={t("uCases")} tint="var(--blue)" bg="var(--sky)" />
-        <Kpi icon={Timer} label={t("rFirstAvg")} value={dur(Math.round(ansd.reduce((s, x) => s + x.firstResponseMin, 0) / (ansd.length || 1)))} tint="var(--cyan)" bg="var(--cyan-bg)" />
-        <Kpi icon={CheckCircle2} label={t("rResAvg")} value={dur(Math.round(done.reduce((s, x) => s + x.resolveMin, 0) / (done.length || 1)))} tint="var(--green)" bg="var(--green-bg)" />
+        <Kpi icon={Timer} label={t("rFirstAvg")} value={dur(Math.round(ansd.reduce((s, x) => s + frtOf(x), 0) / (ansd.length || 1)))} tint="var(--cyan)" bg="var(--cyan-bg)" />
+        <Kpi icon={CheckCircle2} label={t("rResAvg")} value={dur(Math.round(done.reduce((s, x) => s + resOf(x), 0) / (done.length || 1)))} tint="var(--green)" bg="var(--green-bg)" />
         <Kpi icon={Repeat} label={t("rReopen")} value={Math.round((tickets.filter((x) => x.reopened).length / (tickets.length || 1)) * 100)} unit="%" tint="var(--amber)" bg="var(--amber-bg)" />
       </div>
 
