@@ -305,6 +305,18 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
     return Object.values(map).sort((a, b) => b.chats - a.chats);
   }, [data.chat, chatByBrand, data.months, brandNamesInScope, month, monthsInRange, platform]);
 
+  // Human label for the period the panels are actually showing. This MUST
+  // mirror the filter logic: setting a date range collapses `month` to "all",
+  // so any panel that checks `month` alone mislabels a range-filtered view as
+  // "All months" while the data underneath is correctly scoped to the range.
+  const periodLabel = useMemo(() => {
+    if (monthsInRange) {
+      return Array.from(monthsInRange).map((m) => data.monthLabels[m] || m).join(", ");
+    }
+    if (month === "all") return "All months";
+    return data.monthLabels[month] || month;
+  }, [monthsInRange, month, data.monthLabels]);
+
   // ── Derived KPIs ─────────────────────────────────────────────────────────
   const totalCases = filteredCases.reduce((s, d) => s + d.count, 0);
 
@@ -319,34 +331,19 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
     .filter((d) => !SOLVED_RE.test(d.Status || ""))
     .reduce((s, d) => s + d.count, 0);
 
-  // Chats — prefer NiRM Performance Replied Chats data (passed via prop).
-  // Falls back to data.chat (JSON import) for any month where Performance has 0 / no data.
-  // FIX: when a date range is set (monthsInRange), filter chatsByMonth to ONLY
-  // the months in range. Previously this used `month` which collapsed to "all"
-  // whenever a date range was active, so the KPI showed Q2 totals regardless
-  // of the user's date filter.
+  // Chats — ALWAYS the Chat Volume grid (brand × platform × month), via
+  // filteredChat, so this respects the group / brand / platform / date filters.
+  //
+  // This deliberately no longer prefers the NiRM Performance "replied chats"
+  // figure (the `chatsByMonth` prop). Those two count different things: the
+  // Volume grid counts chats, Performance sums each agent's reply actions, and
+  // for May 2026 they read 60,554 vs 140,439 — a 2.3x gap. Worse, agentPerf
+  // only holds a single month, so preferring it meant that ONE month used the
+  // Performance scale while every other month silently fell back to the Volume
+  // grid, producing a fake spike in the trend. One source, one definition.
   const totalChats = useMemo(() => {
-    // FIX (group filter): chatsByMonth is a flat per-month total that has
-    // no brand granularity, so it can't be filtered by group. When a group
-    // is selected, we MUST use filteredChat (which is already scoped to
-    // brands in that group) instead — even if chatsByMonth has bigger
-    // numbers. Only fall back to chatsByMonth when group === "all".
-    if (group !== "all") {
-      return filteredChat.reduce((s, d) => s + d.chats, 0);
-    }
-    let fromPerf;
-    if (monthsInRange) {
-      fromPerf = Array.from(monthsInRange).reduce(
-        (s, m) => s + ((chatsByMonth || {})[m] || 0), 0
-      );
-    } else if (month === "all") {
-      fromPerf = Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0);
-    } else {
-      fromPerf = (chatsByMonth && chatsByMonth[month]) || 0;
-    }
-    if (fromPerf > 0) return fromPerf;
     return filteredChat.reduce((s, d) => s + d.chats, 0);
-  }, [chatsByMonth, month, monthsInRange, filteredChat, group]);
+  }, [filteredChat]);
 
   // ── Import handler ───────────────────────────────────────────────────────
   const handleImport = async () => {
@@ -585,14 +582,21 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
               ? Array.from(monthsInRange)
               : (month === "all" ? (data.months || []) : [month]);
 
-            // Sum brand orders across active months
+            // Sum brand orders across active months. Count the brands that
+            // actually contributed — brandsInScope is the MERGED brand list
+            // (Monday boards + CUSP), and only the CUSP side carries orders,
+            // so reporting brandsInScope.length overstates the coverage.
             let totalOrders = 0;
+            let brandsWithOrders = 0;
             brandsInScope.forEach(b => {
+              let brandOrders = 0;
               activeMonths.forEach(m => {
                 // Try month-letter keys: aprO, mayO, junO, etc.
                 const key = m + "O";  // e.g. "aprO"
-                totalOrders += (b[key] || 0);
+                brandOrders += (b[key] || 0);
               });
+              totalOrders += brandOrders;
+              if (brandOrders > 0) brandsWithOrders++;
             });
             // Fallback: ONLY fall back to b.q2 when the user has selected
             // "all months" (full quarter view). Previously the fallback fired
@@ -617,26 +621,12 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
               : "—";
 
             return <>
-              <KPI label="Total Chats" value={totalChats.toLocaleString()} sub={(() => {
-                // FIX: respect date-range filter same as the totalChats computation
-                let fromPerf;
-                let label;
-                if (monthsInRange) {
-                  fromPerf = Array.from(monthsInRange).reduce((s, m) => s + ((chatsByMonth || {})[m] || 0), 0);
-                  label = Array.from(monthsInRange).map(m => data.monthLabels[m] || m).join(", ");
-                } else if (month === "all") {
-                  fromPerf = Object.values(chatsByMonth || {}).reduce((s, v) => s + (v || 0), 0);
-                  label = data.period;
-                } else {
-                  fromPerf = (chatsByMonth && chatsByMonth[month]) || 0;
-                  label = data.monthLabels[month] || month;
-                }
-                return `${label} · ${fromPerf > 0 ? "from Performance" : "from Volume / import"}`;
-              })()} color="#1A6FC4" />
+              <KPI label="Total Chats" value={totalChats.toLocaleString()}
+                sub={`${periodLabel} · from Chat Volume`} color="#1A6FC4" />
               <KPI label="Total Orders" value={totalOrders.toLocaleString()} sub={
                 totalOrders === 0 && !isFullQuarter
                   ? "no orders imported for this month"
-                  : `${brandsInScope.length} brands`
+                  : `${brandsWithOrders} of ${brandsInScope.length} brands`
               } color="#7B3FA0" />
               <KPI label="Total Cases" value={totalCases.toLocaleString()} sub={`Case/Order: ${caseOrderRatio}`} color="#D02B27" />
               <KPI label="AI %" value="—" sub="not tracked yet" color="#0891B2" />
@@ -648,7 +638,7 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
         {/* ── Top row: Reasons + Status + Cases by Platform ── */}
         <div style={threeColGrid}>
           {/* Reasons panel */}
-          <Panel title="Reasons for Cases" sub={`${reasonBrand === "all" ? "All brands" : reasonBrand} · ${platform === "all" ? "All platforms" : platform} · ${month === "all" ? "All months" : data.monthLabels[month] || month}`}>
+          <Panel title="Reasons for Cases" sub={`${reasonBrand === "all" ? "All brands" : reasonBrand} · ${platform === "all" ? "All platforms" : platform} · ${periodLabel}`}>
             <ReasonsBlock
               cases={filteredCasesByBrand}
               brandsInScope={brandsInScope}
@@ -680,7 +670,7 @@ export default function CSAnalyticsTab({ role, canEdit, chatsByMonth = {}, chatB
         </Panel>
 
         {/* ── Chat table ── */}
-        <Panel title={`Chat Volume — ${month === "all" ? "All Months" : data.monthLabels[month] || month}`} sub="Sorted by chat volume">
+        <Panel title={`Chat Volume — ${periodLabel}`} sub="Sorted by chat volume">
           <ChatTable rows={filteredChat} totalChats={totalChats} />
         </Panel>
 
