@@ -3052,24 +3052,27 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             </div>
 
             <div className="flex-1 overflow-auto scroll p-5 space-y-3">
-              {tk.messages.map((m, i) => (
+              {/* Show every distinct file ONCE per case. Replying quotes the
+                  previous mail, so its inline images ride along on each
+                  follow-up — without this the agent scrolls past the same
+                  picture again and again. Keyed on path, else name+size, so it
+                  also covers older records saved before the server-side hash
+                  check existed. First appearance wins. */}
+              {(() => { const shownAtt = new Set();
+              return tk.messages.map((m, i) => (
                 <div key={i} className={`flex ${m.from === "agent" ? "justify-end" : ["note", "call"].includes(m.from) ? "justify-center" : "justify-start"}`}>
                   <div>
                     <div className={`bub ${m.from === "agent" ? "bub-a" : m.from === "note" ? "bub-n" : m.from === "call" ? "bub-call" : "bub-c"}`}>
                       {m.from === "note" && <div className="flex items-center gap-1.5 text-[11px] font-bold mb-1"><StickyNote size={11} />{t("noteBanner")}</div>}
                       {m.from === "call" && <div className="flex items-center gap-1.5 text-[11px] font-bold mb-1"><PhoneCall size={11} />{t("navCalls")}</div>}
                       <MsgBody text={tv(m.text)} />
-                      {/* Never render the same stored file twice. Older mail can
-                          still hold two records pointing at one path (see the
-                          attachment-overwrite fix), and a forwarded thread can
-                          legitimately repeat an image — either way the agent
-                          should see each distinct file once. */}
                       {(() => {
-                        const seen = new Set();
                         const uniq = (m.att || []).filter((a) => {
-                          const k = a?.path || a?.name;
-                          if (!k || seen.has(k)) return false;
-                          seen.add(k); return true;
+                          if (!a) return false;
+                          const k = a.path || `${a.name}:${a.size}`;
+                          const c = a.name != null && a.size != null ? `${a.name}:${a.size}` : k;
+                          if (shownAtt.has(k) || shownAtt.has(c)) return false;
+                          shownAtt.add(k); shownAtt.add(c); return true;
                         });
                         return uniq.length > 0 && (
                           <div className="flex flex-wrap gap-1.5 mt-2">
@@ -3083,7 +3086,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                     </div>
                   </div>
                 </div>
-              ))}
+              )); })()}
               <div ref={endRef} />
             </div>
 
