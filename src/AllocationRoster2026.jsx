@@ -4473,9 +4473,30 @@ export default function AllocationPanel({ isAdmin = true }) {
                   // rebuild: non-T1 names are re-appended to the new allocation.
                   safeSetBrandAsgn(prev => {
                     const auto = autoAllocateBrands(brands,agents,asgn,dates,prev,monthlyVol,currentMK);
+                    /* RULE (freeze today & the past): a re-run of Auto-Allocate —
+                       whether triggered by a new agent, updated chat numbers, or
+                       just curiosity — must never reshuffle days the team is
+                       already working. Any date up to and including TODAY that
+                       already has assignments keeps them exactly as they are;
+                       the new allocation applies from tomorrow onward. A past or
+                       current day with NO assignments at all is still filled
+                       (nothing to disturb). Manual edits on today remain allowed
+                       — this only constrains the algorithm. */
+                    const todayStr = allocLocalStr(new Date());
+                    const dateOfKey = (k) => (k.match(/_(\d{4}-\d{2}-\d{2})_/) || [])[1] || "";
+                    const frozen = new Set();
+                    Object.keys(prev||{}).forEach(k => {
+                      const d = dateOfKey(k);
+                      if (d && d <= todayStr) frozen.add(d);
+                    });
                     const t1Names = new Set(agents.filter(a=>a.active&&a.team==="T1").map(a=>a.name));
-                    const merged = {...auto};
+                    const merged = {};
+                    Object.entries(auto).forEach(([k, v]) => { if (!frozen.has(dateOfKey(k))) merged[k] = v; });
                     Object.entries(prev||{}).forEach(([k, raw]) => {
+                      // frozen days: carry over verbatim — additions, removals and all
+                      if (frozen.has(dateOfKey(k))) { merged[k] = raw; return; }
+                      // future days: keep manually-added non-T1 agents (e.g. Marker),
+                      // which the T1-only algorithm can never recreate
                       const names = Array.isArray(raw)?raw:(raw?[raw]:[]);
                       const keep = names.filter(n => n && !t1Names.has(n));
                       if(!keep.length) return;
