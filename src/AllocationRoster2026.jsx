@@ -1703,6 +1703,17 @@ export default function AllocationPanel({ isAdmin = true }) {
     return allocMkDates(rosterYear, rosterMonth);
   }, [rosterYear, rosterMonth]);
 
+  /* FIX (Allocation should open on TODAY): the date selector defaulted to
+     whatever index was left over (often day 1, or yesterday's browsing),
+     so the grid showed the wrong day's roster and assignments until you
+     clicked through. Whenever the visible month contains today — on load
+     and when navigating back to the current month — jump to today. Other
+     months still open on day 1, and the ‹ › arrows work as before. */
+  useEffect(() => {
+    const i = dates.findIndex(d => d.date === allocLocalStr(new Date()));
+    setAllocDateIdx(i >= 0 ? i : 0);
+  }, [dates]);
+
   const active = agents.filter(a => a.active);
   const CW = 58;
 
