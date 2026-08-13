@@ -2538,7 +2538,12 @@ function NewMessage({ me, onClose, onSent, toast }) {
 
       // upload attachments first so the send function can pull them
       const at = Date.now();
-      const atts = files.map((x) => ({ name: x.name, path: `${tkRow.id}/out-${at}/${safeAttName(x.name)}`, size: x.size, type: x.type || "" }));
+      /* FIX (attachments overwriting each other): the path was ticket + timestamp
+         + filename, and the upload uses upsert. Two files with the SAME name in
+         one message — Outlook names every pasted image "image.png" — resolved to
+         the same path, so the second silently replaced the first and both
+         attachment entries pointed at one file. The index makes each unique. */
+      const atts = files.map((x, i) => ({ name: x.name, path: `${tkRow.id}/out-${at}/${i + 1}-${safeAttName(x.name)}`, size: x.size, type: x.type || "" }));
       for (let i = 0; i < files.length; i++) {
         const up = await supabase.storage.from(ATT_BUCKET).upload(atts[i].path, files[i], { contentType: atts[i].type || "application/octet-stream", upsert: true });
         if (up.error) { setBusy(false); return setErr("✉ " + up.error.message); }
@@ -2899,7 +2904,8 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     const msgText = text.trim() || "(attachment)";
     const at = Date.now();
     const canAttach = tk.dbId && tk.channel === "email" && !isNote;
-    const atts = canAttach ? files.map((f) => ({ name: f.name, path: `${tk.dbId}/out-${at}/${safeAttName(f.name)}`, size: f.size, type: f.type || "" })) : [];
+    // index keeps same-named files apart — see the note on the compose path above
+    const atts = canAttach ? files.map((f, i) => ({ name: f.name, path: `${tk.dbId}/out-${at}/${i + 1}-${safeAttName(f.name)}`, size: f.size, type: f.type || "" })) : [];
     const fileObjs = canAttach ? [...files] : [];
     setTickets((p) => p.map((x) => {
       if (x.id !== tk.id) return x;
@@ -2946,8 +2952,17 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                new) and shows a long, explicit error with SendGrid's reason. */
             if (!r.ok) {
               const j = await r.json().catch(() => ({}));
+              /* SendGrid returns its reason as JSON inside `detail`, e.g.
+                 {"errors":[{"message":"You have exceeded your messaging limits"}]}
+                 — pull the human sentence out instead of showing raw JSON. */
+              let why = j.detail || j.error || `error ${r.status}`;
+              try { const d = JSON.parse(j.detail); if (d?.errors?.[0]?.message) why = d.errors[0].message; } catch { /* keep raw */ }
+              // the daily send quota is the one an agent can act on, so name it plainly
+              if (/messaging limits|maximum credits|rate limit/i.test(why)) {
+                why = "daily email limit reached (each Cc counts as one email) — tell your admin to raise the SendGrid plan, or send again tomorrow";
+              }
               setText((cur) => cur ? cur : msgText);
-              toast("✉ EMAIL NOT SENT — " + (j.detail || j.error || `error ${r.status}`) + " · your draft was restored", "error");
+              toast("✉ EMAIL NOT SENT — " + why + " · your draft was restored", "error");
             }
             else { setRcpt((p) => ({ ...p, pinned: ccPinList })); setAddCc([]); setDropPin([]); setDropForever([]); } // manual chips are now saved; skip-once was for that reply
           } catch (e) {
@@ -3044,11 +3059,24 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                       {m.from === "note" && <div className="flex items-center gap-1.5 text-[11px] font-bold mb-1"><StickyNote size={11} />{t("noteBanner")}</div>}
                       {m.from === "call" && <div className="flex items-center gap-1.5 text-[11px] font-bold mb-1"><PhoneCall size={11} />{t("navCalls")}</div>}
                       <MsgBody text={tv(m.text)} />
-                      {m.att && m.att.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {m.att.map((a, j) => <AttThumb key={j} a={a} onOpen={() => openAtt(a)} />)}
-                        </div>
-                      )}
+                      {/* Never render the same stored file twice. Older mail can
+                          still hold two records pointing at one path (see the
+                          attachment-overwrite fix), and a forwarded thread can
+                          legitimately repeat an image — either way the agent
+                          should see each distinct file once. */}
+                      {(() => {
+                        const seen = new Set();
+                        const uniq = (m.att || []).filter((a) => {
+                          const k = a?.path || a?.name;
+                          if (!k || seen.has(k)) return false;
+                          seen.add(k); return true;
+                        });
+                        return uniq.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {uniq.map((a, j) => <AttThumb key={a.path || j} a={a} onOpen={() => openAtt(a)} />)}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="text-[10.5px] mt-1 px-1" style={{ color: "var(--muted)", textAlign: m.from === "agent" ? "right" : "left" }}>
                       {m.from === "customer" ? tv(tk.customer) : m.by || t("supportTeam")} · {clock(m.at)}
