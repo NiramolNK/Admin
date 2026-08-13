@@ -2937,9 +2937,23 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
               body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: OUTBOUND_MAILBOXES.includes(String(tk.emailTo || "").toLowerCase()) ? tk.emailTo.toLowerCase() : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(), attachments: atts, replyAll: replyAll && !rcpt.to, cc: ccOutgoing, pinCc: ccPinList, noSignature: noSig }),
             });
-            if (!r.ok) { const j = await r.json().catch(() => ({})); toast("✉ " + (j.error || `email send failed (${r.status})`)); }
+            /* FIX (silent lost emails): the reply box is cleared and "Message
+               sent" toasted optimistically BEFORE this async send finishes.
+               When SendGrid rejects (502), the follow-up error toast was easy
+               to miss and the typed reply was already wiped — the email
+               simply "disappeared". Now a failed send restores the draft
+               into the reply box (unless the agent already typed something
+               new) and shows a long, explicit error with SendGrid's reason. */
+            if (!r.ok) {
+              const j = await r.json().catch(() => ({}));
+              setText((cur) => cur ? cur : msgText);
+              toast("✉ EMAIL NOT SENT — " + (j.detail || j.error || `error ${r.status}`) + " · your draft was restored", "error");
+            }
             else { setRcpt((p) => ({ ...p, pinned: ccPinList })); setAddCc([]); setDropPin([]); setDropForever([]); } // manual chips are now saved; skip-once was for that reply
-          } catch (e) { toast("✉ email send failed — network"); }
+          } catch (e) {
+            setText((cur) => cur ? cur : msgText);
+            toast("✉ EMAIL NOT SENT — network error · your draft was restored", "error");
+          }
         })();
       }
     }
