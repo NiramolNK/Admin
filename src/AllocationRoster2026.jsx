@@ -4748,7 +4748,16 @@ export default function AllocationPanel({ isAdmin = true }) {
                                   const raw = brandAsgn[k];
                                   const assigned = [...new Set(Array.isArray(raw) ? raw : (raw ? [raw] : []))];
                                   const allOnShift = pool.map(a=>a.name);
-                                  const available = [...pool, ...t1Active.filter(a=>!pool.some(p=>p.id===a.id))];
+                                  /* FIX (CC brands could not be manually assigned): the manual
+                                     dropdown only offered T1 agents, but auto-allocate is
+                                     deliberately T1-only for CC channels — so a Call CC brand
+                                     (e.g. NARS - CPB) could never reach the CC team at all.
+                                     Offer EVERY active agent: on-shift pool first, then all
+                                     remaining active agents (CC / Return / T2 / off-shift T1)
+                                     marked with ↓. Auto-Allocate already preserves manually
+                                     added non-T1 names, so these assignments survive re-runs. */
+                                  const offShift = agents.filter(a=>a.active && !pool.some(p=>p.id===a.id));
+                                  const available = [...pool, ...offShift];
                                   const unassigned = available.filter(a=>!assigned.includes(a.name));
                                   const removeAgent = (name) => { if(isLocked) return; safeSetBrandAsgn(p=>({...p,[k]:assigned.filter(n=>n!==name)})); };
                                   const addAgent = (name) => { if(isLocked) return; if(name && !assigned.includes(name)) safeSetBrandAsgn(p=>({...p,[k]:[...assigned,name]})); };
@@ -4771,7 +4780,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                                           style={{padding:"2px 6px",borderRadius:6,border:"1px dashed #E2E8F0",background:"transparent",color:"#94A3B8",fontSize:11,fontFamily:"inherit",outline:"none",cursor:"pointer",maxWidth:100}}>
                                           <option value="">+ Add</option>
                                           {pool.filter(a=>!assigned.includes(a.name)).map(a=><option key={a.id} value={a.name}>{a.name}</option>)}
-                                          {t1Active.filter(a=>!pool.some(p=>p.id===a.id)&&!assigned.includes(a.name)).map(a=><option key={a.id} value={a.name}>{a.name} ↓</option>)}
+                                          {offShift.filter(a=>!assigned.includes(a.name)).map(a=><option key={a.id} value={a.name}>{a.name}{a.team!=="T1"?` (${a.team})`:""} ↓</option>)}
                                         </select>
                                       )}
                                     </div>
