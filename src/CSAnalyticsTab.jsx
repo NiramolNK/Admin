@@ -40,6 +40,15 @@ const PLATFORM_C = {
   lazada: { color: "#2A3FA0", bg: "#EEF1FF" },
 };
 
+// Canonical month order. Month lists get unioned from several sources (legacy
+// JSON import, Monday sync, CUSP sync); without an explicit sort the columns
+// and bar charts render in whatever order the sources happened to arrive in.
+const MONTH_ORDER = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+const sortMonths = (list) =>
+  MONTH_ORDER.filter((m) => list.includes(m)).concat(
+    list.filter((m) => !MONTH_ORDER.includes(m))
+  );
+
 // Default empty state used before any data is imported.
 const EMPTY_DATA = {
   period: "—", months: [], monthLabels: {},
@@ -1155,7 +1164,7 @@ function mergeMondayInto(existing, monday) {
   if (monday.period) out.period = monday.period;
   if (monday.months && monday.months.length) {
     const set = new Set([...(out.months || []), ...monday.months]);
-    out.months = Array.from(set);
+    out.months = sortMonths(Array.from(set));
   }
   out.monthLabels = { ...(out.monthLabels || {}), ...(monday.monthLabels || {}) };
 
@@ -1204,7 +1213,7 @@ function mergeCuspInto(existing, cusp) {
   // But ensure all CUSP months are in the months list.
   if (cusp.months && cusp.months.length) {
     const set = new Set([...(out.months || []), ...cusp.months]);
-    out.months = Array.from(set);
+    out.months = sortMonths(Array.from(set));
   }
   out.monthLabels = { ...(out.monthLabels || {}), ...(cusp.monthLabels || {}) };
 
