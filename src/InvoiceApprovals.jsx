@@ -563,8 +563,8 @@ export function InvoiceBatchPanel({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: "#F8FAFC" }}>
-              {["Agent", "PCODE", "Team", "Docs", "Days", "OT", "Extra h", "Subtotal", "WHT 3%", "Net payable", "Status"].map((h, i) => (
-                <th key={h} style={{ padding: "8px 12px", textAlign: i >= 4 && i <= 9 ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>{h}</th>
+              {["Agent", "PCODE", "Team", "Docs", "Days", "Extra h", "Subtotal", "WHT 3%", "Net payable", "Status"].map((h, i) => (
+                <th key={h} style={{ padding: "8px 12px", textAlign: i >= 4 && i <= 8 ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -590,7 +590,6 @@ export function InvoiceBatchPanel({
                     <span style={{ fontSize: 10, fontWeight: 800, color: hasBank ? "#065F46" : "#B91C1C" }}>BK{hasBank ? "✓" : "✗"}</span>
                   </td>
                   <td style={{ padding: "8px 12px", textAlign: "right", color: "#475569" }}>{f ? f.workDays : "—"}</td>
-                  <td style={{ padding: "8px 12px", textAlign: "right", color: "#475569" }}>{f ? (f.otDays || 0) : "—"}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", color: "#475569" }}>{f ? (f.extraHours || 0) : "—"}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", color: "#475569", fontFamily: "monospace" }}>{f ? THB(f.subtotal) : "—"}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", color: "#94A3B8", fontFamily: "monospace" }}>{f ? THB(f.withholding) : "—"}</td>
@@ -604,13 +603,13 @@ export function InvoiceBatchPanel({
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={11} style={{ padding: 24, textAlign: "center", color: "#94A3B8" }}>No daily-rate agents on the roster.</td></tr>
+              <tr><td colSpan={10} style={{ padding: 24, textAlign: "center", color: "#94A3B8" }}>No daily-rate agents on the roster.</td></tr>
             )}
           </tbody>
           {approved.length > 0 && (
             <tfoot>
               <tr style={{ background: "#F8FAFC", borderTop: "2px solid #E2E8F0" }}>
-                <td colSpan={7} style={{ padding: "10px 12px", fontWeight: 800, color: "#1A1D2E" }}>
+                <td colSpan={6} style={{ padding: "10px 12px", fontWeight: 800, color: "#1A1D2E" }}>
                   Batch ({approved.length} approved)
                 </td>
                 <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, color: "#475569", fontFamily: "monospace" }}>{THB(batchGross)}</td>
