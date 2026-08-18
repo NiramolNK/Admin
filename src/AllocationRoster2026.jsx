@@ -3773,7 +3773,17 @@ export default function AllocationPanel({ isAdmin = true }) {
               // was on file at submission, immune to later replacements.
               idCardPhotoUrl: myPayrollAgent.idCardPhotoUrl,
               bookbankPhotoUrl: myPayrollAgent.bookbankPhotoUrl,
-              pcode: myPayrollAgent.pcode || "",
+              // PCODE = the agent code (01, 02, …) unless HR assigned a
+              // specific payroll code. Payment details are frozen with the
+              // figures so the paperwork Finance receives cannot change if
+              // the agent later edits their bank info.
+              pcode: myPayrollAgent.pcode || myPayrollAgent.id,
+              fullName: myPayrollAgent.fullName || "",
+              thaiName: myPayrollAgent.thaiName || "",
+              taxId: myPayrollAgent.taxId || myPayrollAgent.idCard || "",
+              bankName: myPayrollAgent.bankName || "",
+              bankAccount: myPayrollAgent.bankAccount || "",
+              bankAccountName: myPayrollAgent.bankAccountName || "",
               rejectReason: "", rejectedAt: null, rejectedBy: null,
               managerAt: null, managerBy: null,
               financeAt: null, financeBy: null,
