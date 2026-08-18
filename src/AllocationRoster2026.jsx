@@ -1924,7 +1924,11 @@ export default function AllocationPanel({ isAdmin = true }) {
           bankName:        inviteFormData.bankName,
           bankAccount:     inviteFormData.bankAccount,
           bankAccountName: inviteFormData.bankAccountName,
-          startDate:       inviteFormData.startDate,
+          // Thai-calendar guard: agents type พ.ศ. years (2569-07-15). Stored
+          // as-is that reads as the year 2569 CE, so Auto-Fill treats the
+          // agent as not-yet-started and silently never schedules them —
+          // exactly what blanked Daran and Noon out of September 2026.
+          startDate:       (inviteFormData.startDate || "").replace(/^2[4-9]\d\d/, y => String(Number(y) - 543)),
           costDay:         Number(inviteFormData.costDay) || a.costDay,
           profilePhotoUrl: inviteFormData.profilePhotoUrl,
           idCardPhotoUrl:  inviteFormData.idCardPhotoUrl,
