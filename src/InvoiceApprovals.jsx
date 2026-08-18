@@ -257,15 +257,24 @@ function agentPackPages(inv, agent, signature) {
   const sigBlock = signature?.dataUrl
     ? `<img src="${signature.dataUrl}" style="max-height:70px;max-width:260px"/>`
     : `<div style="font-size:17px;font-weight:700;font-style:italic;color:#0D9488">${inv.agentName}</div>`;
-  const docPage = (title, url) => url ? `
-    <section class="page">
-      <h2>${title} — ${name}</h2>
-      <div class="docwrap"><img src="${url}"/></div>
-    </section>` : `
+  // Agents upload PDFs as well as photos — a PDF inside <img> renders as a
+  // broken icon, so PDFs get an <embed> viewer plus an always-working link.
+  const docPage = (title, url) => {
+    if (!url) return `
     <section class="page">
       <h2>${title} — ${name}</h2>
       <p class="missing">⚠ Not on file at the time this batch was generated.</p>
     </section>`;
+    const isPdf = /\.pdf(\?|$)/i.test(url);
+    return `
+    <section class="page">
+      <h2>${title} — ${name}</h2>
+      <div class="docwrap">${isPdf
+        ? `<embed src="${url}" type="application/pdf" style="width:100%;height:820px;border:1px solid #CBD5E1"/>
+           <p style="font-size:11px;color:#64748B;margin-top:6px">PDF document — if it does not display or print above, open it directly: <a href="${url}">${url}</a></p>`
+        : `<img src="${url}"/>`}</div>
+    </section>`;
+  };
   return `
     <section class="page">
       <div class="invhead">
@@ -378,18 +387,21 @@ export function InvoiceBatchPanel({
     setEditingRcpt(false); setNote(null);
   };
 
-  // Only daily-rate, active people invoice. Everyone else is salaried.
+  // Only daily-rate people invoice — everyone else is salaried. An INACTIVE
+  // agent still appears if they worked days inside this pay period: leaving
+  // mid-month must not silently drop their final payment from the batch.
   // Ordered by PCODE (01, 02, 03…) so the table, the email and the pack all
   // match the payroll sheet's order.
   const codeOf = (a) => a.pcode || a.id || "";
   const roster = useMemo(
-    () => agents.filter(a => a.active && DAILY_RATE_TEAMS.includes(a.team))
+    () => agents.filter(a => DAILY_RATE_TEAMS.includes(a.team) &&
+                  (a.active || (computeFigures?.(a.id, period)?.workDays || 0) > 0))
                 .sort((a, b) => {
                   const x = parseInt(codeOf(a), 10), y = parseInt(codeOf(b), 10);
                   if (!isNaN(x) && !isNaN(y) && x !== y) return x - y;
                   return String(codeOf(a)).localeCompare(String(codeOf(b)), undefined, { numeric: true });
                 }),
-    [agents]
+    [agents, period, computeFigures]
   );
 
   const rows = useMemo(() => roster.map(a => {
