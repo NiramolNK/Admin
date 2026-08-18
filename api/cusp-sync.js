@@ -1,21 +1,301 @@
 // ════════════════════════════════════════════════════════════════════════════
 // Vercel Serverless Function — /api/cusp-sync
 //
-// Returns a CUSP order-data snapshot in CS Analytics brand shape.
+// Returns per-brand monthly order counts for CS Analytics, in the brand shape
+// CSAnalyticsTab.jsx expects ({m}O fields + q2 total + platformTotalsByBrand).
 //
-// The snapshot was generated from CUSP Redshift (crea_reporting.t_crea_all_perf_w_target)
-// via the MCP query_redshift tool. It covers Jan-May 2026 per-brand orders summed
-// across Shopee / Lazada / TikTok for TH shops with service_model IN (Retail, Service).
+// LIVE MODE (preferred)
+//   When the REDSHIFT_* environment variables are set in Vercel, this queries
+//   CUSP Redshift (crea_reporting.t_crea_all_perf_w_target) directly, so orders
+//   are never stale again. Required Vercel env vars:
+//       REDSHIFT_HOST       e.g. xxxx.redshift.amazonaws.com
+//       REDSHIFT_DATABASE
+//       REDSHIFT_USER
+//       REDSHIFT_PASSWORD
+//       REDSHIFT_PORT       (optional, default 5439)
+//       CS_SYNC_YEAR        (optional, default = current year in Asia/Bangkok)
 //
-// To refresh:
-//   1. Run the CUSP queries in Cowork (see tools/cusp-snapshot-builder.md).
-//   2. Replace the SNAPSHOT object below with the new JSON.
-//   3. git push — Vercel rebuilds.
+// FALLBACK MODE
+//   With no credentials — or if the warehouse is unreachable — the frozen
+//   SNAPSHOT below is served instead, and the response carries
+//   live:false + fallbackReason so the cause is visible rather than silent.
+//   That snapshot was generated on 2026-05-24 and therefore stops at May 2026
+//   (its May figures are partial, cut off mid-month). It exists only as a
+//   safety net; do not treat it as current.
 //
-// Long-term, this could be swapped for a live Redshift connection — see
-// the README comment at the bottom for the env vars / library that would
-// be needed.
+// SCOPE (identical in both modes)
+//   country = 'TH', service_model IN ('Retail','Service'),
+//   channel_name IN ('Shopee','Lazada','TikTok'), shop_orders > 0.
+//
+// SHOP → BRAND
+//   The warehouse keys on shop_name ("Laneige"); CS Analytics keys on the
+//   Monday brand name ("Laneige - Amore"). SHOP_TO_BRAND below bridges the two.
+//   It was reconstructed by matching the Jan–Apr 2026 order counts in the old
+//   snapshot against the warehouse shop by shop, so it reproduces exactly the
+//   brand universe CS Analytics already showed. Two Reckitt shops intentionally
+//   collapse into one "Dettol-IN" brand. Retired "<shop>-Old" rows fold into
+//   their live shop. A shop with no entry here is skipped and reported back in
+//   the response's unmappedShops array — add it here when a new brand starts.
 // ════════════════════════════════════════════════════════════════════════════
+
+import pg from "pg";
+
+const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+const MONTH_LABEL = {
+  jan:"January", feb:"February", mar:"March",    apr:"April",   may:"May",      jun:"June",
+  jul:"July",    aug:"August",   sep:"September",oct:"October", nov:"November", dec:"December",
+};
+
+const SHOP_TO_BRAND = {
+  "111SKIN": {
+    "brand": "111SKIN-IN",
+    "group": "Other"
+  },
+  "Acne Aid and Spectraban": {
+    "brand": "Acne Aid and Spectraban-IN",
+    "group": "Other"
+  },
+  "Aestura": {
+    "brand": "Aestura - Amore",
+    "group": "Amore"
+  },
+  "Armani Exchange": {
+    "brand": "Armani Exchange-CMG",
+    "group": "CMG"
+  },
+  "Balmuda": {
+    "brand": "BALMUDA - PWB",
+    "group": "Other"
+  },
+  "Bose": {
+    "brand": "Bose - PWB",
+    "group": "Other"
+  },
+  "Banila": {
+    "brand": "Banila-CMG",
+    "group": "CMG"
+  },
+  "Casio": {
+    "brand": "Casio-CMG",
+    "group": "CMG"
+  },
+  "Chang Choice": {
+    "brand": "Chang Choice - IN notax",
+    "group": "Other"
+  },
+  "Clarins": {
+    "brand": "Clarins-CMG",
+    "group": "CMG"
+  },
+  "Crocs": {
+    "brand": "Crocs-CMG",
+    "group": "CMG"
+  },
+  "Decathlon": {
+    "brand": "Decathlon Thailand",
+    "group": "Other"
+  },
+  "Dremel": {
+    "brand": "Dremel Thailand-IN",
+    "group": "Other"
+  },
+  "Etude": {
+    "brand": "Etude - Amore",
+    "group": "Amore"
+  },
+  "FILA": {
+    "brand": "FILA-CMG",
+    "group": "CMG"
+  },
+  "FitFlop": {
+    "brand": "FitFlop - CMG",
+    "group": "CMG"
+  },
+  "G2000": {
+    "brand": "G2000 - CMG",
+    "group": "CMG"
+  },
+  "Guess": {
+    "brand": "Guess-CMG TH",
+    "group": "CMG"
+  },
+  "Hera": {
+    "brand": "HERA - Amore",
+    "group": "Amore"
+  },
+  "Hey Dude": {
+    "brand": "Hey Dude-CMG",
+    "group": "CMG"
+  },
+  "Hills": {
+    "brand": "Hill's-IN",
+    "group": "Other"
+  },
+  "Hush Puppies": {
+    "brand": "Hush Puppies - CMG",
+    "group": "CMG"
+  },
+  "Innisfree": {
+    "brand": "innisfree - Amore",
+    "group": "Amore"
+  },
+  "JDE World Of Coffee": {
+    "brand": "JDE-IN",
+    "group": "Other"
+  },
+  "Jockey": {
+    "brand": "Jockey - CMG",
+    "group": "CMG"
+  },
+  "Jungsaemmool": {
+    "brand": "JUNGSAEMMOOL-CMG",
+    "group": "CMG"
+  },
+  "KIKO": {
+    "brand": "KIKO - CMG",
+    "group": "CMG"
+  },
+  "Laneige": {
+    "brand": "Laneige - Amore",
+    "group": "Amore"
+  },
+  "Lee": {
+    "brand": "LEE - CMG",
+    "group": "CMG"
+  },
+  "MEGA We Care": {
+    "brand": "MEGA We Care-IN",
+    "group": "Other"
+  },
+  "MLB": {
+    "brand": "MLB - CMG",
+    "group": "CMG"
+  },
+  "Mars": {
+    "brand": "Pedigree & Whiskas-IN",
+    "group": "Mars"
+  },
+  "Milo": {
+    "brand": "Milo - Nestle",
+    "group": "Nestle"
+  },
+  "Mondelez": {
+    "brand": "Mondelez-IN",
+    "group": "Other"
+  },
+  "Mustela": {
+    "brand": "Mustela",
+    "group": "Other"
+  },
+  "NesCafe": {
+    "brand": "Nescafe",
+    "group": "Nestle"
+  },
+  "Nespresso": {
+    "brand": "Nespresso",
+    "group": "Nestle"
+  },
+  "Nestle Dolce Gusto": {
+    "brand": "Nescafe Dolce Gusto-IN",
+    "group": "Nestle"
+  },
+  "Nestle Food & Beverages": {
+    "brand": "Nestle Food & Beverages Official",
+    "group": "Nestle"
+  },
+  "Nestle Health Science": {
+    "brand": "Nestle Health Science - IN",
+    "group": "Nestle"
+  },
+  "Nestle PetCare": {
+    "brand": "Nestle PetCare-IN",
+    "group": "Nestle"
+  },
+  "Nestle Professional": {
+    "brand": "[Nestle Professional] Shop at Nestle",
+    "group": "Nestle"
+  },
+  "Organic Ground": {
+    "brand": "Organic Ground",
+    "group": "Other"
+  },
+  "Paul Smith": {
+    "brand": "Paul Smith-CMG",
+    "group": "CMG"
+  },
+  "Polo Ralph Lauren": {
+    "brand": "Polo Ralph Lauren-CMG",
+    "group": "CMG"
+  },
+  "Reckitt - Dettol Washing Machine Cleaner": {
+    "brand": "Dettol-IN",
+    "group": "Reckitt"
+  },
+  "Reckitt - Dettol and Hygiene": {
+    "brand": "Dettol-IN",
+    "group": "Reckitt"
+  },
+  "Reckitt - Durex": {
+    "brand": "Durex-IN",
+    "group": "Reckitt"
+  },
+  "Remington": {
+    "brand": "REMINGTON - PWB",
+    "group": "Other"
+  },
+  "Revlon": {
+    "brand": "Revlon-IN",
+    "group": "Other"
+  },
+  "Rinbee": {
+    "brand": "Rinbee",
+    "group": "Other"
+  },
+  "Shark Ninja": {
+    "brand": "Shark Ninja",
+    "group": "Other"
+  },
+  "Sisley": {
+    "brand": "Sisley - PFC",
+    "group": "Other"
+  },
+  "Smart-Travel": {
+    "brand": "Smart-Travel",
+    "group": "Other"
+  },
+  "Stiebel Eltron": {
+    "brand": "STIEBEL ELTRON TH",
+    "group": "Other"
+  },
+  "Sulwhasoo": {
+    "brand": "Sulwhasoo - Amore",
+    "group": "Amore"
+  },
+  "The North Face": {
+    "brand": "The North Face - TOG",
+    "group": "Other"
+  },
+  "Three": {
+    "brand": "THREE - CMG",
+    "group": "CMG"
+  },
+  "Tinder": {
+    "brand": "Tinder-IN",
+    "group": "Other"
+  },
+  "Tommy Hilfiger": {
+    "brand": "Tommy Hilfiger-MY PVH",
+    "group": "CMG"
+  },
+  "Ultima II": {
+    "brand": "ULTIMA II-IN",
+    "group": "Other"
+  },
+  "Wrangler": {
+    "brand": "Wrangler - CMG",
+    "group": "CMG"
+  }
+};
 
 const SNAPSHOT = {
   "source": "cusp",
@@ -1580,28 +1860,166 @@ const SNAPSHOT = {
   }
 };
 
-export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "no-store");
-  return res.status(200).json({
-    ...SNAPSHOT,
-    lastSyncAt: new Date().toISOString(),
-    snapshotGeneratedAt: "2026-05-24T00:00:00Z",
-  });
+// ── Live Redshift query ─────────────────────────────────────────────────────
+const REDSHIFT_SQL = `
+  SELECT shop_name,
+         channel_name,
+         EXTRACT(MONTH FROM date)::int AS m,
+         SUM(shop_orders) AS orders
+  FROM crea_reporting.t_crea_all_perf_w_target
+  WHERE country = 'TH'
+    AND date >= $1
+    AND date <  $2
+    AND service_model IN ('Retail','Service')
+    AND channel_name IN ('Shopee','Lazada','TikTok')
+  GROUP BY 1, 2, 3
+  HAVING SUM(shop_orders) > 0
+`;
+
+function reportingYear() {
+  if (process.env.CS_SYNC_YEAR) return parseInt(process.env.CS_SYNC_YEAR, 10);
+  const bkk = new Date(Date.now() + 7 * 60 * 60 * 1000); // Asia/Bangkok
+  return bkk.getUTCFullYear();
 }
 
-// ─── Long-term: live Redshift connection ────────────────────────────────────
-// Vercel env vars to add: REDSHIFT_HOST, REDSHIFT_DATABASE, REDSHIFT_USER,
-//                        REDSHIFT_PASSWORD, REDSHIFT_PORT (default 5439).
-// Library: pg (PostgreSQL client works with Redshift).
-// SQL: roughly equivalent to:
-//   SELECT shop_name, channel_name, EXTRACT(MONTH FROM date)::int as m,
-//          SUM(shop_orders) as orders
-//   FROM crea_reporting.t_crea_all_perf_w_target
-//   WHERE country = 'TH'
-//     AND date >= $1 AND date <= $2
-//     AND service_model IN ('Retail','Service')
-//     AND channel_name IN ('Shopee','Lazada','TikTok')
-//     AND shop_orders > 0
-//   GROUP BY shop_name, channel_name, EXTRACT(MONTH FROM date)
-//   HAVING SUM(shop_orders) > 0;
-// Then map shop_name → brand_name + group using SHOP_TO_BRAND below.
+function hasRedshiftCreds() {
+  return Boolean(
+    process.env.REDSHIFT_HOST &&
+    process.env.REDSHIFT_DATABASE &&
+    process.env.REDSHIFT_USER &&
+    process.env.REDSHIFT_PASSWORD
+  );
+}
+
+// "Wrangler-Old" / "Lee-old" are retired storefronts for a live brand — fold them in.
+function canonicalShop(shopName) {
+  return String(shopName || "").replace(/[\s-]*old$/i, "").trim();
+}
+
+async function queryRedshift(year) {
+  const client = new pg.Client({
+    host: process.env.REDSHIFT_HOST,
+    port: parseInt(process.env.REDSHIFT_PORT || "5439", 10),
+    database: process.env.REDSHIFT_DATABASE,
+    user: process.env.REDSHIFT_USER,
+    password: process.env.REDSHIFT_PASSWORD,
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 15000,
+    query_timeout: 40000,
+  });
+  await client.connect();
+  try {
+    const { rows } = await client.query(REDSHIFT_SQL, [`${year}-01-01`, `${year + 1}-01-01`]);
+    return rows;
+  } finally {
+    await client.end().catch(() => {});
+  }
+}
+
+// ── Aggregation ─────────────────────────────────────────────────────────────
+function buildPayload(rows, year) {
+  const byBrand = new Map();          // brand → { name, group, {m}O..., q2 }
+  const byBrandPlatform = {};         // brand → month → { shopee, lazada, tiktok }
+  const monthsSeen = new Set();
+  const unmapped = new Set();
+
+  for (const r of rows) {
+    const shop = canonicalShop(r.shop_name);
+    const map = SHOP_TO_BRAND[shop];
+    if (!map) { unmapped.add(r.shop_name); continue; }
+
+    const month = MONTHS[Number(r.m) - 1];
+    if (!month) continue;
+    const orders = Number(r.orders) || 0;
+    if (orders <= 0) continue;
+    const platform = String(r.channel_name || "").toLowerCase();
+
+    monthsSeen.add(month);
+
+    if (!byBrand.has(map.brand)) byBrand.set(map.brand, { name: map.brand, group: map.group || "Other", q2: 0 });
+    const b = byBrand.get(map.brand);
+    b[`${month}O`] = (b[`${month}O`] || 0) + orders;
+    b.q2 += orders;
+
+    if (!byBrandPlatform[map.brand]) byBrandPlatform[map.brand] = {};
+    if (!byBrandPlatform[map.brand][month]) byBrandPlatform[map.brand][month] = {};
+    byBrandPlatform[map.brand][month][platform] =
+      (byBrandPlatform[map.brand][month][platform] || 0) + orders;
+  }
+
+  const months = MONTHS.filter(m => monthsSeen.has(m));
+
+  // Fill gaps with 0 so the table never renders blanks for a month we do cover.
+  const brands = Array.from(byBrand.values()).map(b => {
+    for (const m of months) if (b[`${m}O`] == null) b[`${m}O`] = 0;
+    return b;
+  }).sort((a, b) => b.q2 - a.q2);
+
+  const period = months.length
+    ? (months.length === 1
+        ? `${MONTH_LABEL[months[0]]} ${year}`
+        : `${MONTH_LABEL[months[0]]}–${MONTH_LABEL[months[months.length - 1]]} ${year}`)
+    : `${year}`;
+
+  return {
+    source: "cusp",
+    live: true,
+    year,
+    period,
+    months,
+    monthLabels: Object.fromEntries(months.map(m => [m, MONTH_LABEL[m]])),
+    brands,
+    platformTotalsByBrand: byBrandPlatform,
+    unmappedShops: Array.from(unmapped).sort(),
+  };
+}
+
+// ── Handler ─────────────────────────────────────────────────────────────────
+let cache = { data: null, timestamp: 0 };
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+export const config = { maxDuration: 60 };
+
+export default async function handler(req, res) {
+  res.setHeader("Cache-Control", "no-store");
+
+  const force = "force" in (req.query || {}) || "refresh" in (req.query || {});
+  if (!force && cache.data && Date.now() - cache.timestamp < CACHE_TTL_MS) {
+    return res.status(200).json({
+      ...cache.data,
+      lastSyncAt: new Date(cache.timestamp).toISOString(),
+      cached: true,
+    });
+  }
+
+  const serveSnapshot = (reason) =>
+    res.status(200).json({
+      ...SNAPSHOT,
+      live: false,
+      fallbackReason: reason,
+      lastSyncAt: new Date().toISOString(),
+      snapshotGeneratedAt: "2026-05-24T00:00:00Z",
+    });
+
+  if (!hasRedshiftCreds()) {
+    return serveSnapshot(
+      "REDSHIFT_HOST / DATABASE / USER / PASSWORD are not set in Vercel — serving the frozen Jan–May 2026 snapshot."
+    );
+  }
+
+  try {
+    const started = Date.now();
+    const year = reportingYear();
+    const rows = await queryRedshift(year);
+    const payload = buildPayload(rows, year);
+    payload.lastSyncAt = new Date().toISOString();
+    payload.rowCount = rows.length;
+    payload.durationMs = Date.now() - started;
+
+    cache = { data: payload, timestamp: Date.now() };
+    return res.status(200).json(payload);
+  } catch (e) {
+    console.error("cusp-sync live query failed:", e);
+    return serveSnapshot(`CUSP Redshift query failed: ${e.message || e}`);
+  }
+}
