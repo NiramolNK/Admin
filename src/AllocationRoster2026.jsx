@@ -6580,109 +6580,53 @@ export default function AllocationPanel({ isAdmin = true }) {
                     if(!isInvite && pw.length < 6){alert("Password must be at least 6 characters.");return;}
                     if(editingUser._isNew){
                       if(userAccounts.some(u=>u.username.toLowerCase()===email.toLowerCase())){alert("This email is already in the user list.");return;}
-                      // Save current Supabase session so signUp() doesn't replace it
-                      const { data: { session: currentSession } } = await supabase.auth.getSession();
-                      // FIX (round-9 senior review HIGH/B): the Add User identity swap.
-                      // supabase.auth.signUp() auto-signs-in the new user, which
-                      // fires SIGNED_IN in App.jsx. If the new user's email already
-                      // has a profile row (re-invite, pre-existing account), the
-                      // listener's getCurrentRole() can resolve a non-null profile
-                      // for them and call setProfile(newUser) — silently swapping
-                      // the admin's identity in React state.
-                      // Mitigation: while this block runs, expose a global guard
-                      // that App.jsx checks. If a SIGNED_IN event arrives for any
-                      // user ID other than the admin, the listener returns without
-                      // touching profile state. The guard is set BEFORE signUp and
-                      // cleared in a finally block to guarantee cleanup even on
-                      // throw.
-                      window.__nirmInviteInProgress = true;
-                      window.__nirmAdminUserId = currentSession?.user?.id || null;
-                      // For invite mode, generate a random temp password — the user will reset it via email
-                      const finalPw = isInvite
-                        ? `Inv${Math.random().toString(36).slice(2,10)}${Math.random().toString(36).slice(2,10).toUpperCase()}!`
-                        : pw;
-                      let signUpData, signUpError;
+                      // Server-side creation via the admin-users Edge Function.
+                      // The old client-side signUp() signed the NEW user in, so
+                      // this code had to snapshot the manager's session, swap it
+                      // back, and hold a global guard against a mid-flight
+                      // SIGNED_IN replacing the manager's identity. Creating the
+                      // account with the service role removes that entire class
+                      // of bug — and the function only reports success when BOTH
+                      // the Auth account and the profiles row exist (it rolls the
+                      // Auth account back if the profile insert fails), so a user
+                      // in this list is always a user who can actually sign in.
+                      const { data: { session: adminSession } } = await supabase.auth.getSession();
+                      let resp, j;
                       try {
-                        ({ data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password: finalPw }));
-                        // Restore the current admin's session (signUp swaps to the new user)
-                        if(currentSession) {
-                          await supabase.auth.setSession({ access_token: currentSession.access_token, refresh_token: currentSession.refresh_token });
-                        }
-                      } finally {
-                        // Give any in-flight SIGNED_IN listeners a moment to run
-                        // through their async getCurrentRole() with the guard
-                        // still set, THEN clear it. 300ms is comfortably longer
-                        // than a profile fetch.
-                        setTimeout(() => {
-                          window.__nirmInviteInProgress = false;
-                          window.__nirmAdminUserId = null;
-                        }, 300);
-                      }
-                      const isAlreadyRegistered = signUpError && /already.*registered|already.*exists|user.*exists/i.test(signUpError.message);
-                      if(signUpError && !isAlreadyRegistered){
-                        alert("Could not create Supabase user: "+signUpError.message+"\n\nThe user was NOT added.");
+                        resp = await fetch("https://bequrilwgooesolepubv.supabase.co/functions/v1/admin-users", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminSession?.access_token ?? ""}` },
+                          body: JSON.stringify({ action: "create", email, password: isInvite ? null : pw, role: editingUser.role }),
+                        });
+                        j = await resp.json().catch(() => ({}));
+                      } catch (err) {
+                        alert("Could not reach the user service: " + (err.message || err) + "\n\nThe user was NOT added.");
                         return;
                       }
-                      // FIX (round-7 review MEDIUM): the "already registered" branch.
-                      // signUp returns no user-id when the email already has an Auth
-                      // account, so we can't auto-create a profiles row. Surface a
-                      // clear alert instructing the manager to handle this case
-                      // explicitly rather than silently leaving the user half-
-                      // configured (in userAccounts but with no profile row → stuck
-                      // on login screen because getCurrentRole returns null).
-                      if (isAlreadyRegistered) {
-                        alert(
-                          "This email already has a Supabase Auth account.\n\n" +
-                          "If they can sign in already, no action needed — they'll use their existing password.\n\n" +
-                          "If their profile row is missing (they get stuck on the login screen after signing in), have them use 'Forgot Password' to reset, OR remove them from this User Accounts list and have a developer manually create the profiles row via SQL."
-                        );
-                        // Still add to userAccounts so the role mapping is recorded
-                        // — even without a profile row, the app's local logic uses
-                        // this list as a fallback.
+                      if (!resp.ok) {
+                        alert("Could not create the user: " + ((j && j.error) || ("HTTP " + resp.status)) + "\n\nThe user was NOT added.");
+                        return;
                       }
-                      // FIX: also create a profiles row. Without it, getCurrentRole()
-                      // returns null on sign-in and the user gets stuck on the login
-                      // screen even with a valid Auth account.
-                      // NOTE (round-7 review): this upsert requires an RLS policy on
-                      // `profiles` allowing the manager to INSERT/UPDATE rows for
-                      // *other* users (not just their own). Default Supabase RLS
-                      // only lets users edit their own profile. If you see
-                      // "row-level security policy" errors here, add a policy like:
-                      //   CREATE POLICY "manager can write any profile"
-                      //     ON public.profiles FOR ALL TO authenticated
-                      //     USING (EXISTS (SELECT 1 FROM profiles
-                      //                    WHERE id = auth.uid() AND role = 'manager'))
-                      //     WITH CHECK (EXISTS (SELECT 1 FROM profiles
-                      //                         WHERE id = auth.uid() AND role = 'manager'));
-                      const newUserId = signUpData?.user?.id;
-                      if (newUserId) {
-                        const { error: profErr } = await supabase
-                          .from("profiles")
-                          .upsert({
-                            id: newUserId,
-                            username: email,
-                            role: editingUser.role,
-                            display_name: email.split("@")[0],
-                          }, { onConflict: "id" });
-                        if (profErr) {
-                          console.error("Failed to create profile row:", profErr);
-                          alert("Auth account created, but profile row could not be saved: " + profErr.message + "\n\nThe user may need their role set manually before signing in.\n\n(This usually means the 'profiles' table RLS policy doesn't allow the manager to write rows for other users. See the source comment for the SQL fix.)");
-                        }
-                      }
-                      if(isInvite){
-                        // Send the password recovery email so they can set their own password
+                      // Invite mode: the account now exists (with a random
+                      // password they never see) — the set-password email is the
+                      // recovery flow the app already handles.
+                      let inviteNote = "";
+                      if (isInvite) {
                         const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
-                        if(resetErr){
-                          alert("Account created, but the invitation email could not be sent: "+resetErr.message+"\n\nThey can use Forgot Password on the sign-in page later.");
-                        } else {
-                          alert("Invitation sent to "+email+".\n\nThey will receive an email with a link to set their password. Note: Resend sandbox only delivers to verified emails until your domain is verified.");
-                        }
-                        // Use the "__supabase__" sentinel so the legacy login auto-bypass kicks in
-                        setUserAccounts(prev=>[...prev,{username:email,password:"__supabase__",role:editingUser.role}]);
-                      } else {
-                        setUserAccounts(prev=>[...prev,{username:email,password:pw,role:editingUser.role}]);
-                        alert("User created. They can sign in at the app URL with this email and password.");
+                        inviteNote = resetErr
+                          ? "\n\n⚠ The set-password email could not be sent (" + resetErr.message + ") — they can use Forgot Password on the sign-in page instead."
+                          : "\n\nA set-password email is on its way to them.";
                       }
+                      if (j.existed) {
+                        alert("This email already had a Supabase account — its role is now " + editingUser.role + " and their password is unchanged." + inviteNote);
+                      } else if (isInvite) {
+                        alert("User created in Supabase as " + editingUser.role + "." + inviteNote);
+                      } else {
+                        alert("User created in Supabase as " + editingUser.role + ". They can sign in with this email and the password you set.");
+                      }
+                      // Sentinel: the real password lives in Supabase Auth, never
+                      // in this shared list.
+                      setUserAccounts(prev=>[...prev,{username:email,password:"__supabase__",role:editingUser.role}]);
                     } else {
                       const isOwn = userAccounts[editingUser._idx]?.username.toLowerCase()===loginUser.toLowerCase();
                       const oldPw = userAccounts[editingUser._idx]?.password;
