@@ -795,7 +795,7 @@ export default function InvoiceApprovals({
 
       {isManager && (
         <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 8, background: "#F3E8FF", border: "1px solid #DDD6FE", fontSize: 11, color: "#5B21B6" }}>
-          Approving here puts an agent into this month's batch — release it with <strong>Share to Finance</strong> at the top of this page.
+          Approving here puts an agent into this month's batch — release it with <strong>Share to Finance</strong> in the batch section below.
         </div>
       )}
 
