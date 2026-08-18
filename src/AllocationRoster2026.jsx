@@ -3713,6 +3713,16 @@ export default function AllocationPanel({ isAdmin = true }) {
         ══════════════════════════════════════════ */}
         {allocTab==="invoices" && (
           <div>
+          {/* Queue first — approving is the daily action; the batch release
+              below is the once-a-month one. */}
+          <InvoiceApprovals
+            invoices={invoices}
+            setInvoices={setInvoices}
+            agents={agents}
+            role={role}
+            loginUser={loginUser}
+            liveFiguresFor={liveFiguresFor}
+          />
             <InvoiceBatchPanel
               agents={agents}
               invoices={invoices}
@@ -3724,15 +3734,6 @@ export default function AllocationPanel({ isAdmin = true }) {
               role={role}
               loginUser={loginUser}
             />
-            <div style={{height:18}}/>
-          <InvoiceApprovals
-            invoices={invoices}
-            setInvoices={setInvoices}
-            agents={agents}
-            role={role}
-            loginUser={loginUser}
-            liveFiguresFor={liveFiguresFor}
-          />
           </div>
         )}
 
