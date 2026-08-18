@@ -321,7 +321,7 @@ export function buildBatchPack({ approved, agents, period, batchTotal, by }) {
     return { inv, agent, signature };
   });
   const summaryRows = rows.map(({ inv, agent }) =>
-    `<tr><td>${inv.agentName}</td><td>${inv.pcode || agent?.pcode || agent?.id || "—"}</td><td>${inv.fullName || agent?.fullName || "—"}</td><td>#${inv.invoiceNumber}</td><td class="r">${inv.workDays}</td><td class="r">${inv.otDays || 0}</td><td class="r">${inv.extraHours || 0}</td><td class="r">${THB(inv.subtotal)}</td><td class="r">${THB(inv.withholding)}</td><td class="r"><b>${THB(inv.netAmount)}</b></td></tr>`
+    `<tr><td>${inv.invoiceNumber}</td><td>${inv.fullName || agent?.fullName || inv.agentName} (${inv.agentName})</td><td class="r">${inv.workDays}</td><td class="r">${inv.extraHours || 0}</td><td class="r">${THB(inv.subtotal)}</td><td class="r">${THB(inv.withholding)}</td><td class="r"><b>${THB(inv.netAmount)}</b></td></tr>`
   ).join("");
   return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">
 <title>CS parttime payment — ${periodLabel(period)}</title>
@@ -354,9 +354,9 @@ export function buildBatchPack({ approved, agents, period, batchTotal, by }) {
   <h1>CS parttime payment — ${periodLabel(period)}</h1>
   <div class="muted">Pay period ${approved[0]?.inv?.periodStart ?? ""} → ${approved[0]?.inv?.periodEnd ?? ""} · ${approved.length} agents · released by ${by || "CS Manager"}</div>
   <table class="summary">
-    <thead><tr><th>Agent</th><th>PCODE</th><th>Full name</th><th>Invoice</th><th class="r">Days</th><th class="r">OT</th><th class="r">Extra h</th><th class="r">Subtotal</th><th class="r">WHT 3%</th><th class="r">Net (THB)</th></tr></thead>
+    <thead><tr><th>Invoice</th><th>Full name (Agent)</th><th class="r">Days</th><th class="r">Extra h</th><th class="r">Subtotal</th><th class="r">WHT 3%</th><th class="r">Net (THB)</th></tr></thead>
     <tbody>${summaryRows}</tbody>
-    <tfoot><tr><td colspan="9">TOTAL — net payable</td><td class="r">฿${THB(batchTotal)}</td></tr></tfoot>
+    <tfoot><tr><td colspan="6">TOTAL — net payable</td><td class="r">฿${THB(batchTotal)}</td></tr></tfoot>
   </table>
   <p class="muted" style="margin-top:14px">Each agent follows: signed invoice · ID card copy · bookbank copy. Print this document to PDF for filing.</p>
 </section>
@@ -433,50 +433,43 @@ export function InvoiceBatchPanel({
     const msg =
       `Email "CS parttime payment — ${periodLabel(period)}" (${approved.length} agents, ฿${THB(batchTotal)})?\n\n` +
       `To: ${rcpt.to.join(", ")}\nCc: ${rcpt.cc.join(", ")}\n` +
-      `Includes each agent's signed invoice, ID card and bookbank in one pack.\n` +
+      `Attaches one PDF per agent (signed invoice + ID card + bookbank), named "<invoice no> <full name>.pdf".\n` +
       (problems.length ? `\nNot included:\n${problems.map(p => "  • " + p).join("\n")}\n\nYou can share the rest in a second batch later.` : "");
     if (!window.confirm(msg)) return;
 
     setBusy(true);
     setNote(null);
 
-    // 1. The pack — every approved agent's signed invoice + ID card + bookbank
-    // in one printable file. Built and uploaded BEFORE the email so the link
-    // in Finance's inbox is never dead.
-    let packUrl = "";
-    try {
-      const html = buildBatchPack({ approved, agents, period, batchTotal, by: loginUser });
-      const packPath = `invoice-packs/${period}/CS-parttime-${period}-${Date.now()}.html`;
-      const { error: upErr } = await supabase.storage.from("payroll-docs")
-        .upload(packPath, new Blob([html], { type: "text/html" }), { upsert: true, contentType: "text/html" });
-      if (upErr) throw new Error(upErr.message);
-      packUrl = supabase.storage.from("payroll-docs").getPublicUrl(packPath).data.publicUrl;
-    } catch (e) {
-      setNote({ tone: "warn", text: `NOT shared — could not build the document pack (${e.message || e}). Nothing was changed.` });
-      setBusy(false);
-      return;
-    }
-
-    // 2. The email IS the hand-off (Finance has no NiRM login), so it goes out
-    // before anything is marked shared; a failed send changes nothing.
+    // The share-batch function does the whole hand-off server-side: builds one
+    // merged PDF per agent (invoice page + ID card + bookbank), files a copy in
+    // storage, and emails Finance with the PDFs attached — splitting into
+    // "part 1/2" emails automatically if a month is too heavy for one message.
+    // Nothing is marked shared unless it reports success, so a failure at any
+    // step (a corrupt document, a SendGrid rejection) changes nothing here.
+    let shareResult = null;
     try {
       const { data: s } = await supabase.auth.getSession();
-      const r = await fetch(`${FN_BASE}/invoice-notify`, {
+      const payload = {
+        period,
+        to: rcpt.to,
+        cc: rcpt.cc,
+        subject: `CS parttime payment — ${periodLabel(period)}`,
+        text: batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by: loginUser, waitingMgr, notIn }),
+        invoices: approved.map(({ inv, agent }) => ({
+          ...inv,
+          history: undefined,
+          signatureDataUrl: agent?.signatures?.[period]?.dataUrl || "",
+        })),
+      };
+      const r = await fetch(`${FN_BASE}/share-batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-        body: JSON.stringify({
-          to: rcpt.to,
-          cc: rcpt.cc,
-          subject: `CS parttime payment — ${periodLabel(period)}`,
-          text: batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by: loginUser, waitingMgr, notIn, packUrl }),
-        }),
+        body: JSON.stringify(payload),
       });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        throw new Error(j.detail || j.error || `HTTP ${r.status}`);
-      }
+      shareResult = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(shareResult.detail || shareResult.error || `HTTP ${r.status}`);
     } catch (e) {
-      setNote({ tone: "warn", text: `NOT shared — the email to Finance failed to send (${e.message || e}). Nothing was changed; fix the problem and press Share again.` });
+      setNote({ tone: "warn", text: `NOT shared — ${e.message || e}. Nothing was changed; fix the problem and press Share again.` });
       setBusy(false);
       return;
     }
@@ -485,15 +478,17 @@ export function InvoiceBatchPanel({
     const now = stamp();
     const batchId = `${period}-${now.replace(/\D/g, "").slice(0, 14)}`;
     const ids = new Set(approved.map(r => r.inv.id));
+    const fileByInvoice = new Map((shareResult.files || []).map(f => [String(f.name).split(" ")[0], f.url]));
     setInvoices(prev => prev.map(i => ids.has(i.id)
       ? {
           ...i, status: "sent_to_finance",
-          batchId, sharedAt: now, sharedBy: loginUser, packUrl,
-          history: [...(i.history || []), { at: now, by: loginUser || "—", role, action: "Shared with Finance by email", note: `batch ${batchId} → ${rcpt.to.join(", ")}` }],
+          batchId, sharedAt: now, sharedBy: loginUser,
+          pdfUrl: fileByInvoice.get(i.invoiceNumber) || null,
+          history: [...(i.history || []), { at: now, by: loginUser || "—", role, action: "Shared with Finance by email (PDF attached)", note: `batch ${batchId} → ${rcpt.to.join(", ")}` }],
         }
       : i
     ));
-    setNote({ tone: "ok", text: `Emailed ${approved.length} invoices (฿${THB(batchTotal)}) to ${rcpt.to.join(", ")} — pack: ${packUrl}` });
+    setNote({ tone: "ok", text: `Emailed ${approved.length} invoice PDFs (฿${THB(batchTotal)}) to ${rcpt.to.join(", ")}${shareResult.emails > 1 ? ` in ${shareResult.emails} parts` : ""}. Copies filed in NiRM storage.` });
     setBusy(false);
   };
 
@@ -522,7 +517,7 @@ export function InvoiceBatchPanel({
               color: approved.length && !busy ? "#fff" : "#94A3B8",
               fontSize: 12, fontWeight: 800, cursor: approved.length && !busy ? "pointer" : "not-allowed", fontFamily: "inherit",
             }}>
-            {busy ? "Building pack…" : `Share ${approved.length || ""} to Finance ✉`.replace(/\s+/g, " ")}
+            {busy ? "Building PDFs…" : `Share ${approved.length || ""} to Finance ✉`.replace(/\s+/g, " ")}
           </button>
         </div>
       </div>
@@ -637,7 +632,7 @@ export function InvoiceBatchPanel({
   );
 }
 
-function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by, waitingMgr, notIn, packUrl }) {
+function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by, waitingMgr, notIn }) {
   const pad = (s, n) => String(s).padEnd(n).slice(0, n);
   const padL = (s, n) => String(s).padStart(n);
   const lines = [
@@ -645,20 +640,20 @@ function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by
     `Pay period ${approved[0]?.inv?.periodStart ?? ""} to ${approved[0]?.inv?.periodEnd ?? ""}`,
     `Approved and released by ${by || "CS Manager"}.`,
     "",
-    `${pad("PCODE", 7)}${pad("Agent", 30)}${padL("Days", 5)}${padL("OT", 4)}${padL("Extra", 6)}${padL("Subtotal", 12)}${padL("WHT 3%", 10)}${padL("Net", 12)}`,
-    "-".repeat(80),
+    `${pad("Invoice", 10)}${pad("Name", 32)}${padL("Days", 5)}${padL("Extra", 6)}${padL("Subtotal", 12)}${padL("WHT 3%", 10)}${padL("Net", 12)}`,
+    "-".repeat(87),
   ];
   for (const { agent, inv } of approved) {
     lines.push(
-      pad(inv.pcode || agent.pcode || agent.id || "—", 7) +
-      pad(`${agent.name}${(inv.fullName || agent.fullName) ? " — " + (inv.fullName || agent.fullName) : ""}`, 30) +
-      padL(inv.workDays, 5) + padL(inv.otDays || 0, 4) +
+      pad(inv.invoiceNumber, 10) +
+      pad(`${inv.fullName || agent.fullName || agent.name} (${agent.name})`, 32) +
+      padL(inv.workDays, 5) +
       padL(inv.extraHours || 0, 6) + padL(THB(inv.subtotal), 12) +
       padL(THB(inv.withholding), 10) + padL(THB(inv.netAmount), 12)
     );
   }
-  lines.push("-".repeat(80));
-  lines.push(pad(`TOTAL (${approved.length})`, 46) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
+  lines.push("-".repeat(87));
+  lines.push(pad(`TOTAL (${approved.length})`, 53) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
   lines.push("");
   lines.push("PAYMENT DETAILS");
   for (const { agent, inv } of approved) {
@@ -671,9 +666,9 @@ function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by
     lines.push(`      ${bank}${acctName ? ` (${acctName})` : ""}${tax ? ` · Tax ID ${tax}` : ""} · Net ฿${THB(inv.netAmount)}`);
   }
   lines.push("");
-  lines.push("DOCUMENTS — signed invoices + ID card + bookbank for every agent,");
-  lines.push("in one file (open and print to PDF for filing):");
-  lines.push(packUrl || "(pack link missing)");
+  lines.push("ATTACHED: one PDF per agent — signed invoice + ID card copy + bookbank");
+  lines.push("copy, named \"<invoice no> <full name>.pdf\". Copies are also filed in");
+  lines.push("NiRM storage for reference.");
   lines.push("");
   if (waitingMgr.length) lines.push(`Not included — still with the CS Manager: ${waitingMgr.map(r => r.agent.name).join(", ")}`);
   if (notIn.length)      lines.push(`Not included — not yet submitted: ${notIn.map(r => r.agent.name).join(", ")}`);
