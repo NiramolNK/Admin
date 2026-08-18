@@ -131,7 +131,10 @@ export function InvoiceStatusBar({
     ? "Sign the invoice first — the signature is what makes it a submission."
     : missingDocs.length
     ? `Upload your ${missingDocs.join(" and ")} in Personal Info first — Finance requires ${missingDocs.length > 1 ? "them" : "it"} with every invoice.`
-    : !canSubmit
+    : !canSubmit && status !== "rejected"
+    // A returned (rejected) invoice bypasses the 18th–20th sign window —
+    // the manager asked for a correction, so the agent must be able to
+    // resubmit it even after the window closes.
     ? (submitBlockedReason || "Not available yet.")
     : null;
 
