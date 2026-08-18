@@ -62,8 +62,10 @@ export const INV_STATUS = {
 export const invoiceId = (agentId, period) => `${agentId}__${period}`;
 
 // Teams whose people invoice by the day. Full-time (T2) staff are salaried and
-// never appear in this flow.
-export const DAILY_RATE_TEAMS = ["T1", "RT&RF", "CC"];
+// never appear in this flow. NOTE: the RT&RF team is stored as "Return" on
+// agent records (the Teams editor's dropdown value) — both spellings are
+// accepted so nobody drops out of the batch over a label.
+export const DAILY_RATE_TEAMS = ["T1", "RT&RF", "Return", "CC"];
 
 const THB = (n) =>
   (Number(n) || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -278,6 +280,7 @@ function agentPackPages(inv, agent, signature) {
       </div>
       <table class="kv">
         <tr><td>ชื่อ / Name</td><td>${name}${a.fullName && a.thaiName ? ` (${a.fullName})` : ""}</td></tr>
+        <tr><td>รหัสพนักงาน / PCODE</td><td>${inv.pcode || a.pcode || "—"}</td></tr>
         <tr><td>เลขประจำตัวผู้เสียภาษี / Tax ID</td><td>${a.taxId || a.idCard || "—"}</td></tr>
         <tr><td>ธนาคาร / Bank</td><td>${a.bankName || "—"}</td></tr>
         <tr><td>เลขที่บัญชี / Account</td><td>${a.bankAccount || "—"}${a.bankAccountName ? ` (${a.bankAccountName})` : ""}</td></tr>
@@ -308,8 +311,8 @@ export function buildBatchPack({ approved, agents, period, batchTotal, by }) {
     const signature = agent?.signatures?.[inv.period];
     return { inv, agent, signature };
   });
-  const summaryRows = rows.map(({ inv }) =>
-    `<tr><td>${inv.agentName}</td><td>#${inv.invoiceNumber}</td><td class="r">${inv.workDays}</td><td class="r">${inv.otDays || 0}</td><td class="r">${inv.extraHours || 0}</td><td class="r">${THB(inv.subtotal)}</td><td class="r">${THB(inv.withholding)}</td><td class="r"><b>${THB(inv.netAmount)}</b></td></tr>`
+  const summaryRows = rows.map(({ inv, agent }) =>
+    `<tr><td>${inv.agentName}</td><td>${inv.pcode || agent?.pcode || "—"}</td><td>#${inv.invoiceNumber}</td><td class="r">${inv.workDays}</td><td class="r">${inv.otDays || 0}</td><td class="r">${inv.extraHours || 0}</td><td class="r">${THB(inv.subtotal)}</td><td class="r">${THB(inv.withholding)}</td><td class="r"><b>${THB(inv.netAmount)}</b></td></tr>`
   ).join("");
   return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">
 <title>CS parttime payment — ${periodLabel(period)}</title>
@@ -342,9 +345,9 @@ export function buildBatchPack({ approved, agents, period, batchTotal, by }) {
   <h1>CS parttime payment — ${periodLabel(period)}</h1>
   <div class="muted">Pay period ${approved[0]?.inv?.periodStart ?? ""} → ${approved[0]?.inv?.periodEnd ?? ""} · ${approved.length} agents · released by ${by || "CS Manager"}</div>
   <table class="summary">
-    <thead><tr><th>Agent</th><th>Invoice</th><th class="r">Days</th><th class="r">OT</th><th class="r">Extra h</th><th class="r">Subtotal</th><th class="r">WHT 3%</th><th class="r">Net (THB)</th></tr></thead>
+    <thead><tr><th>Agent</th><th>PCODE</th><th>Invoice</th><th class="r">Days</th><th class="r">OT</th><th class="r">Extra h</th><th class="r">Subtotal</th><th class="r">WHT 3%</th><th class="r">Net (THB)</th></tr></thead>
     <tbody>${summaryRows}</tbody>
-    <tfoot><tr><td colspan="7">TOTAL — net payable</td><td class="r">฿${THB(batchTotal)}</td></tr></tfoot>
+    <tfoot><tr><td colspan="8">TOTAL — net payable</td><td class="r">฿${THB(batchTotal)}</td></tr></tfoot>
   </table>
   <p class="muted" style="margin-top:14px">Each agent follows: signed invoice · ID card copy · bookbank copy. Print this document to PDF for filing.</p>
 </section>
@@ -553,8 +556,8 @@ export function InvoiceBatchPanel({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: "#F8FAFC" }}>
-              {["Agent", "Team", "Docs", "Days", "OT", "Extra h", "Subtotal", "WHT 3%", "Net payable", "Status"].map((h, i) => (
-                <th key={h} style={{ padding: "8px 12px", textAlign: i >= 3 && i <= 8 ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>{h}</th>
+              {["Agent", "PCODE", "Team", "Docs", "Days", "OT", "Extra h", "Subtotal", "WHT 3%", "Net payable", "Status"].map((h, i) => (
+                <th key={h} style={{ padding: "8px 12px", textAlign: i >= 4 && i <= 9 ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -568,6 +571,7 @@ export function InvoiceBatchPanel({
               return (
                 <tr key={agent.id} style={{ borderBottom: "1px solid #F8FAFC", opacity: pending ? 0.55 : 1 }}>
                   <td style={{ padding: "8px 12px", fontWeight: 700, color: "#1A1D2E" }}>{agent.name}</td>
+                  <td style={{ padding: "8px 12px", color: inv?.pcode || agent.pcode ? "#475569" : "#B91C1C", fontFamily: "monospace", fontWeight: 700 }}>{inv?.pcode || agent.pcode || "—"}</td>
                   <td style={{ padding: "8px 12px", color: "#64748B" }}>{agent.team}</td>
                   <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }} title={`ID card ${hasId ? "on file" : "MISSING"} · Bookbank ${hasBank ? "on file" : "MISSING"}`}>
                     <span style={{ fontSize: 10, fontWeight: 800, color: hasId ? "#065F46" : "#B91C1C" }}>ID{hasId ? "✓" : "✗"}</span>{" "}
@@ -588,13 +592,13 @@ export function InvoiceBatchPanel({
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={10} style={{ padding: 24, textAlign: "center", color: "#94A3B8" }}>No daily-rate agents on the roster.</td></tr>
+              <tr><td colSpan={11} style={{ padding: 24, textAlign: "center", color: "#94A3B8" }}>No daily-rate agents on the roster.</td></tr>
             )}
           </tbody>
           {approved.length > 0 && (
             <tfoot>
               <tr style={{ background: "#F8FAFC", borderTop: "2px solid #E2E8F0" }}>
-                <td colSpan={6} style={{ padding: "10px 12px", fontWeight: 800, color: "#1A1D2E" }}>
+                <td colSpan={7} style={{ padding: "10px 12px", fontWeight: 800, color: "#1A1D2E" }}>
                   Batch ({approved.length} approved)
                 </td>
                 <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, color: "#475569", fontFamily: "monospace" }}>{THB(batchGross)}</td>
@@ -618,18 +622,18 @@ function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by
     `Pay period ${approved[0]?.inv?.periodStart ?? ""} to ${approved[0]?.inv?.periodEnd ?? ""}`,
     `Approved and released by ${by || "CS Manager"}.`,
     "",
-    `${pad("Agent", 18)}${padL("Days", 5)}${padL("OT", 4)}${padL("Extra", 6)}${padL("Subtotal", 12)}${padL("WHT 3%", 10)}${padL("Net", 12)}`,
-    "-".repeat(67),
+    `${pad("Agent", 15)}${pad("PCODE", 8)}${padL("Days", 5)}${padL("OT", 4)}${padL("Extra", 6)}${padL("Subtotal", 12)}${padL("WHT 3%", 10)}${padL("Net", 12)}`,
+    "-".repeat(72),
   ];
   for (const { agent, inv } of approved) {
     lines.push(
-      pad(agent.name, 18) + padL(inv.workDays, 5) + padL(inv.otDays || 0, 4) +
+      pad(agent.name, 15) + pad(inv.pcode || agent.pcode || "—", 8) + padL(inv.workDays, 5) + padL(inv.otDays || 0, 4) +
       padL(inv.extraHours || 0, 6) + padL(THB(inv.subtotal), 12) +
       padL(THB(inv.withholding), 10) + padL(THB(inv.netAmount), 12)
     );
   }
-  lines.push("-".repeat(67));
-  lines.push(pad(`TOTAL (${approved.length})`, 33) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
+  lines.push("-".repeat(72));
+  lines.push(pad(`TOTAL (${approved.length})`, 38) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
   lines.push("");
   lines.push("DOCUMENTS — signed invoices + ID card + bookbank for every agent,");
   lines.push("in one file (open and print to PDF for filing):");
@@ -727,13 +731,13 @@ export default function InvoiceApprovals({
 
   const exportCsv = () => {
     const rows = [[
-      "Invoice No", "Agent", "Period", "Working days", "OT days", "Extra hours",
+      "Invoice No", "Agent", "PCODE", "Period", "Working days", "OT days", "Extra hours",
       "Daily rate", "Subtotal", "Withholding 3%", "Net payable", "Status", "Batch",
       "Submitted", "Manager approved", "Emailed to Finance",
     ]];
     for (const i of shown) {
       rows.push([
-        i.invoiceNumber, i.agentName, i.period, i.workDays, i.otDays, i.extraHours,
+        i.invoiceNumber, i.agentName, i.pcode || "", i.period, i.workDays, i.otDays, i.extraHours,
         i.costDay, i.subtotal, i.withholding, i.netAmount, INV_STATUS[i.status]?.label || i.status, i.batchId || "",
         i.submittedAt || "", i.managerAt || "", i.sharedAt || "",
       ]);
