@@ -3773,6 +3773,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               // was on file at submission, immune to later replacements.
               idCardPhotoUrl: myPayrollAgent.idCardPhotoUrl,
               bookbankPhotoUrl: myPayrollAgent.bookbankPhotoUrl,
+              pcode: myPayrollAgent.pcode || "",
               rejectReason: "", rejectedAt: null, rejectedBy: null,
               managerAt: null, managerBy: null,
               financeAt: null, financeBy: null,
@@ -4205,6 +4206,11 @@ export default function AllocationPanel({ isAdmin = true }) {
                         placeholder="e.g. someone@crea.asia"
                         style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
                       <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>When this agent signs in with this email, they see their own schedule only.</div></div>
+                    <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>PCODE (payroll code){role!=="manager"&&<span style={{marginLeft:6,color:"#94A3B8",fontWeight:500,textTransform:"none"}}>(read-only)</span>}</label>
+                      <input value={editAgent.pcode||""} readOnly={role!=="manager"} onChange={e=>{if(role==="manager")setEditAgent({...editAgent,pcode:e.target.value.toUpperCase().trim()})}}
+                        placeholder="e.g. P0123"
+                        style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:role!=="manager"?"#F1F5F9":"#FAFBFC",color:role!=="manager"?"#64748B":"#1A1D2E",fontSize:13,fontFamily:"monospace",outline:"none",cursor:role!=="manager"?"not-allowed":"text"}}/>
+                      <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>Finance/HR reference — appears on the invoice, the batch table and the payment email.</div></div>
                     <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Cost / Day (฿){role!=="manager"&&<span style={{marginLeft:6,color:"#94A3B8",fontWeight:500,textTransform:"none"}}>(read-only)</span>}</label>
                       <input type="number" value={editAgent.costDay} readOnly={role!=="manager"} onChange={e=>{if(role==="manager")setEditAgent({...editAgent,costDay:Number(e.target.value)})}}
                         style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:role!=="manager"?"#F1F5F9":"#FAFBFC",color:role!=="manager"?"#64748B":"#1A1D2E",fontSize:13,fontFamily:"monospace",outline:"none",cursor:role!=="manager"?"not-allowed":"text"}}/></div>
