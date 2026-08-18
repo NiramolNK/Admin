@@ -3765,8 +3765,14 @@ export default function AllocationPanel({ isAdmin = true }) {
           const invoiceDate = `${new Date(periodY, periodM+1, 0).getDate()}-${invoiceMonthAbbr}-${thaiYearShort}`;
           // E-sign check: today >= 19th of the current invoice month
           const today = new Date();
-          const signDay = new Date(periodY, periodM, 19);
-          const isSignWindow = today >= signDay;
+          // Signing/submitting is open ONLY on the 18th-20th of the invoice
+          // month - a fixed 3-day window so the manager receives everything
+          // together and can batch to Finance on time. (An invoice the
+          // manager RETURNS stays resubmittable after the window closes -
+          // see InvoiceStatusBar - so a correction is never stuck a month.)
+          const winStart = new Date(periodY, periodM, 18);
+          const winEnd   = new Date(periodY, periodM, 20, 23, 59, 59, 999);
+          const isSignWindow = today >= winStart && today <= winEnd;
           const signatureKey = `${periodY}-${String(periodM+1).padStart(2,"0")}`;
           const signature = (myPayrollAgent.signatures || {})[signatureKey];
 
@@ -3948,7 +3954,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     </button>
                   ) : (
                     <div style={{padding:"6px 12px",borderRadius:7,background:"#F1F5F9",fontSize:11,color:"#94A3B8"}}>
-                      Sign window opens on {invoiceMonthAbbr} 19
+                      Signing opens {invoiceMonthAbbr} 18–20
                     </div>
                   )}
                   <button onClick={printInvoice}
@@ -3963,7 +3969,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 signature={signature}
                 docs={{ idCard: !!myPayrollAgent.idCardPhotoUrl, bookbank: !!myPayrollAgent.bookbankPhotoUrl }}
                 canSubmit={isSignWindow}
-                submitBlockedReason={`You can submit from ${invoiceMonthAbbr} 19 onwards.`}
+                submitBlockedReason={`Signing and submitting is open ${invoiceMonthAbbr} 18–20 only.`}
                 onSubmit={submitInvoice}
                 loginUser={loginUser}
               />
