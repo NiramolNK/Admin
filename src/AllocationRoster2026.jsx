@@ -3712,6 +3712,19 @@ export default function AllocationPanel({ isAdmin = true }) {
             TEAMS TAB
         ══════════════════════════════════════════ */}
         {allocTab==="invoices" && (
+          <div>
+            <InvoiceBatchPanel
+              agents={agents}
+              invoices={invoices}
+              setInvoices={setInvoices}
+              period={`${rosterYear}-${String(rosterMonth).padStart(2,"0")}`}
+              computeFigures={computeInvoiceFigures}
+              recipients={financeRecipients}
+              onSaveRecipients={saveFinanceRecipients}
+              role={role}
+              loginUser={loginUser}
+            />
+            <div style={{height:18}}/>
           <InvoiceApprovals
             invoices={invoices}
             setInvoices={setInvoices}
@@ -3720,6 +3733,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             loginUser={loginUser}
             liveFiguresFor={liveFiguresFor}
           />
+          </div>
         )}
 
         {allocTab==="payment" && myPayrollAgent && (() => {
@@ -4047,17 +4061,6 @@ export default function AllocationPanel({ isAdmin = true }) {
 
                 {allocTab==="agents" && (
           <div>
-            <InvoiceBatchPanel
-              agents={agents}
-              invoices={invoices}
-              setInvoices={setInvoices}
-              period={`${rosterYear}-${String(rosterMonth).padStart(2,"0")}`}
-              computeFigures={computeInvoiceFigures}
-              recipients={financeRecipients}
-              onSaveRecipients={saveFinanceRecipients}
-              role={role}
-              loginUser={loginUser}
-            />
             <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
               <div style={{position:"relative",flex:1,minWidth:160}}>
                 <Search size={12} color="#94A3B8" style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)"}}/>
