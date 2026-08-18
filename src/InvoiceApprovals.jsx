@@ -110,7 +110,7 @@ export function driftOf(inv, live) {
 // AGENT SIDE — status + submit control, rendered inside the "My Invoice" tab
 // ════════════════════════════════════════════════════════════════════════════
 export function InvoiceStatusBar({
-  invoice, figures, signature, canSubmit, submitBlockedReason, onSubmit,
+  invoice, figures, signature, docs, canSubmit, submitBlockedReason, onSubmit,
 }) {
   const [showLog, setShowLog] = useState(false);
   const status = invoice?.status || "draft";
@@ -118,8 +118,17 @@ export function InvoiceStatusBar({
   const drift = status === "draft" || status === "rejected" ? [] : driftOf(invoice, figures);
 
   const submittable = status === "draft" || status === "rejected";
+  // Finance requires the signed invoice WITH the ID card and bookbank copies,
+  // so an invoice missing either document is not submittable — catching it
+  // here beats Finance bouncing the whole batch at month end.
+  const missingDocs = [
+    docs && !docs.idCard ? "ID card copy" : null,
+    docs && !docs.bookbank ? "bookbank copy" : null,
+  ].filter(Boolean);
   const blocked = !signature
     ? "Sign the invoice first — the signature is what makes it a submission."
+    : missingDocs.length
+    ? `Upload your ${missingDocs.join(" and ")} in Personal Info first — Finance requires ${missingDocs.length > 1 ? "them" : "it"} with every invoice.`
     : !canSubmit
     ? (submitBlockedReason || "Not available yet.")
     : null;
@@ -203,35 +212,167 @@ function HistoryList({ history }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// MONTHLY BATCH — lives on the Teams tab, CS Manager only
+// MONTHLY BATCH — lives on the Teams tab, CS Manager only.
+//
+// "Share to Finance" does three things, in a deliberate order:
+//   1. builds the BATCH PACK — one self-contained HTML file holding every
+//      approved agent's signed invoice page + ID card + bookbank, in order,
+//      with print page-breaks so Finance can Ctrl+P the lot into one PDF;
+//   2. uploads it to the payroll-docs bucket (where the ID/bookbank images
+//      already live — attaching a month of scans to the email itself would
+//      blow the mail size limit, a link cannot);
+//   3. emails the summary + pack link to the fixed Finance recipients, and
+//      ONLY on a successful send marks the invoices shared.
 // ════════════════════════════════════════════════════════════════════════════
+
+// The CS part-time payment distribution list. Saved once into shared state so
+// it can be edited in the panel without a code change; these are the seeds.
+export const DEFAULT_FINANCE_RECIPIENTS = {
+  to: ["jiratchaya.j@crea.asia"],
+  cc: [
+    "accounts_ap@crea.asia",
+    "niramol.k@crea.asia",
+    "hrservices@crea.asia",
+    "chutimon.d@crea.asia",
+    "areeya.w@crea.asia",
+    "valerio.b@crea.asia",
+  ],
+};
+
+const parseEmailList = (raw, max) => [...new Set(
+  String(raw || "").split(/[,;\s]+/)
+    .map(a => a.toLowerCase().trim())
+    .filter(a => /^[^\s@]+@crea\.asia$/.test(a))
+)].slice(0, max);
+
+// One agent's chapter of the pack: invoice page, then ID card, then bookbank.
+// Figures come from the FROZEN invoice snapshot — never recomputed — so the
+// pack Finance receives is exactly what the manager approved.
+function agentPackPages(inv, agent, signature) {
+  const a = agent || {};
+  const name = a.thaiName || a.fullName || inv.agentName;
+  const money = (n) => THB(n);
+  const sigBlock = signature?.dataUrl
+    ? `<img src="${signature.dataUrl}" style="max-height:70px;max-width:260px"/>`
+    : `<div style="font-size:17px;font-weight:700;font-style:italic;color:#0D9488">${inv.agentName}</div>`;
+  const docPage = (title, url) => url ? `
+    <section class="page">
+      <h2>${title} — ${name}</h2>
+      <div class="docwrap"><img src="${url}"/></div>
+    </section>` : `
+    <section class="page">
+      <h2>${title} — ${name}</h2>
+      <p class="missing">⚠ Not on file at the time this batch was generated.</p>
+    </section>`;
+  return `
+    <section class="page">
+      <div class="invhead">
+        <div>
+          <h1>ใบแจ้งหนี้ / INVOICE</h1>
+          <div class="muted">CS Part-time — ${periodLabel(inv.period)}</div>
+        </div>
+        <div class="invno">
+          <div><b>เลขที่ / No:</b> ${inv.invoiceNumber}</div>
+          <div><b>งวด / Period:</b> ${inv.periodStart} → ${inv.periodEnd}</div>
+        </div>
+      </div>
+      <table class="kv">
+        <tr><td>ชื่อ / Name</td><td>${name}${a.fullName && a.thaiName ? ` (${a.fullName})` : ""}</td></tr>
+        <tr><td>เลขประจำตัวผู้เสียภาษี / Tax ID</td><td>${a.taxId || a.idCard || "—"}</td></tr>
+        <tr><td>ธนาคาร / Bank</td><td>${a.bankName || "—"}</td></tr>
+        <tr><td>เลขที่บัญชี / Account</td><td>${a.bankAccount || "—"}${a.bankAccountName ? ` (${a.bankAccountName})` : ""}</td></tr>
+      </table>
+      <table class="fig">
+        <tr><th>รายการ / Description</th><th class="r">จำนวน</th><th class="r">บาท / THB</th></tr>
+        <tr><td>วันทำงานปกติ × ฿${money(inv.costDay)}</td><td class="r">${inv.normalDays}</td><td class="r">${money(inv.normalDays * inv.costDay)}</td></tr>
+        ${inv.otDays ? `<tr><td>วัน OT × ฿${money(inv.costDay)} × 1.5</td><td class="r">${inv.otDays}</td><td class="r">${money(inv.otDays * inv.costDay * 1.5)}</td></tr>` : ""}
+        ${inv.extraHours ? `<tr><td>ชั่วโมงพิเศษ / Extra hours</td><td class="r">${inv.extraHours} h</td><td class="r">${money(inv.extraPay)}</td></tr>` : ""}
+        <tr class="sum"><td colspan="2">รวม / Subtotal</td><td class="r">${money(inv.subtotal)}</td></tr>
+        <tr><td colspan="2">หัก ณ ที่จ่าย 3% / Withholding</td><td class="r">−${money(inv.withholding)}</td></tr>
+        <tr class="net"><td colspan="2">ยอดสุทธิ / Net payable</td><td class="r">฿${money(inv.netAmount)}</td></tr>
+      </table>
+      <div class="sig">
+        <div class="sigline">${sigBlock}</div>
+        <div class="signame">${name}</div>
+        <div class="sigmeta">✓ ลงนามอิเล็กทรอนิกส์ผ่านระบบ NiRM${inv.signedAt ? " · " + String(inv.signedAt).slice(0, 10) : ""}</div>
+        <div class="sigmeta">Submitted ${String(inv.submittedAt || "").slice(0, 10)} · Approved by ${inv.managerBy || "CS Manager"} ${String(inv.managerAt || "").slice(0, 10)}</div>
+      </div>
+    </section>
+    ${docPage("สำเนาบัตรประชาชน / ID Card", inv.idCardPhotoUrl || a.idCardPhotoUrl)}
+    ${docPage("สำเนาสมุดบัญชี / Bookbank", inv.bookbankPhotoUrl || a.bookbankPhotoUrl)}`;
+}
+
+export function buildBatchPack({ approved, agents, period, batchTotal, by }) {
+  const rows = approved.map(({ inv }) => {
+    const agent = agents.find(x => x.id === inv.agentId);
+    const signature = agent?.signatures?.[inv.period];
+    return { inv, agent, signature };
+  });
+  const summaryRows = rows.map(({ inv }) =>
+    `<tr><td>${inv.agentName}</td><td>#${inv.invoiceNumber}</td><td class="r">${inv.workDays}</td><td class="r">${inv.otDays || 0}</td><td class="r">${inv.extraHours || 0}</td><td class="r">${THB(inv.subtotal)}</td><td class="r">${THB(inv.withholding)}</td><td class="r"><b>${THB(inv.netAmount)}</b></td></tr>`
+  ).join("");
+  return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">
+<title>CS parttime payment — ${periodLabel(period)}</title>
+<style>
+  body{font-family:'Sarabun','Segoe UI',Arial,sans-serif;color:#1A1D2E;margin:0;background:#fff}
+  .page{padding:48px 56px;page-break-after:always;max-width:800px;margin:0 auto}
+  h1{font-size:22px;margin:0}h2{font-size:16px;text-align:center;margin:0 0 14px}
+  .muted{color:#64748B;font-size:12px}.r{text-align:right}
+  .invhead{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px}
+  .invno{font-size:12px;text-align:right;line-height:1.7}
+  table.kv{width:100%;font-size:13px;border-collapse:collapse;margin-bottom:18px}
+  table.kv td{padding:5px 8px;border-bottom:1px solid #F1F5F9}
+  table.kv td:first-child{color:#64748B;width:42%}
+  table.fig{width:100%;font-size:13px;border-collapse:collapse}
+  table.fig th,table.fig td{border:1px solid #CBD5E1;padding:8px 10px}
+  table.fig th{background:#F8FAFC;font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:#64748B;text-align:left}
+  table.fig .sum td{font-weight:700}table.fig .net td{font-weight:800;font-size:15px;background:#F0FDFA}
+  .sig{margin-top:44px;text-align:center}
+  .sigline{border-bottom:1px solid #1A1D2E;width:300px;height:78px;margin:0 auto 6px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px}
+  .signame{font-size:13px;font-weight:700}.sigmeta{font-size:10px;color:#0D9488;margin-top:2px}
+  .docwrap{text-align:center}.docwrap img{max-width:100%;max-height:820px;border:1px solid #CBD5E1}
+  .missing{color:#B91C1C;text-align:center;font-size:13px}
+  table.summary{width:100%;font-size:12px;border-collapse:collapse;margin-top:16px}
+  table.summary th,table.summary td{border:1px solid #CBD5E1;padding:6px 9px}
+  table.summary th{background:#F8FAFC;font-size:10px;text-transform:uppercase;color:#64748B;text-align:left}
+  tfoot td{font-weight:800;background:#F0FDFA}
+  @media print{.page{padding:24px 8px}}
+</style></head><body>
+<section class="page">
+  <h1>CS parttime payment — ${periodLabel(period)}</h1>
+  <div class="muted">Pay period ${approved[0]?.inv?.periodStart ?? ""} → ${approved[0]?.inv?.periodEnd ?? ""} · ${approved.length} agents · released by ${by || "CS Manager"}</div>
+  <table class="summary">
+    <thead><tr><th>Agent</th><th>Invoice</th><th class="r">Days</th><th class="r">OT</th><th class="r">Extra h</th><th class="r">Subtotal</th><th class="r">WHT 3%</th><th class="r">Net (THB)</th></tr></thead>
+    <tbody>${summaryRows}</tbody>
+    <tfoot><tr><td colspan="7">TOTAL — net payable</td><td class="r">฿${THB(batchTotal)}</td></tr></tfoot>
+  </table>
+  <p class="muted" style="margin-top:14px">Each agent follows: signed invoice · ID card copy · bookbank copy. Print this document to PDF for filing.</p>
+</section>
+${rows.map(({ inv, agent, signature }) => agentPackPages(inv, agent, signature)).join("")}
+</body></html>`;
+}
+
 export function InvoiceBatchPanel({
   agents = [], invoices = [], setInvoices, period,
-  computeFigures,        // (agentId, period) => figures | null
-  financeEmails = [],    // saved by the manager, persisted in globalFlags
-  onSaveFinanceEmails,   // (list) => void — persists the addresses
+  computeFigures,          // (agentId, period) => figures | null
+  recipients,              // { to: [], cc: [] } — persisted in globalFlags
+  onSaveRecipients,        // ({to, cc}) => void
   role, loginUser,
 }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);   // { tone, text }
-  // Finance never logs into NiRM, so the address book lives here: the manager
-  // types the address(es) once and they persist for every later month.
-  const [emailDraft, setEmailDraft] = useState(financeEmails.join(", "));
-  const [editingEmails, setEditingEmails] = useState(financeEmails.length === 0);
+  const rcpt = recipients?.to?.length ? recipients : DEFAULT_FINANCE_RECIPIENTS;
+  const [editingRcpt, setEditingRcpt] = useState(false);
+  const [toDraft, setToDraft] = useState(rcpt.to.join(", "));
+  const [ccDraft, setCcDraft] = useState(rcpt.cc.join(", "));
 
-  const parseEmails = (s) => [...new Set(
-    String(s || "").split(/[,;\s]+/)
-      .map(a => a.toLowerCase().trim())
-      .filter(a => /^[^\s@]+@crea\.asia$/.test(a))
-  )].slice(0, 5);
-
-  const saveEmails = () => {
-    const list = parseEmails(emailDraft);
-    if (!list.length) { setNote({ tone: "warn", text: "Enter at least one @crea.asia address — the batch email only sends internally." }); return; }
-    onSaveFinanceEmails?.(list);
-    setEmailDraft(list.join(", "));
-    setEditingEmails(false);
-    setNote(null);
+  const saveRcpt = () => {
+    const to = parseEmailList(toDraft, 3);
+    const cc = parseEmailList(ccDraft, 10).filter(a => !to.includes(a));
+    if (!to.length) { setNote({ tone: "warn", text: "The To field needs at least one @crea.asia address." }); return; }
+    onSaveRecipients?.({ to, cc });
+    setToDraft(to.join(", ")); setCcDraft(cc.join(", "));
+    setEditingRcpt(false); setNote(null);
   };
 
   // Only daily-rate, active people invoice. Everyone else is salaried.
@@ -262,39 +403,50 @@ export function InvoiceBatchPanel({
 
   const share = async () => {
     if (!approved.length || busy) return;
-    if (!financeEmails.length) {
-      setEditingEmails(true);
-      setNote({ tone: "warn", text: "Save Finance's email address first — the email is how Finance receives the batch." });
-      return;
-    }
 
     // Warn about stragglers, but never block — they can go in a second batch.
     const problems = [];
     if (waitingMgr.length) problems.push(`${waitingMgr.length} still waiting for your approval: ${waitingMgr.map(r => r.agent.name).join(", ")}`);
     if (notIn.length)      problems.push(`${notIn.length} have not submitted: ${notIn.map(r => r.agent.name).join(", ")}`);
     const msg =
-      `Email ${approved.length} invoice${approved.length === 1 ? "" : "s"} for ${periodLabel(period)} to Finance?\n\n` +
-      `To: ${financeEmails.join(", ")}\n` +
-      `Total net payable: ฿${THB(batchTotal)}\n` +
+      `Email "CS parttime payment — ${periodLabel(period)}" (${approved.length} agents, ฿${THB(batchTotal)})?\n\n` +
+      `To: ${rcpt.to.join(", ")}\nCc: ${rcpt.cc.join(", ")}\n` +
+      `Includes each agent's signed invoice, ID card and bookbank in one pack.\n` +
       (problems.length ? `\nNot included:\n${problems.map(p => "  • " + p).join("\n")}\n\nYou can share the rest in a second batch later.` : "");
     if (!window.confirm(msg)) return;
 
     setBusy(true);
     setNote(null);
 
-    // Finance has no NiRM login — this email IS the hand-off. So it goes out
-    // FIRST, and the invoices are only marked shared if SendGrid accepted it.
-    // A failed send changes nothing and says so; it never leaves NiRM claiming
-    // a batch was shared that Finance never received.
+    // 1. The pack — every approved agent's signed invoice + ID card + bookbank
+    // in one printable file. Built and uploaded BEFORE the email so the link
+    // in Finance's inbox is never dead.
+    let packUrl = "";
+    try {
+      const html = buildBatchPack({ approved, agents, period, batchTotal, by: loginUser });
+      const packPath = `invoice-packs/${period}/CS-parttime-${period}-${Date.now()}.html`;
+      const { error: upErr } = await supabase.storage.from("payroll-docs")
+        .upload(packPath, new Blob([html], { type: "text/html" }), { upsert: true, contentType: "text/html" });
+      if (upErr) throw new Error(upErr.message);
+      packUrl = supabase.storage.from("payroll-docs").getPublicUrl(packPath).data.publicUrl;
+    } catch (e) {
+      setNote({ tone: "warn", text: `NOT shared — could not build the document pack (${e.message || e}). Nothing was changed.` });
+      setBusy(false);
+      return;
+    }
+
+    // 2. The email IS the hand-off (Finance has no NiRM login), so it goes out
+    // before anything is marked shared; a failed send changes nothing.
     try {
       const { data: s } = await supabase.auth.getSession();
       const r = await fetch(`${FN_BASE}/invoice-notify`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
         body: JSON.stringify({
-          to: financeEmails,
-          subject: `CS agent invoices — ${periodLabel(period)} (${approved.length} agents, ฿${THB(batchTotal)})`,
-          text: batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by: loginUser, waitingMgr, notIn }),
+          to: rcpt.to,
+          cc: rcpt.cc,
+          subject: `CS parttime payment — ${periodLabel(period)}`,
+          text: batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by: loginUser, waitingMgr, notIn, packUrl }),
         }),
       });
       if (!r.ok) {
@@ -307,18 +459,19 @@ export function InvoiceBatchPanel({
       return;
     }
 
+    // 3. Only now do the invoices move.
     const now = stamp();
     const batchId = `${period}-${now.replace(/\D/g, "").slice(0, 14)}`;
     const ids = new Set(approved.map(r => r.inv.id));
     setInvoices(prev => prev.map(i => ids.has(i.id)
       ? {
           ...i, status: "sent_to_finance",
-          batchId, sharedAt: now, sharedBy: loginUser,
-          history: [...(i.history || []), { at: now, by: loginUser || "—", role, action: "Shared with Finance by email", note: `batch ${batchId} → ${financeEmails.join(", ")}` }],
+          batchId, sharedAt: now, sharedBy: loginUser, packUrl,
+          history: [...(i.history || []), { at: now, by: loginUser || "—", role, action: "Shared with Finance by email", note: `batch ${batchId} → ${rcpt.to.join(", ")}` }],
         }
       : i
     ));
-    setNote({ tone: "ok", text: `Emailed ${approved.length} invoices (฿${THB(batchTotal)}) to ${financeEmails.join(", ")}.` });
+    setNote({ tone: "ok", text: `Emailed ${approved.length} invoices (฿${THB(batchTotal)}) to ${rcpt.to.join(", ")} — pack: ${packUrl}` });
     setBusy(false);
   };
 
@@ -328,7 +481,7 @@ export function InvoiceBatchPanel({
     <div style={{ marginTop: 18, background: "#fff", borderRadius: 14, border: "1px solid #E2E8F0", overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", borderBottom: "1px solid #F1F5F9", background: "#F8FAFC", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1D2E" }}>Invoice batch — {periodLabel(period)}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1D2E" }}>CS parttime payment — {periodLabel(period)}</div>
           <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>
             {approved.length} approved · {waitingMgr.length} waiting your approval · {notIn.length} not submitted
             {already.length ? ` · ${already.length} already sent` : ""}
@@ -347,37 +500,40 @@ export function InvoiceBatchPanel({
               color: approved.length && !busy ? "#fff" : "#94A3B8",
               fontSize: 12, fontWeight: 800, cursor: approved.length && !busy ? "pointer" : "not-allowed", fontFamily: "inherit",
             }}>
-            {busy ? "Emailing…" : `Share ${approved.length || ""} to Finance ✉`.replace(/\s+/g, " ")}
+            {busy ? "Building pack…" : `Share ${approved.length || ""} to Finance ✉`.replace(/\s+/g, " ")}
           </button>
         </div>
       </div>
 
-      {/* Finance address book — the email is the hand-off, so this is required */}
-      <div style={{ padding: "9px 18px", borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#fff" }}>
-        <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3 }}>Finance email</span>
-        {editingEmails ? (
-          <>
-            <input
-              value={emailDraft}
-              onChange={e => setEmailDraft(e.target.value)}
-              placeholder="finance@crea.asia (comma-separate for more than one)"
-              style={{ flex: 1, minWidth: 220, padding: "6px 10px", borderRadius: 7, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "inherit" }}
-            />
-            <button onClick={saveEmails}
-              style={{ padding: "6px 14px", borderRadius: 7, border: "none", background: "#0D9488", color: "#fff", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
-              Save
-            </button>
-            {financeEmails.length > 0 && (
-              <button onClick={() => { setEmailDraft(financeEmails.join(", ")); setEditingEmails(false); }}
-                style={{ padding: "6px 12px", borderRadius: 7, border: "1px solid #E2E8F0", background: "#fff", color: "#64748B", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                Cancel
-              </button>
-            )}
-          </>
+      {/* Distribution list — seeded with the CS parttime payment recipients */}
+      <div style={{ padding: "9px 18px", borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap", background: "#fff" }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3, paddingTop: 4 }}>Recipients</span>
+        {editingRcpt ? (
+          <div style={{ flex: 1, minWidth: 260, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "#64748B", width: 22 }}>To</span>
+              <input value={toDraft} onChange={e => setToDraft(e.target.value)}
+                style={{ flex: 1, padding: "6px 10px", borderRadius: 7, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "inherit" }}/>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 11, color: "#64748B", width: 22 }}>Cc</span>
+              <input value={ccDraft} onChange={e => setCcDraft(e.target.value)}
+                style={{ flex: 1, padding: "6px 10px", borderRadius: 7, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "inherit" }}/>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={saveRcpt}
+                style={{ padding: "6px 14px", borderRadius: 7, border: "none", background: "#0D9488", color: "#fff", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>Save</button>
+              <button onClick={() => { setToDraft(rcpt.to.join(", ")); setCcDraft(rcpt.cc.join(", ")); setEditingRcpt(false); }}
+                style={{ padding: "6px 12px", borderRadius: 7, border: "1px solid #E2E8F0", background: "#fff", color: "#64748B", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+            </div>
+          </div>
         ) : (
           <>
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#1A1D2E" }}>{financeEmails.join(", ")}</span>
-            <button onClick={() => { setEmailDraft(financeEmails.join(", ")); setEditingEmails(true); }}
+            <div style={{ flex: 1, minWidth: 220, fontSize: 11, color: "#475569", lineHeight: 1.6 }}>
+              <div><b style={{ color: "#1A1D2E" }}>To:</b> {rcpt.to.join(", ")}</div>
+              <div><b style={{ color: "#1A1D2E" }}>Cc:</b> {rcpt.cc.join(", ")}</div>
+            </div>
+            <button onClick={() => { setToDraft(rcpt.to.join(", ")); setCcDraft(rcpt.cc.join(", ")); setEditingRcpt(true); }}
               style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #E2E8F0", background: "#fff", color: "#64748B", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
               Change
             </button>
@@ -387,7 +543,7 @@ export function InvoiceBatchPanel({
 
       {note && (
         <div style={{
-          padding: "10px 18px", fontSize: 11, borderBottom: "1px solid #F1F5F9",
+          padding: "10px 18px", fontSize: 11, borderBottom: "1px solid #F1F5F9", wordBreak: "break-all",
           background: note.tone === "ok" ? "#ECFDF5" : "#FEF3C7",
           color: note.tone === "ok" ? "#065F46" : "#92400E",
         }}>{note.text}</div>
@@ -397,8 +553,8 @@ export function InvoiceBatchPanel({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: "#F8FAFC" }}>
-              {["Agent", "Team", "Days", "OT", "Extra h", "Subtotal", "WHT 3%", "Net payable", "Status"].map((h, i) => (
-                <th key={h} style={{ padding: "8px 12px", textAlign: i >= 2 && i <= 7 ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>{h}</th>
+              {["Agent", "Team", "Docs", "Days", "OT", "Extra h", "Subtotal", "WHT 3%", "Net payable", "Status"].map((h, i) => (
+                <th key={h} style={{ padding: "8px 12px", textAlign: i >= 3 && i <= 8 ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -407,10 +563,16 @@ export function InvoiceBatchPanel({
               const s = INV_STATUS[status] || INV_STATUS.draft;
               const f = inv || preview;
               const pending = !inv;
+              const hasId = !!(inv?.idCardPhotoUrl || agent.idCardPhotoUrl);
+              const hasBank = !!(inv?.bookbankPhotoUrl || agent.bookbankPhotoUrl);
               return (
                 <tr key={agent.id} style={{ borderBottom: "1px solid #F8FAFC", opacity: pending ? 0.55 : 1 }}>
                   <td style={{ padding: "8px 12px", fontWeight: 700, color: "#1A1D2E" }}>{agent.name}</td>
                   <td style={{ padding: "8px 12px", color: "#64748B" }}>{agent.team}</td>
+                  <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }} title={`ID card ${hasId ? "on file" : "MISSING"} · Bookbank ${hasBank ? "on file" : "MISSING"}`}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: hasId ? "#065F46" : "#B91C1C" }}>ID{hasId ? "✓" : "✗"}</span>{" "}
+                    <span style={{ fontSize: 10, fontWeight: 800, color: hasBank ? "#065F46" : "#B91C1C" }}>BK{hasBank ? "✓" : "✗"}</span>
+                  </td>
                   <td style={{ padding: "8px 12px", textAlign: "right", color: "#475569" }}>{f ? f.workDays : "—"}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", color: "#475569" }}>{f ? (f.otDays || 0) : "—"}</td>
                   <td style={{ padding: "8px 12px", textAlign: "right", color: "#475569" }}>{f ? (f.extraHours || 0) : "—"}</td>
@@ -426,13 +588,13 @@ export function InvoiceBatchPanel({
               );
             })}
             {rows.length === 0 && (
-              <tr><td colSpan={9} style={{ padding: 24, textAlign: "center", color: "#94A3B8" }}>No daily-rate agents on the roster.</td></tr>
+              <tr><td colSpan={10} style={{ padding: 24, textAlign: "center", color: "#94A3B8" }}>No daily-rate agents on the roster.</td></tr>
             )}
           </tbody>
           {approved.length > 0 && (
             <tfoot>
               <tr style={{ background: "#F8FAFC", borderTop: "2px solid #E2E8F0" }}>
-                <td colSpan={5} style={{ padding: "10px 12px", fontWeight: 800, color: "#1A1D2E" }}>
+                <td colSpan={6} style={{ padding: "10px 12px", fontWeight: 800, color: "#1A1D2E" }}>
                   Batch ({approved.length} approved)
                 </td>
                 <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 700, color: "#475569", fontFamily: "monospace" }}>{THB(batchGross)}</td>
@@ -448,11 +610,11 @@ export function InvoiceBatchPanel({
   );
 }
 
-function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by, waitingMgr, notIn }) {
+function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by, waitingMgr, notIn, packUrl }) {
   const pad = (s, n) => String(s).padEnd(n).slice(0, n);
   const padL = (s, n) => String(s).padStart(n);
   const lines = [
-    `CS agent invoices for ${periodLabel(period)}`,
+    `CS parttime payment — ${periodLabel(period)}`,
     `Pay period ${approved[0]?.inv?.periodStart ?? ""} to ${approved[0]?.inv?.periodEnd ?? ""}`,
     `Approved and released by ${by || "CS Manager"}.`,
     "",
@@ -468,6 +630,10 @@ function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by
   }
   lines.push("-".repeat(67));
   lines.push(pad(`TOTAL (${approved.length})`, 33) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
+  lines.push("");
+  lines.push("DOCUMENTS — signed invoices + ID card + bookbank for every agent,");
+  lines.push("in one file (open and print to PDF for filing):");
+  lines.push(packUrl || "(pack link missing)");
   lines.push("");
   if (waitingMgr.length) lines.push(`Not included — still with the CS Manager: ${waitingMgr.map(r => r.agent.name).join(", ")}`);
   if (notIn.length)      lines.push(`Not included — not yet submitted: ${notIn.map(r => r.agent.name).join(", ")}`);
