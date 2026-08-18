@@ -252,7 +252,7 @@ const parseEmailList = (raw, max) => [...new Set(
 // pack Finance receives is exactly what the manager approved.
 function agentPackPages(inv, agent, signature) {
   const a = agent || {};
-  const name = a.thaiName || a.fullName || inv.agentName;
+  const name = inv.thaiName || a.thaiName || inv.fullName || a.fullName || inv.agentName;
   const money = (n) => THB(n);
   const sigBlock = signature?.dataUrl
     ? `<img src="${signature.dataUrl}" style="max-height:70px;max-width:260px"/>`
@@ -279,11 +279,11 @@ function agentPackPages(inv, agent, signature) {
         </div>
       </div>
       <table class="kv">
-        <tr><td>ชื่อ / Name</td><td>${name}${a.fullName && a.thaiName ? ` (${a.fullName})` : ""}</td></tr>
-        <tr><td>รหัสพนักงาน / PCODE</td><td>${inv.pcode || a.pcode || "—"}</td></tr>
-        <tr><td>เลขประจำตัวผู้เสียภาษี / Tax ID</td><td>${a.taxId || a.idCard || "—"}</td></tr>
-        <tr><td>ธนาคาร / Bank</td><td>${a.bankName || "—"}</td></tr>
-        <tr><td>เลขที่บัญชี / Account</td><td>${a.bankAccount || "—"}${a.bankAccountName ? ` (${a.bankAccountName})` : ""}</td></tr>
+        <tr><td>ชื่อ / Name</td><td>${name}${(inv.fullName || a.fullName) && name !== (inv.fullName || a.fullName) ? ` (${inv.fullName || a.fullName})` : ""}</td></tr>
+        <tr><td>รหัสพนักงาน / PCODE</td><td>${inv.pcode || a.pcode || a.id || "—"}</td></tr>
+        <tr><td>เลขประจำตัวผู้เสียภาษี / Tax ID</td><td>${inv.taxId || a.taxId || a.idCard || "—"}</td></tr>
+        <tr><td>ธนาคาร / Bank</td><td>${inv.bankName || a.bankName || "—"}</td></tr>
+        <tr><td>เลขที่บัญชี / Account</td><td>${inv.bankAccount || a.bankAccount || "—"}${(inv.bankAccountName || a.bankAccountName) ? ` (${inv.bankAccountName || a.bankAccountName})` : ""}</td></tr>
       </table>
       <table class="fig">
         <tr><th>รายการ / Description</th><th class="r">จำนวน</th><th class="r">บาท / THB</th></tr>
@@ -312,7 +312,7 @@ export function buildBatchPack({ approved, agents, period, batchTotal, by }) {
     return { inv, agent, signature };
   });
   const summaryRows = rows.map(({ inv, agent }) =>
-    `<tr><td>${inv.agentName}</td><td>${inv.pcode || agent?.pcode || "—"}</td><td>#${inv.invoiceNumber}</td><td class="r">${inv.workDays}</td><td class="r">${inv.otDays || 0}</td><td class="r">${inv.extraHours || 0}</td><td class="r">${THB(inv.subtotal)}</td><td class="r">${THB(inv.withholding)}</td><td class="r"><b>${THB(inv.netAmount)}</b></td></tr>`
+    `<tr><td>${inv.agentName}</td><td>${inv.pcode || agent?.pcode || agent?.id || "—"}</td><td>${inv.fullName || agent?.fullName || "—"}</td><td>#${inv.invoiceNumber}</td><td class="r">${inv.workDays}</td><td class="r">${inv.otDays || 0}</td><td class="r">${inv.extraHours || 0}</td><td class="r">${THB(inv.subtotal)}</td><td class="r">${THB(inv.withholding)}</td><td class="r"><b>${THB(inv.netAmount)}</b></td></tr>`
   ).join("");
   return `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">
 <title>CS parttime payment — ${periodLabel(period)}</title>
@@ -345,9 +345,9 @@ export function buildBatchPack({ approved, agents, period, batchTotal, by }) {
   <h1>CS parttime payment — ${periodLabel(period)}</h1>
   <div class="muted">Pay period ${approved[0]?.inv?.periodStart ?? ""} → ${approved[0]?.inv?.periodEnd ?? ""} · ${approved.length} agents · released by ${by || "CS Manager"}</div>
   <table class="summary">
-    <thead><tr><th>Agent</th><th>PCODE</th><th>Invoice</th><th class="r">Days</th><th class="r">OT</th><th class="r">Extra h</th><th class="r">Subtotal</th><th class="r">WHT 3%</th><th class="r">Net (THB)</th></tr></thead>
+    <thead><tr><th>Agent</th><th>PCODE</th><th>Full name</th><th>Invoice</th><th class="r">Days</th><th class="r">OT</th><th class="r">Extra h</th><th class="r">Subtotal</th><th class="r">WHT 3%</th><th class="r">Net (THB)</th></tr></thead>
     <tbody>${summaryRows}</tbody>
-    <tfoot><tr><td colspan="8">TOTAL — net payable</td><td class="r">฿${THB(batchTotal)}</td></tr></tfoot>
+    <tfoot><tr><td colspan="9">TOTAL — net payable</td><td class="r">฿${THB(batchTotal)}</td></tr></tfoot>
   </table>
   <p class="muted" style="margin-top:14px">Each agent follows: signed invoice · ID card copy · bookbank copy. Print this document to PDF for filing.</p>
 </section>
@@ -571,7 +571,7 @@ export function InvoiceBatchPanel({
               return (
                 <tr key={agent.id} style={{ borderBottom: "1px solid #F8FAFC", opacity: pending ? 0.55 : 1 }}>
                   <td style={{ padding: "8px 12px", fontWeight: 700, color: "#1A1D2E" }}>{agent.name}</td>
-                  <td style={{ padding: "8px 12px", color: inv?.pcode || agent.pcode ? "#475569" : "#B91C1C", fontFamily: "monospace", fontWeight: 700 }}>{inv?.pcode || agent.pcode || "—"}</td>
+                  <td style={{ padding: "8px 12px", color: "#475569", fontFamily: "monospace", fontWeight: 700 }}>{inv?.pcode || agent.pcode || agent.id}</td>
                   <td style={{ padding: "8px 12px", color: "#64748B" }}>{agent.team}</td>
                   <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }} title={`ID card ${hasId ? "on file" : "MISSING"} · Bookbank ${hasBank ? "on file" : "MISSING"}`}>
                     <span style={{ fontSize: 10, fontWeight: 800, color: hasId ? "#065F46" : "#B91C1C" }}>ID{hasId ? "✓" : "✗"}</span>{" "}
@@ -634,6 +634,17 @@ function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by
   }
   lines.push("-".repeat(72));
   lines.push(pad(`TOTAL (${approved.length})`, 38) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
+  lines.push("");
+  lines.push("PAYMENT DETAILS");
+  for (const { agent, inv } of approved) {
+    const pcode = inv.pcode || agent.pcode || agent.id || "—";
+    const full = inv.fullName || agent.fullName || inv.agentName;
+    const bank = [inv.bankName || agent.bankName, inv.bankAccount || agent.bankAccount].filter(Boolean).join(" ") || "bank details missing";
+    const acctName = inv.bankAccountName || agent.bankAccountName;
+    const tax = inv.taxId || agent.taxId;
+    lines.push(`  ${pcode}  ${full} (${inv.agentName})`);
+    lines.push(`      ${bank}${acctName ? ` (${acctName})` : ""}${tax ? ` · Tax ID ${tax}` : ""} · Net ฿${THB(inv.netAmount)}`);
+  }
   lines.push("");
   lines.push("DOCUMENTS — signed invoices + ID card + bookbank for every agent,");
   lines.push("in one file (open and print to PDF for filing):");
