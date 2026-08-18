@@ -651,20 +651,15 @@ function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by
       padL(inv.extraHours || 0, 6) + padL(THB(inv.subtotal), 12) +
       padL(THB(inv.withholding), 10) + padL(THB(inv.netAmount), 12)
     );
-  }
-  lines.push("-".repeat(87));
-  lines.push(pad(`TOTAL (${approved.length})`, 53) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
-  lines.push("");
-  lines.push("PAYMENT DETAILS");
-  for (const { agent, inv } of approved) {
-    const pcode = inv.pcode || agent.pcode || agent.id || "—";
-    const full = inv.fullName || agent.fullName || inv.agentName;
+    // payment details ride on the same invoice row — Finance reads one block
+    // per agent instead of cross-referencing a second list
     const bank = [inv.bankName || agent.bankName, inv.bankAccount || agent.bankAccount].filter(Boolean).join(" ") || "bank details missing";
     const acctName = inv.bankAccountName || agent.bankAccountName;
     const tax = inv.taxId || agent.taxId;
-    lines.push(`  ${pcode}  ${full} (${inv.agentName})`);
-    lines.push(`      ${bank}${acctName ? ` (${acctName})` : ""}${tax ? ` · Tax ID ${tax}` : ""} · Net ฿${THB(inv.netAmount)}`);
+    lines.push(`          ${bank}${acctName ? ` (${acctName})` : ""}${tax ? ` · Tax ID ${tax}` : ""}`);
   }
+  lines.push("-".repeat(87));
+  lines.push(pad(`TOTAL (${approved.length})`, 53) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
   lines.push("");
   lines.push("ATTACHED: one PDF per agent — signed invoice + ID card copy + bookbank");
   lines.push("copy, named \"<invoice no> <full name>.pdf\". Copies are also filed in");
