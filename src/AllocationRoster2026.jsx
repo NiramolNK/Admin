@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import CSAnalyticsTab from "./CSAnalyticsTab.jsx";
 import ServiceCRM, { crmTabsFor } from "./ServiceCRM.jsx";
 import KnowledgeBase, { normalizeBrandName } from "./KnowledgeBase.jsx";
-import InvoiceApprovals, { InvoiceStatusBar, InvoiceBatchPanel, invoiceId } from "./InvoiceApprovals.jsx";
+import InvoiceApprovals, { InvoiceStatusBar, InvoiceBatchPanel, invoiceId, DEFAULT_FINANCE_RECIPIENTS } from "./InvoiceApprovals.jsx";
 import { supabase, onStateChange } from "./supabase.js";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -2301,10 +2301,13 @@ export default function AllocationPanel({ isAdmin = true }) {
   // Approver-side lookup passed to the queue so it can spot roster drift.
   const liveFiguresFor = (agentId, period) => computeInvoiceFigures(agentId, period);
   // Finance receives the batch BY EMAIL and has no NiRM login, so the
-  // address book is data, not an account: the manager types it once in the
-  // batch panel and it persists in globalFlags (synced across devices).
-  const financeEmails = Array.isArray(globalFlags?.financeEmails) ? globalFlags.financeEmails : [];
-  const saveFinanceEmails = (list) => setGlobalFlags(p => ({ ...(p || {}), financeEmails: list }));
+  // distribution list is data, not accounts. Seeded with the CS parttime
+  // payment recipients; editable in the batch panel, persisted in
+  // globalFlags so it syncs across devices.
+  const financeRecipients = (globalFlags?.financeRecipients && Array.isArray(globalFlags.financeRecipients.to) && globalFlags.financeRecipients.to.length)
+    ? globalFlags.financeRecipients
+    : DEFAULT_FINANCE_RECIPIENTS;
+  const saveFinanceRecipients = (r) => setGlobalFlags(p => ({ ...(p || {}), financeRecipients: r }));
 
   // Time labels per shift code. The agent's actual roster shift on a date determines the label.
   const SHIFT_LABEL = { M: "Morning (07:00 - 16:00)", ME: "ME (12:00 - 21:00)", E: "Evening (16:00 - 01:00)" };
@@ -3749,6 +3752,13 @@ export default function AllocationPanel({ isAdmin = true }) {
           // edit can never silently change an amount someone already approved.
           const submitInvoice = () => {
             if (!signature) { alert("Please sign the invoice before submitting."); return; }
+            // Finance requires the ID card and bookbank copies with every
+            // invoice — refuse the submission here rather than have the
+            // whole batch bounce at month end.
+            if (!myPayrollAgent.idCardPhotoUrl || !myPayrollAgent.bookbankPhotoUrl) {
+              alert("กรุณาอัปโหลดสำเนาบัตรประชาชนและสมุดบัญชีก่อนส่ง / Please upload your ID card and bookbank copies in Personal Info before submitting.");
+              return;
+            }
             const id = invoiceId(myPayrollAgent.id, period);
             const now = new Date().toISOString();
             const prior = invoices.find(i => i.id === id);
@@ -3759,6 +3769,10 @@ export default function AllocationPanel({ isAdmin = true }) {
               status: "submitted",
               submittedAt: now, submittedBy: loginUser,
               signedAt: signature.signedAt || now,
+              // Snapshot the docs like the figures: the batch pack shows what
+              // was on file at submission, immune to later replacements.
+              idCardPhotoUrl: myPayrollAgent.idCardPhotoUrl,
+              bookbankPhotoUrl: myPayrollAgent.bookbankPhotoUrl,
               rejectReason: "", rejectedAt: null, rejectedBy: null,
               managerAt: null, managerBy: null,
               financeAt: null, financeBy: null,
@@ -3913,6 +3927,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 invoice={myInvoice}
                 figures={fig}
                 signature={signature}
+                docs={{ idCard: !!myPayrollAgent.idCardPhotoUrl, bookbank: !!myPayrollAgent.bookbankPhotoUrl }}
                 canSubmit={isSignWindow}
                 submitBlockedReason={`You can submit from ${invoiceMonthAbbr} 19 onwards.`}
                 onSubmit={submitInvoice}
@@ -4027,8 +4042,8 @@ export default function AllocationPanel({ isAdmin = true }) {
               setInvoices={setInvoices}
               period={`${rosterYear}-${String(rosterMonth).padStart(2,"0")}`}
               computeFigures={computeInvoiceFigures}
-              financeEmails={financeEmails}
-              onSaveFinanceEmails={saveFinanceEmails}
+              recipients={financeRecipients}
+              onSaveRecipients={saveFinanceRecipients}
               role={role}
               loginUser={loginUser}
             />
