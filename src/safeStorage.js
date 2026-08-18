@@ -49,9 +49,49 @@ function deepEqual(a, b) {
 // 3-way merge: ancestor vs local (this tab's save) vs remote (server now).
 // Keep both sides' changes; same-leaf conflict → the active saver wins
 // for that leaf only.
+//
+// v2.1 FIX (2026-08-18 clobber incident): arrays used to be unmergeable —
+// any conflict on an array fell through to "local wins", so a tab holding a
+// STALE copy of nirm-agents that saved ONE agent's change rewrote ALL 19
+// records at once (wiped Poi's signature, reverted the English full names,
+// made Marker's docs look lost). Arrays whose elements all carry a unique
+// `id` (agents, invoices, shifts…) now merge PER RECORD, recursing into each
+// element, so concurrent tabs only ever conflict on the same record's same
+// field. Arrays without stable ids keep the old saver-wins behaviour.
+const recId = (e) => (isObj(e) && e.id != null ? String(e.id) : null);
+const isKeyedArray = (arr) =>
+  Array.isArray(arr) &&
+  arr.every((e) => recId(e) !== null) &&
+  new Set(arr.map(recId)).size === arr.length;
+
+function mergeKeyedArrays(baseA, localA, remoteA) {
+  const bm = new Map(baseA.map((e) => [recId(e), e]));
+  const lm = new Map(localA.map((e) => [recId(e), e]));
+  const rm = new Map(remoteA.map((e) => [recId(e), e]));
+  // Local's order first (the saver's view), then remote-only records appended.
+  const ids = [...new Set([...localA.map(recId), ...remoteA.map(recId)])];
+  const out = [];
+  for (const id of ids) {
+    const b = bm.get(id), l = lm.get(id), r = rm.get(id);
+    const localDeleted = !lm.has(id) && bm.has(id);
+    const remoteDeleted = !rm.has(id) && bm.has(id);
+    if (localDeleted && deepEqual(r, b)) continue; // deleted here, untouched there
+    if (remoteDeleted && deepEqual(l, b)) continue;
+    const merged = threeWayMerge(b, lm.has(id) ? l : r, rm.has(id) ? r : l);
+    if (merged !== undefined) out.push(merged);
+  }
+  return out;
+}
+
 function threeWayMerge(baseV, local, remote) {
   if (deepEqual(local, baseV)) return remote;
   if (deepEqual(remote, baseV)) return local;
+  if (isKeyedArray(local) && isKeyedArray(remote) && local.length && remote.length) {
+    // Ancestor may be missing/{}/empty when this tab never read the key —
+    // an empty base makes the merge a pure union (never drops a record).
+    const baseA = isKeyedArray(baseV) ? baseV : [];
+    return mergeKeyedArrays(baseA, local, remote);
+  }
   if (isObj(baseV) && isObj(local) && isObj(remote)) {
     const keys = new Set([
       ...Object.keys(baseV), ...Object.keys(local), ...Object.keys(remote),
