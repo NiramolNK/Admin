@@ -379,9 +379,16 @@ export function InvoiceBatchPanel({
   };
 
   // Only daily-rate, active people invoice. Everyone else is salaried.
+  // Ordered by PCODE (01, 02, 03…) so the table, the email and the pack all
+  // match the payroll sheet's order.
+  const codeOf = (a) => a.pcode || a.id || "";
   const roster = useMemo(
     () => agents.filter(a => a.active && DAILY_RATE_TEAMS.includes(a.team))
-                .sort((a, b) => String(a.name).localeCompare(String(b.name))),
+                .sort((a, b) => {
+                  const x = parseInt(codeOf(a), 10), y = parseInt(codeOf(b), 10);
+                  if (!isNaN(x) && !isNaN(y) && x !== y) return x - y;
+                  return String(codeOf(a)).localeCompare(String(codeOf(b)), undefined, { numeric: true });
+                }),
     [agents]
   );
 
@@ -570,7 +577,12 @@ export function InvoiceBatchPanel({
               const hasBank = !!(inv?.bookbankPhotoUrl || agent.bookbankPhotoUrl);
               return (
                 <tr key={agent.id} style={{ borderBottom: "1px solid #F8FAFC", opacity: pending ? 0.55 : 1 }}>
-                  <td style={{ padding: "8px 12px", fontWeight: 700, color: "#1A1D2E" }}>{agent.name}</td>
+                  <td style={{ padding: "8px 12px" }}>
+                    <div style={{ fontWeight: 700, color: "#1A1D2E" }}>{agent.name}</div>
+                    {(inv?.fullName || agent.fullName) && (
+                      <div style={{ fontSize: 10, color: "#94A3B8", marginTop: 1 }}>{inv?.fullName || agent.fullName}</div>
+                    )}
+                  </td>
                   <td style={{ padding: "8px 12px", color: "#475569", fontFamily: "monospace", fontWeight: 700 }}>{inv?.pcode || agent.pcode || agent.id}</td>
                   <td style={{ padding: "8px 12px", color: "#64748B" }}>{agent.team}</td>
                   <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }} title={`ID card ${hasId ? "on file" : "MISSING"} · Bookbank ${hasBank ? "on file" : "MISSING"}`}>
@@ -622,18 +634,20 @@ function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by
     `Pay period ${approved[0]?.inv?.periodStart ?? ""} to ${approved[0]?.inv?.periodEnd ?? ""}`,
     `Approved and released by ${by || "CS Manager"}.`,
     "",
-    `${pad("Agent", 15)}${pad("PCODE", 8)}${padL("Days", 5)}${padL("OT", 4)}${padL("Extra", 6)}${padL("Subtotal", 12)}${padL("WHT 3%", 10)}${padL("Net", 12)}`,
-    "-".repeat(72),
+    `${pad("PCODE", 7)}${pad("Agent", 30)}${padL("Days", 5)}${padL("OT", 4)}${padL("Extra", 6)}${padL("Subtotal", 12)}${padL("WHT 3%", 10)}${padL("Net", 12)}`,
+    "-".repeat(80),
   ];
   for (const { agent, inv } of approved) {
     lines.push(
-      pad(agent.name, 15) + pad(inv.pcode || agent.pcode || "—", 8) + padL(inv.workDays, 5) + padL(inv.otDays || 0, 4) +
+      pad(inv.pcode || agent.pcode || agent.id || "—", 7) +
+      pad(`${agent.name}${(inv.fullName || agent.fullName) ? " — " + (inv.fullName || agent.fullName) : ""}`, 30) +
+      padL(inv.workDays, 5) + padL(inv.otDays || 0, 4) +
       padL(inv.extraHours || 0, 6) + padL(THB(inv.subtotal), 12) +
       padL(THB(inv.withholding), 10) + padL(THB(inv.netAmount), 12)
     );
   }
-  lines.push("-".repeat(72));
-  lines.push(pad(`TOTAL (${approved.length})`, 38) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
+  lines.push("-".repeat(80));
+  lines.push(pad(`TOTAL (${approved.length})`, 46) + padL(THB(batchGross), 12) + padL(THB(batchWht), 10) + padL(THB(batchTotal), 12));
   lines.push("");
   lines.push("PAYMENT DETAILS");
   for (const { agent, inv } of approved) {
