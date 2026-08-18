@@ -1626,7 +1626,12 @@ export default function AllocationPanel({ isAdmin = true }) {
       }
     };
     const unsub = onStateChange(handler);
-    return () => { unsub && unsub(); };
+    // v3 storage: safeStorage broadcasts per-key cache snapshots via a DOM
+    // event (the legacy onStateChange channel is silent once kv is active,
+    // which is why open tabs never saw each other's changes).
+    const evtHandler = (e) => { if (e.detail) handler(e.detail); };
+    window.addEventListener("nirm-storage-sync", evtHandler);
+    return () => { unsub && unsub(); window.removeEventListener("nirm-storage-sync", evtHandler); };
   }, [storageLoaded]);
 
   // ── Auto-save AFTER every render that changes data ─────────────────────────

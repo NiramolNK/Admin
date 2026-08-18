@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════
-// NiRM Roster — safeStorage.js  (v2 — ancestor-tracked CAS)
+// NiRM Roster — safeStorage.js  (v3 — per-record store for agents/invoices)
 //
 // v2 FIX: v1 had a design flaw — the realtime handler advanced the CAS
 // version, so a tab whose REACT STATE was stale could still pass the CAS
@@ -12,6 +12,17 @@
 //            it. CAS gates on shadow.version, so a save based on stale app
 //            state always fails the gate → 3-way merge → nothing lost.
 //
+// v3 (2026-08-18, after the sign-day clobber incident): agents and invoices
+// no longer live inside ONE shared kv_state array — the whole-array
+// last-writer-wins failure wiped signatures, doc links and submitted
+// invoices the first day ten agents saved concurrently. They now live in
+// the `kv_records` table, ONE ROW PER RECORD (domain,id), each row with its
+// own CAS version. Saving one agent physically cannot touch another agent's
+// row. The window.storage API is UNCHANGED: set('nirm-agents', array) is
+// diffed against this tab's ancestor and only the records that actually
+// changed are written; records this tab never saw are untouched — a stale
+// tab can no longer delete or revert what it doesn't know about.
+//
 // Public API unchanged:
 //   get(key) | set(key, value) | delete(key) | list(prefix)
 // ════════════════════════════════════════════════════════════════════════
@@ -19,12 +30,26 @@
 import { supabase } from "./supabase.js";
 
 const TABLE = "kv_state";
+const RECORDS_TABLE = "kv_records";
 const MAX_RETRIES = 6;
+
+// Keys stored per-record in kv_records instead of as one kv_state blob.
+// Every element of these arrays MUST carry a unique `id` (they do: agents
+// use pcode-style ids, invoices use `${agentId}__${period}`).
+const RECORD_DOMAINS = new Set(["nirm-agents", "nirm-invoices"]);
 
 // latest[key] = { value, version }   ← server truth (realtime-fresh)
 // shadow[key] = { value, version }   ← merge ancestor (this tab's last read/write)
 const latest = new Map();
 const shadow = new Map();
+
+// Per-record equivalents: Map<domain, Map<id, {value, version}>>
+const recLatest = new Map();
+const recShadow = new Map();
+const domainMap = (store, domain) => {
+  if (!store.has(domain)) store.set(domain, new Map());
+  return store.get(domain);
+};
 
 // ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -53,11 +78,9 @@ function deepEqual(a, b) {
 // v2.1 FIX (2026-08-18 clobber incident): arrays used to be unmergeable —
 // any conflict on an array fell through to "local wins", so a tab holding a
 // STALE copy of nirm-agents that saved ONE agent's change rewrote ALL 19
-// records at once (wiped Poi's signature, reverted the English full names,
-// made Marker's docs look lost). Arrays whose elements all carry a unique
-// `id` (agents, invoices, shifts…) now merge PER RECORD, recursing into each
-// element, so concurrent tabs only ever conflict on the same record's same
-// field. Arrays without stable ids keep the old saver-wins behaviour.
+// records at once. Arrays whose elements all carry a unique `id` now merge
+// PER RECORD. (v3 moves agents/invoices out of arrays entirely, but this
+// merge still protects any other keyed array kept in kv_state.)
 const recId = (e) => (isObj(e) && e.id != null ? String(e.id) : null);
 const isKeyedArray = (arr) =>
   Array.isArray(arr) &&
@@ -68,14 +91,13 @@ function mergeKeyedArrays(baseA, localA, remoteA) {
   const bm = new Map(baseA.map((e) => [recId(e), e]));
   const lm = new Map(localA.map((e) => [recId(e), e]));
   const rm = new Map(remoteA.map((e) => [recId(e), e]));
-  // Local's order first (the saver's view), then remote-only records appended.
   const ids = [...new Set([...localA.map(recId), ...remoteA.map(recId)])];
   const out = [];
   for (const id of ids) {
     const b = bm.get(id), l = lm.get(id), r = rm.get(id);
     const localDeleted = !lm.has(id) && bm.has(id);
     const remoteDeleted = !rm.has(id) && bm.has(id);
-    if (localDeleted && deepEqual(r, b)) continue; // deleted here, untouched there
+    if (localDeleted && deepEqual(r, b)) continue;
     if (remoteDeleted && deepEqual(l, b)) continue;
     const merged = threeWayMerge(b, lm.has(id) ? l : r, rm.has(id) ? r : l);
     if (merged !== undefined) out.push(merged);
@@ -87,8 +109,6 @@ function threeWayMerge(baseV, local, remote) {
   if (deepEqual(local, baseV)) return remote;
   if (deepEqual(remote, baseV)) return local;
   if (isKeyedArray(local) && isKeyedArray(remote) && local.length && remote.length) {
-    // Ancestor may be missing/{}/empty when this tab never read the key —
-    // an empty base makes the merge a pure union (never drops a record).
     const baseA = isKeyedArray(baseV) ? baseV : [];
     return mergeKeyedArrays(baseA, local, remote);
   }
@@ -130,7 +150,7 @@ const remergeable = (orig, merged) =>
     ? { __wasString: true, v: merged }
     : merged;
 
-// ─── server ops — these touch `latest` ONLY, never `shadow` ──────────────
+// ─── kv_state server ops — these touch `latest` ONLY, never `shadow` ──────
 
 async function fetchAll() {
   const { data, error } = await supabase.from(TABLE).select("key,value,version");
@@ -150,11 +170,9 @@ async function fetchOne(key) {
   return data;
 }
 
-// ─── the write path — CAS gated on the ANCESTOR version ──────────────────
+// ─── kv_state write path — CAS gated on the ANCESTOR version ─────────────
 
 async function casWrite(key, storedValue) {
-  // Ancestor = what this tab last read/wrote. If this tab never read the
-  // key, use an empty object so the merge UNIONS both sides (never drops).
   let anc = shadow.get(key);
   if (!anc && !latest.has(key)) await fetchOne(key);
   if (!anc && latest.has(key)) {
@@ -163,7 +181,6 @@ async function casWrite(key, storedValue) {
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     if (!anc) {
-      // Key doesn't exist anywhere yet → insert; on race, refetch & retry.
       const { data, error } = await supabase
         .from(TABLE)
         .insert({ key, value: storedValue, version: 1 })
@@ -184,7 +201,7 @@ async function casWrite(key, storedValue) {
       .from(TABLE)
       .update({ value: storedValue, version: nextVersion })
       .eq("key", key)
-      .eq("version", anc.version)   // ← gate on ANCESTOR, not realtime-fresh
+      .eq("version", anc.version)
       .select("version");
     if (error) throw error;
 
@@ -194,10 +211,8 @@ async function casWrite(key, storedValue) {
       return storedValue;
     }
 
-    // CAS failed: server moved past our ancestor. Merge and retry against
-    // the server's CURRENT version — ancestor VALUE stays the true ancestor.
     const remote = await fetchOne(key);
-    if (!remote) { anc = null; continue; } // row vanished → retry as insert
+    if (!remote) { anc = null; continue; }
     const merged = remergeable(
       storedValue,
       threeWayMerge(
@@ -213,6 +228,176 @@ async function casWrite(key, storedValue) {
     `Storage conflict on "${key}" persisted after ${MAX_RETRIES} retries — ` +
     "please refresh and re-apply your last change."
   );
+}
+
+// ─── per-record store (kv_records) ────────────────────────────────────────
+
+async function fetchDomain(domain) {
+  const { data, error } = await supabase
+    .from(RECORDS_TABLE)
+    .select("id,value,version")
+    .eq("domain", domain);
+  if (error) throw error;
+  const m = new Map();
+  for (const row of data || []) m.set(row.id, { value: row.value, version: row.version });
+  recLatest.set(domain, m);
+  return m;
+}
+
+async function fetchRecord(domain, id) {
+  const { data, error } = await supabase
+    .from(RECORDS_TABLE)
+    .select("id,value,version")
+    .eq("domain", domain)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  const m = domainMap(recLatest, domain);
+  if (data) m.set(id, { value: data.value, version: data.version });
+  else m.delete(id);
+  return data;
+}
+
+// Assemble the domain into the array shape the app has always used.
+function assembleDomain(domain) {
+  const m = recLatest.get(domain) || new Map();
+  return [...m.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+    .map(([, r]) => r.value);
+}
+
+// CAS write for ONE record; on conflict, 3-way merge just this record.
+async function casWriteRecord(domain, id, newValue) {
+  let anc = domainMap(recShadow, domain).get(id) || null;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    if (!anc) {
+      const { data, error } = await supabase
+        .from(RECORDS_TABLE)
+        .insert({ domain, id, value: newValue, version: 1 })
+        .select("version")
+        .maybeSingle();
+      if (!error && data) {
+        domainMap(recLatest, domain).set(id, { value: newValue, version: data.version });
+        domainMap(recShadow, domain).set(id, { value: newValue, version: data.version });
+        return;
+      }
+      // Insert raced an existing row — merge onto it with an EMPTY ancestor
+      // (pure union: never drops the other side's fields).
+      const row = await fetchRecord(domain, id);
+      if (row) anc = { value: {}, version: row.version };
+      continue;
+    }
+
+    const nextVersion = anc.version + 1;
+    const { data, error } = await supabase
+      .from(RECORDS_TABLE)
+      .update({ value: newValue, version: nextVersion, updated_at: new Date().toISOString() })
+      .eq("domain", domain)
+      .eq("id", id)
+      .eq("version", anc.version)
+      .select("version");
+    if (error) throw error;
+
+    if (data && data.length > 0) {
+      domainMap(recLatest, domain).set(id, { value: newValue, version: nextVersion });
+      domainMap(recShadow, domain).set(id, { value: newValue, version: nextVersion });
+      return;
+    }
+
+    const remote = await fetchRecord(domain, id);
+    if (!remote) { anc = null; continue; }
+    newValue = threeWayMerge(anc.value, newValue, remote.value);
+    anc = { value: anc.value, version: remote.version };
+  }
+  throw new Error(`Record conflict on ${domain}/${id} persisted after ${MAX_RETRIES} retries.`);
+}
+
+// Delete ONE record, but only if it hasn't changed since this tab read it —
+// a delete must never erase an update it hasn't seen.
+async function casDeleteRecord(domain, id) {
+  const anc = domainMap(recShadow, domain).get(id);
+  if (!anc) return; // never saw it → nothing to delete safely
+  const { error } = await supabase
+    .from(RECORDS_TABLE)
+    .delete()
+    .eq("domain", domain)
+    .eq("id", id)
+    .eq("version", anc.version);
+  if (error) throw error;
+  // Whether we deleted it or someone updated it first (version moved on),
+  // this tab no longer owns an ancestor for it.
+  domainMap(recShadow, domain).delete(id);
+  const row = await fetchRecord(domain, id);
+  if (!row) domainMap(recLatest, domain).delete(id);
+}
+
+// set() for a record domain: diff the incoming array against THIS TAB's
+// ancestor and touch only the records that actually changed here.
+async function setRecordDomain(domain, arr) {
+  const shadowM = domainMap(recShadow, domain);
+  const incoming = new Map(arr.map((e) => [recId(e), e]));
+
+  const latestM = domainMap(recLatest, domain);
+
+  const writes = [];
+  for (const [id, value] of incoming) {
+    const anc = shadowM.get(id);
+    if (anc && deepEqual(anc.value, value)) continue; // unchanged by this tab
+    // Already matches server truth (e.g. a foreign update we just applied
+    // to React state) → adopt it as ancestor, write nothing. Without this,
+    // every tab would echo every foreign change back as a new version.
+    const cur = latestM.get(id);
+    if (cur && deepEqual(cur.value, value)) {
+      shadowM.set(id, { value: cur.value, version: cur.version });
+      continue;
+    }
+    writes.push(casWriteRecord(domain, id, value));
+  }
+  // Deletions: only ids this tab HAS SEEN (in its ancestor) and has now
+  // removed. Records the tab never loaded are physically untouchable.
+  const deletes = [];
+  for (const id of shadowM.keys()) {
+    if (!incoming.has(id)) deletes.push(casDeleteRecord(domain, id));
+  }
+  await Promise.all([...writes, ...deletes]);
+  return assembleDomain(domain);
+}
+
+// Debounced foreign-update broadcast. Realtime delivers one event PER ROW,
+// so a batch save from another tab would fire dozens of React cascades;
+// coalesce them and hand the app a full per-key cache snapshot (the shape
+// AllocationRoster's sync handler expects).
+let syncTimer = null;
+function broadcastSync() {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    const cache = {};
+    for (const [k, r] of latest) cache[k] = fromStored(r.value);
+    for (const d of RECORD_DOMAINS) {
+      if ((recLatest.get(d)?.size || 0) > 0) cache[d] = assembleDomain(d);
+    }
+    window.dispatchEvent(new CustomEvent("nirm-storage-sync", { detail: cache }));
+  }, 200);
+}
+
+// One-time seed: if kv_records has no rows for a domain but the legacy
+// kv_state blob does, split the blob into rows. (Normally already done by
+// the server-side migration; this covers fresh environments.)
+async function seedRecordsIfNeeded(domain) {
+  const m = await fetchDomain(domain);
+  if (m.size > 0) return;
+  const legacy = latest.get(domain);
+  const arr = legacy ? mergeable(legacy.value) : null;
+  if (!Array.isArray(arr) || arr.length === 0 || !isKeyedArray(arr)) return;
+  const rows = arr.map((e) => ({ domain, id: recId(e), value: e, version: 1 }));
+  const { error } = await supabase
+    .from(RECORDS_TABLE)
+    .upsert(rows, { onConflict: "domain,id", ignoreDuplicates: true });
+  if (error) throw error;
+  await fetchDomain(domain);
+  console.info(`[safeStorage] seeded ${rows.length} ${domain} records from legacy blob`);
 }
 
 // ─── one-time migration from the old single-blob table ───────────────────
@@ -241,6 +426,7 @@ async function migrateFromBlobIfNeeded() {
 export async function installSafeStorage() {
   await migrateFromBlobIfNeeded();
   await fetchAll();
+  for (const domain of RECORD_DOMAINS) await seedRecordsIfNeeded(domain);
 
   supabase
     .channel("kv_state_sync")
@@ -258,7 +444,7 @@ export async function installSafeStorage() {
           const row = payload.new;
           latest.set(row.key, { value: row.value, version: row.version });
         }
-        window.dispatchEvent(new CustomEvent("nirm-storage-sync"));
+        broadcastSync();
       }
     )
     .subscribe((status) => {
@@ -269,25 +455,84 @@ export async function installSafeStorage() {
       }
     });
 
+  supabase
+    .channel("kv_records_sync")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: RECORDS_TABLE },
+      (payload) => {
+        // Same discipline: realtime advances recLatest ONLY, never recShadow.
+        if (payload.eventType === "DELETE") {
+          const { domain, id } = payload.old || {};
+          if (domain && id) domainMap(recLatest, domain).delete(id);
+        } else {
+          const row = payload.new;
+          domainMap(recLatest, row.domain).set(row.id, { value: row.value, version: row.version });
+        }
+        broadcastSync();
+      }
+    )
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        Promise.all([...RECORD_DOMAINS].map(fetchDomain)).catch((e) =>
+          console.error("[safeStorage] records refetch after reconnect failed", e)
+        );
+      }
+    });
+
   window.storage = {
     async get(key) {
+      if (RECORD_DOMAINS.has(key)) {
+        if (!recLatest.has(key)) await fetchDomain(key);
+        // Empty domain reads as null — same contract as a missing kv key,
+        // so fresh environments still fall back to the app's defaults.
+        if ((recLatest.get(key) || new Map()).size === 0) return null;
+        // Reading advances the per-record ancestors: this tab now KNOWS
+        // these exact record values.
+        const shadowM = domainMap(recShadow, key);
+        shadowM.clear();
+        for (const [id, r] of recLatest.get(key) || []) {
+          shadowM.set(id, { value: r.value, version: r.version });
+        }
+        return { key, value: assembleDomain(key), shared: true };
+      }
       let row = latest.get(key);
       if (!row) {
         const fetched = await fetchOne(key);
         if (!fetched) return null;
         row = latest.get(key);
       }
-      // Reading advances the ancestor: the app now KNOWS this value.
       shadow.set(key, { value: row.value, version: row.version });
       return { key, value: fromStored(row.value), shared: true };
     },
 
     async set(key, value /*, shared */) {
+      if (RECORD_DOMAINS.has(key)) {
+        const arr = typeof value === "string" ? JSON.parse(value) : value;
+        // Refuse a mass wipe: saving [] over a populated domain is always a
+        // bug (transient init state), never intent. Explicit clears go
+        // through delete(key).
+        if (Array.isArray(arr) && arr.length === 0 && (recLatest.get(key)?.size || 0) > 0) {
+          console.warn(`[safeStorage] ${key}: ignored save of empty array over ${recLatest.get(key).size} records`);
+          return { key, value: assembleDomain(key), shared: true };
+        }
+        if (isKeyedArray(arr)) {
+          const result = await setRecordDomain(key, arr);
+          return { key, value: result, shared: true };
+        }
+        console.warn(`[safeStorage] ${key}: value is not a keyed array — falling back to blob save`);
+      }
       const stored = await casWrite(key, toStored(value));
       return { key, value: fromStored(stored), shared: true };
     },
 
     async delete(key) {
+      if (RECORD_DOMAINS.has(key)) {
+        const { error } = await supabase.from(RECORDS_TABLE).delete().eq("domain", key);
+        if (error) throw error;
+        recLatest.delete(key); recShadow.delete(key);
+        return { key, deleted: true, shared: true };
+      }
       const { error } = await supabase.from(TABLE).delete().eq("key", key);
       if (error) throw error;
       latest.delete(key); shadow.delete(key);
@@ -295,8 +540,8 @@ export async function installSafeStorage() {
     },
 
     async list(prefix = "") {
-      const keys = [...latest.keys()].filter((k) => k.startsWith(prefix));
-      return { keys, prefix, shared: true };
+      const keys = new Set([...latest.keys(), ...RECORD_DOMAINS]);
+      return { keys: [...keys].filter((k) => k.startsWith(prefix)), prefix, shared: true };
     },
   };
 
@@ -305,5 +550,5 @@ export async function installSafeStorage() {
   // no writes, no realtime application, no reconnect reloads. Two live
   // storage layers caused the 2026-07-08 brand-allocation wipe.
   window.__nirmKvActive = true;
-  console.info("[safeStorage] v2 installed — ancestor-tracked CAS active");
+  console.info("[safeStorage] v3 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
 }
