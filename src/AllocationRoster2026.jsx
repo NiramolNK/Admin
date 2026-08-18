@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import CSAnalyticsTab from "./CSAnalyticsTab.jsx";
 import ServiceCRM, { crmTabsFor } from "./ServiceCRM.jsx";
 import KnowledgeBase, { normalizeBrandName } from "./KnowledgeBase.jsx";
+import InvoiceApprovals, { InvoiceStatusBar, InvoiceBatchPanel, invoiceId } from "./InvoiceApprovals.jsx";
 import { supabase, onStateChange } from "./supabase.js";
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
@@ -766,6 +767,7 @@ const DOMAIN_KEYS = [
   { storageKey: "nirm-allBrandAsgn",   stateKey: "allBrandAsgn"   },
   { storageKey: "nirm-globalFlags",    stateKey: "globalFlags"    },
   { storageKey: "nirm-changeRequests", stateKey: "changeRequests" },
+  { storageKey: "nirm-invoices",       stateKey: "invoices"       },
   { storageKey: "nirm-userProfiles",   stateKey: "userProfiles"   },
   { storageKey: "nirm-fulltimeSalary", stateKey: "fulltimeSalary" },
   { storageKey: "nirm-role",           stateKey: "role"           },
@@ -775,7 +777,7 @@ const DOMAIN_KEYS = [
 
 // ── Main Component ─────────────────────────────────────────────────────────
 // Browser-tab titles + URL hashes: each view gets its own #hash and tab name
-const TAB_TITLES = { roster:"Roster", payment:"My Invoice", allocation:"Allocation", dates:"Dates", volume:"Performance", agents:"Teams", budget:"Report", analytics:"CS Analytics" };
+const TAB_TITLES = { roster:"Roster", payment:"My Invoice", invoices:"Invoice Approvals", allocation:"Allocation", dates:"Dates", volume:"Performance", agents:"Teams", budget:"Report", analytics:"CS Analytics" };
 
 export default function AllocationPanel({ isAdmin = true }) {
   const [allocTab, setAllocTab]     = useState("roster");
@@ -832,6 +834,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // ── Change Requests (viewer requests, approved by fulltime/manager) ─────
   const [changeRequests, setChangeRequests] = useState([]);
+  const [invoices, setInvoices] = useState([]);   // CS agent invoices + approval trail
   // {id, agentId, agentName, date, requestedShift, currentShift, reason, status:"pending"|"approved"|"rejected", requestedBy, timestamp}
 
   // ── User Profiles ─────────────────────────────────────────────────────────
@@ -897,7 +900,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation","payment","kb"],                                            canEdit:false },
     viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget","kb"],                                                          canEdit:false },
     fulltime: { label:"T2",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","payment","allocation","dates","volume","agents","crm","kb"],                canEdit:true  },
-    manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics","crm","kb"], canEdit:true  },
+    manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics","crm","kb","invoices"], canEdit:true  },
     cc:       { label:"CC",              color:"#7C3AED", bg:"#F3E8FF", tabs:["roster","payment","allocation","kb"],                                canEdit:false, groupScope:"shiseido" },
   };
 
@@ -1033,7 +1036,7 @@ export default function AllocationPanel({ isAdmin = true }) {
   // ── Master ref — always holds latest state for saving ─────────────────────
   const stateRef = useRef({});
   stateRef.current = {
-    agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, userProfiles, userAccounts,
+    agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, invoices, userProfiles, userAccounts,
     prefs: { rosterYear, rosterMonth, allocTab, volYear, volMonth },   // loginUser removed — identity never enters shared storage
     allAsgn, allExtraHrs, allBrandAsgn, globalFlags,
   };
@@ -1359,6 +1362,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             ["allBrandAsgn", setAllBrandAsgn],
             ["globalFlags", setGlobalFlags],
             ["changeRequests", setChangeRequests],
+            ["invoices", setInvoices],
             ["userProfiles", setUserProfiles],
           ];
           for (const [key, setter] of LOAD_KEYS) {
@@ -1529,6 +1533,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         allBrandAsgn:   setAllBrandAsgn,
         globalFlags:    setGlobalFlags,
         changeRequests: setChangeRequests,
+        invoices:       setInvoices,
         userProfiles:   setUserProfiles,
         userAccounts:   (v) => setUserAccounts(sanitizeAccounts(v)),
         fulltimeSalary: setFulltimeSalary,
@@ -1641,7 +1646,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     } else {
       needsSave.current = true;
     }
-  }, [agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, userProfiles, userAccounts, rosterYear, rosterMonth, allocTab, volYear, volMonth, allAsgn, allExtraHrs, allBrandAsgn, globalFlags, storageLoaded]);
+  }, [agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, invoices, userProfiles, userAccounts, rosterYear, rosterMonth, allocTab, volYear, volMonth, allAsgn, allExtraHrs, allBrandAsgn, globalFlags, storageLoaded]);
 
   // Flush save on unmount
   useEffect(() => {
@@ -2256,6 +2261,51 @@ export default function AllocationPanel({ isAdmin = true }) {
         return false;
       })
     : null;
+  // ── Invoice figures for one agent + pay period ───────────────────────────
+  // Pay period runs 24th of the previous month → 23rd of `period` ("YYYY-MM").
+  // This is the ONLY place the invoice maths lives: the agent's own invoice,
+  // the approver queue and the post-submission drift check all call it, so
+  // they cannot drift apart from each other.
+  const computeInvoiceFigures = (agentId, period) => {
+    const ag = agents.find(a => a.id === agentId);
+    if (!ag) return null;
+    const [py, pm] = String(period).split("-").map(Number);
+    if (!py || !pm) return null;
+    const periodM = pm - 1, periodY = py;
+    const prevM = periodM === 0 ? 11 : periodM - 1;
+    const prevY = periodM === 0 ? periodY - 1 : periodY;
+    const periodStart = `${prevY}-${String(prevM+1).padStart(2,"0")}-24`;
+    const periodEnd   = `${periodY}-${String(periodM+1).padStart(2,"0")}-23`;
+    const periodDates = mkDateRange(periodStart, periodEnd);
+    const periodAsgn = {...(allAsgn[periodStart.slice(0,7)]||{}), ...(allAsgn[periodEnd.slice(0,7)]||{})};
+    const periodXtra = {...(allExtraHrs[periodStart.slice(0,7)]||{}), ...(allExtraHrs[periodEnd.slice(0,7)]||{})};
+    let workDays = 0, otDays = 0, extraHours = 0, extraPay = 0;
+    periodDates.forEach(d => {
+      const v = periodAsgn[`${ag.id}_${d.date}`];
+      if (!v || v === "Off" || v === "TOIL") return;
+      workDays++;
+      if (v === "OT") otDays++;
+      const e = periodXtra[`${ag.id}_${d.date}`];
+      if (e && e.h) { extraHours += e.h; extraPay += e.h * (ag.costDay/8) * (e.x || 1); }
+    });
+    const normalDays = workDays - otDays;
+    const subtotal = normalDays * ag.costDay + otDays * ag.costDay * 1.5 + extraPay;
+    const withholding = subtotal * WITHHOLDING_RATE;
+    return {
+      agentId: ag.id, agentName: ag.name, period, periodStart, periodEnd,
+      costDay: ag.costDay, workDays, otDays, normalDays, extraHours, extraPay,
+      subtotal, withholding, netAmount: subtotal - withholding,
+      invoiceNumber: `${periodY}${String(periodM+1).padStart(2,"0")}${String(ag.id).replace(/\D/g,"").slice(-2)}`,
+    };
+  };
+  // Approver-side lookup passed to the queue so it can spot roster drift.
+  const liveFiguresFor = (agentId, period) => computeInvoiceFigures(agentId, period);
+  // Finance receives the batch BY EMAIL and has no NiRM login, so the
+  // address book is data, not an account: the manager types it once in the
+  // batch panel and it persists in globalFlags (synced across devices).
+  const financeEmails = Array.isArray(globalFlags?.financeEmails) ? globalFlags.financeEmails : [];
+  const saveFinanceEmails = (list) => setGlobalFlags(p => ({ ...(p || {}), financeEmails: list }));
+
   // Time labels per shift code. The agent's actual roster shift on a date determines the label.
   const SHIFT_LABEL = { M: "Morning (07:00 - 16:00)", ME: "ME (12:00 - 21:00)", E: "Evening (16:00 - 01:00)" };
   // Brands assigned to ANY agent on a given date (same matching as myBrandsForDate)
@@ -2429,7 +2479,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
         {/* Nav items */}
         <div style={{flex:1,padding:"12px 8px",display:"flex",flexDirection:"column",gap:2}}>
-          {[["roster","Roster"],["payment","My Invoice"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"],["crm","Service CRM"],["kb","Knowledge Base"]].map(([t,l])=>{
+          {[["roster","Roster"],["payment","My Invoice"],["invoices","Invoice Approvals"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"],["crm","Service CRM"],["kb","Knowledge Base"]].map(([t,l])=>{
             if(!allowedTabs.includes(t)) return null;
             const active2 = allocTab===t;
             const iconColor = active2?"#0D9488":"#94A3B8";
@@ -2451,6 +2501,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {t==="agents"&&<IconUsers size={18} color={iconColor}/>}
                 {t==="budget"&&<IconFileText size={18} color={iconColor}/>}
                 {t==="payment"&&<IconFileText size={18} color={iconColor}/>}
+                {t==="invoices"&&<IconFileText size={18} color={iconColor}/>}
                 {t==="analytics"&&<IconBarChart size={18} color={iconColor}/>}
                 {t==="crm"&&<IconUsers size={18} color={iconColor}/>}
                 {t==="kb"&&<IconBook size={18} color={iconColor}/>}
@@ -2556,7 +2607,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div>
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
-                {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
+                {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="invoices"?"Invoice Approvals":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
               </div>
               {/* Service Desk has no subtitle — the old "3 channels connected"
                   was a hardcoded demo string, not a real connection count. */}
@@ -3657,37 +3708,34 @@ export default function AllocationPanel({ isAdmin = true }) {
         {/* ══════════════════════════════════════════
             TEAMS TAB
         ══════════════════════════════════════════ */}
+        {allocTab==="invoices" && (
+          <InvoiceApprovals
+            invoices={invoices}
+            setInvoices={setInvoices}
+            agents={agents}
+            role={role}
+            loginUser={loginUser}
+            liveFiguresFor={liveFiguresFor}
+          />
+        )}
+
         {allocTab==="payment" && myPayrollAgent && (() => {
-          // Payroll period: 24th of prev month → 23rd of current month
+          // Figures come from computeInvoiceFigures() — see its comment. The
+          // period is keyed on the month the pay period ENDS in.
+          const period = `${rosterYear}-${String(rosterMonth).padStart(2,"0")}`;
+          const fig = computeInvoiceFigures(myPayrollAgent.id, period);
+          if (!fig) return null;
           const refDate = new Date(rosterYear, rosterMonth - 1, 1);
           const periodM = refDate.getMonth(); // 0-11
           const periodY = refDate.getFullYear();
           const prevM = periodM === 0 ? 11 : periodM - 1;
-          const prevY = periodM === 0 ? periodY - 1 : periodY;
-          const periodStart = `${prevY}-${String(prevM+1).padStart(2,"0")}-24`;
-          const periodEnd   = `${periodY}-${String(periodM+1).padStart(2,"0")}-23`;
-          const periodDates = mkDateRange(periodStart, periodEnd);
-          const periodAsgn = {...(allAsgn[periodStart.slice(0,7)]||{}), ...(allAsgn[periodEnd.slice(0,7)]||{})};
-          const periodXtra = {...(allExtraHrs[periodStart.slice(0,7)]||{}), ...(allExtraHrs[periodEnd.slice(0,7)]||{})};
-          // Tally worked days across BOTH months of the pay period
-          let workDays = 0, otDays = 0, extraH = 0, extraPay = 0;
-          periodDates.forEach(d => {
-            const v = periodAsgn[`${myPayrollAgent.id}_${d.date}`];
-            if (!v || v === "Off" || v === "TOIL") return;
-            workDays++;
-            if (v === "OT") otDays++;
-            const e = periodXtra[`${myPayrollAgent.id}_${d.date}`];
-            if (e && e.h) { extraH += e.h; extraPay += e.h * (myPayrollAgent.costDay/8) * (e.x || 1); }
-          });
-          const normalDays = workDays - otDays;
-          const subtotal = normalDays * myPayrollAgent.costDay + otDays * myPayrollAgent.costDay * 1.5 + extraPay;
-          const withholding = subtotal * WITHHOLDING_RATE;
-          const netAmount = subtotal - withholding;
+          const { workDays, subtotal, withholding, netAmount } = fig;
+          const myInvoice = invoices.find(i => i.id === invoiceId(myPayrollAgent.id, period)) || null;
           const invoiceMonthLabel = THAI_MONTHS[periodM];
           const invoiceMonthAbbr = THAI_MONTH_ABBR[periodM];
           const thaiYear = periodY + 543;
           const thaiYearShort = String(thaiYear).slice(-2);
-          const invoiceNumber = `${periodY}${String(periodM+1).padStart(2,"0")}${myPayrollAgent.id.replace(/\D/g,"").slice(-2)}`;
+          const invoiceNumber = fig.invoiceNumber;
           const invoiceDate = `${new Date(periodY, periodM+1, 0).getDate()}-${invoiceMonthAbbr}-${thaiYearShort}`;
           // E-sign check: today >= 19th of the current invoice month
           const today = new Date();
@@ -3695,6 +3743,34 @@ export default function AllocationPanel({ isAdmin = true }) {
           const isSignWindow = today >= signDay;
           const signatureKey = `${periodY}-${String(periodM+1).padStart(2,"0")}`;
           const signature = (myPayrollAgent.signatures || {})[signatureKey];
+
+          // Submitting freezes the figures. Everything downstream (manager,
+          // finance, the printed PDF) reads this snapshot, so a later roster
+          // edit can never silently change an amount someone already approved.
+          const submitInvoice = () => {
+            if (!signature) { alert("Please sign the invoice before submitting."); return; }
+            const id = invoiceId(myPayrollAgent.id, period);
+            const now = new Date().toISOString();
+            const prior = invoices.find(i => i.id === id);
+            const resubmit = !!prior;
+            const record = {
+              ...fig,
+              id, invoiceNumber: fig.invoiceNumber,
+              status: "submitted",
+              submittedAt: now, submittedBy: loginUser,
+              signedAt: signature.signedAt || now,
+              rejectReason: "", rejectedAt: null, rejectedBy: null,
+              managerAt: null, managerBy: null,
+              financeAt: null, financeBy: null,
+              paidAt: null, paidBy: null,
+              history: [ ...((prior && prior.history) || []), {
+                at: now, by: loginUser, role,
+                action: resubmit ? "Resubmitted by agent" : "Submitted by agent", note: "",
+              }],
+            };
+            setInvoices(prev => prior ? prev.map(i => i.id === id ? record : i) : [...prev, record]);
+            alert("ส่งใบแจ้งหนี้เรียบร้อย / Invoice submitted for approval.");
+          };
 
           const handleSign = () => {
             setSignPadContext({ agentId: myPayrollAgent.id, signatureKey });
@@ -3833,6 +3909,15 @@ export default function AllocationPanel({ isAdmin = true }) {
                   </button>
                 </div>
               </div>
+              <InvoiceStatusBar
+                invoice={myInvoice}
+                figures={fig}
+                signature={signature}
+                canSubmit={isSignWindow}
+                submitBlockedReason={`You can submit from ${invoiceMonthAbbr} 19 onwards.`}
+                onSubmit={submitInvoice}
+                loginUser={loginUser}
+              />
               {completeness.filled < completeness.total && (
                 <div style={{padding:"10px 18px",background:"#FEF3C7",borderBottom:"1px solid #FDE68A",fontSize:11,color:"#92400E"}}>
                   ⚠️ Your personal information is incomplete ({completeness.filled}/{completeness.total} fields). The invoice may not print correctly. <a href="#" onClick={(e)=>{
@@ -3936,6 +4021,17 @@ export default function AllocationPanel({ isAdmin = true }) {
 
                 {allocTab==="agents" && (
           <div>
+            <InvoiceBatchPanel
+              agents={agents}
+              invoices={invoices}
+              setInvoices={setInvoices}
+              period={`${rosterYear}-${String(rosterMonth).padStart(2,"0")}`}
+              computeFigures={computeInvoiceFigures}
+              financeEmails={financeEmails}
+              onSaveFinanceEmails={saveFinanceEmails}
+              role={role}
+              loginUser={loginUser}
+            />
             <div style={{display:"flex",gap:8,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
               <div style={{position:"relative",flex:1,minWidth:160}}>
                 <Search size={12} color="#94A3B8" style={{position:"absolute",left:9,top:"50%",transform:"translateY(-50%)"}}/>
