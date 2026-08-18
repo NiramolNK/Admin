@@ -2290,7 +2290,11 @@ export default function AllocationPanel({ isAdmin = true }) {
     });
     const normalDays = workDays - otDays;
     const subtotal = normalDays * ag.costDay + otDays * ag.costDay * 1.5 + extraPay;
-    const withholding = subtotal * WITHHOLDING_RATE;
+    // WHT is rounded to the satang FIRST, then net = subtotal − rounded WHT.
+    // Rounding both independently made the displayed lines disagree by ฿0.01
+    // whenever the subtotal was not divisible cleanly (e.g. ฿12,312.50 → WHT
+    // 369.375: shown as 369.38 while net showed 11,943.13 — summing to .51).
+    const withholding = Math.round(subtotal * WITHHOLDING_RATE * 100) / 100;
     return {
       agentId: ag.id, agentName: ag.name, period, periodStart, periodEnd,
       costDay: ag.costDay, workDays, otDays, normalDays, extraHours, extraPay,
