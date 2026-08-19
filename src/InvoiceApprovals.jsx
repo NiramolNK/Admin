@@ -407,13 +407,37 @@ export function InvoiceBatchPanel({
     [agents, period, computeFigures]
   );
 
-  const rows = useMemo(() => roster.map(a => {
-    const inv = invoices.find(i => i.id === invoiceId(a.id, period)) || null;
-    // Nothing submitted yet? Show what the roster says it will be, so the
-    // manager can see the shape of the month before the invoices land.
-    const preview = inv ? null : computeFigures?.(a.id, period);
-    return { agent: a, inv, preview, status: inv?.status || "draft" };
-  }), [roster, invoices, period, computeFigures]);
+  const rows = useMemo(() => {
+    const base = roster.map(a => {
+      const inv = invoices.find(i => i.id === invoiceId(a.id, period)) || null;
+      // Nothing submitted yet? Show what the roster says it will be, so the
+      // manager can see the shape of the month before the invoices land.
+      const preview = inv ? null : computeFigures?.(a.id, period);
+      return { agent: a, inv, preview, status: inv?.status || "draft" };
+    });
+    // FIX (2026-08-19 audit): the batch was built PURELY from the live roster,
+    // so a real invoice could silently fall out of it — delete an agent who
+    // has left, rename their PCODE, or change their team after they were
+    // approved, and their approved payment vanished from the table, the total
+    // and the Finance email with no warning anywhere. An invoice is a debt:
+    // once it exists it stays in the batch on its own frozen details, whatever
+    // later happens to the roster row.
+    const seen = new Set(base.map(r => r.inv?.id).filter(Boolean));
+    const orphans = invoices
+      .filter(i => i.period === period && !seen.has(i.id))
+      .map(i => ({
+        agent: agents.find(a => a.id === i.agentId) || {
+          id: i.agentId, name: i.agentName || i.agentId, pcode: i.pcode || i.agentId,
+          fullName: i.fullName || "", thaiName: i.thaiName || "", team: "—",
+          taxId: i.taxId || "", bankName: i.bankName || "", bankAccount: i.bankAccount || "",
+          bankAccountName: i.bankAccountName || "",
+          idCardPhotoUrl: i.idCardPhotoUrl || "", bookbankPhotoUrl: i.bookbankPhotoUrl || "",
+          active: false, _offRoster: true,
+        },
+        inv: i, preview: null, status: i.status || "draft", offRoster: true,
+      }));
+    return [...base, ...orphans];
+  }, [roster, agents, invoices, period, computeFigures]);
 
   const approved   = rows.filter(r => r.status === "manager_approved");
   const waitingMgr = rows.filter(r => r.status === "submitted");
@@ -426,8 +450,47 @@ export function InvoiceBatchPanel({
 
   const isManager = role === "manager";
 
+  // ── Pre-share re-check ────────────────────────────────────────────────────
+  // Agents sign on the 18th–20th, but the pay period does not close until the
+  // 23rd, so every invoice is frozen with its last 3 days still unworked. If
+  // anything changed after signing — someone took an unplanned day off, a
+  // shift was corrected, extra hours were added — the frozen figure is now
+  // wrong, and it is about to be emailed to Finance as final.
+  // This recomputes every approved invoice against the roster as it stands
+  // RIGHT NOW and reports the difference, so it is caught before the money
+  // leaves rather than argued about afterwards.
+  const staleApproved = useMemo(() => approved.map(r => {
+    const live = computeFigures?.(r.inv?.agentId ?? r.agent?.id, period);
+    const drift = driftOf(r.inv, live);
+    if (!drift.length) return null;
+    const netNow = Number(live?.netAmount || 0), netWas = Number(r.inv?.netAmount || 0);
+    return { row: r, drift, netWas, netNow, delta: netNow - netWas };
+  }).filter(Boolean), [approved, computeFigures, period]);
+
+  const staleDelta = staleApproved.reduce((s, x) => s + x.delta, 0);
+
   const share = async () => {
     if (!approved.length || busy) return;
+
+    // Re-check first: never let a figure that no longer matches the roster go
+    // out silently. The manager can still send (the approved figure is the one
+    // that was signed for), but only after being shown exactly what changed.
+    if (staleApproved.length) {
+      const lines = staleApproved.map(x => {
+        const d = x.drift.find(f => f.key === "workDays");
+        const days = d ? `${d.was}d → ${d.now}d` : "figures changed";
+        const who = x.row.agent?.name || x.row.inv?.agentName || x.row.inv?.agentId;
+        return `  • ${who} — ${days}, net ฿${THB(x.netWas)} → ฿${THB(x.netNow)} (${x.delta >= 0 ? "+" : "−"}฿${THB(Math.abs(x.delta))})`;
+      }).join("\n");
+      const ok = window.confirm(
+        `⚠ ${staleApproved.length} approved invoice${staleApproved.length > 1 ? "s no longer match" : " no longer matches"} the roster.\n\n` +
+        `They were signed on the 18th–20th, but the pay period runs to the 23rd, so the roster has moved since:\n\n${lines}\n\n` +
+        `Net difference if you send as-is: ${staleDelta >= 0 ? "+" : "−"}฿${THB(Math.abs(staleDelta))}\n\n` +
+        `• Cancel  → go back and Return those invoices so the agent re-signs the correct amount (they can resubmit any time, the window does not block a returned invoice).\n` +
+        `• OK      → send the approved figures anyway.`
+      );
+      if (!ok) return;
+    }
 
     // Warn about stragglers, but never block — they can go in a second batch.
     const problems = [];
@@ -524,6 +587,37 @@ export function InvoiceBatchPanel({
           </button>
         </div>
       </div>
+
+      {/* Pre-share re-check — surfaced BEFORE the button is pressed, not only
+          in the confirm dialog, so a mismatch is visible while there is still
+          time to Return the invoice and have the agent re-sign. */}
+      {staleApproved.length > 0 && (
+        <div style={{ padding: "10px 18px", borderBottom: "1px solid #FDE68A", background: "#FFFBEB" }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#92400E", marginBottom: 4 }}>
+            ⚠ {staleApproved.length} approved invoice{staleApproved.length > 1 ? "s no longer match" : " no longer matches"} the roster
+            {" · "}net difference {staleDelta >= 0 ? "+" : "−"}฿{THB(Math.abs(staleDelta))}
+          </div>
+          <div style={{ fontSize: 11, color: "#92400E", lineHeight: 1.7 }}>
+            Signed on the 18th–20th, but the period runs to the 23rd — the roster has moved since.
+            {staleApproved.map(x => {
+              const d = x.drift.find(f => f.key === "workDays");
+              const who = x.row.agent?.name || x.row.inv?.agentName || x.row.inv?.agentId;
+              return (
+                <div key={x.row.inv?.id} style={{ marginTop: 3 }}>
+                  • <strong>{who}</strong> — {d ? `${d.was}d → ${d.now}d` : "figures changed"}
+                  {", net ฿"}{THB(x.netWas)} → ฿{THB(x.netNow)}
+                  <span style={{ fontWeight: 700, color: x.delta >= 0 ? "#B91C1C" : "#065F46" }}>
+                    {" ("}{x.delta >= 0 ? "+" : "−"}฿{THB(Math.abs(x.delta))}{")"}
+                  </span>
+                </div>
+              );
+            })}
+            <div style={{ marginTop: 5, opacity: 0.85 }}>
+              Return an invoice to have the agent re-sign the correct amount — a returned invoice can be resubmitted any time, the 18th–20th window does not block it.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Distribution list — seeded with the CS parttime payment recipients */}
       <div style={{ padding: "9px 18px", borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap", background: "#fff" }}>
