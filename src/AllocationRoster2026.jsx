@@ -1057,6 +1057,9 @@ export default function AllocationPanel({ isAdmin = true }) {
   // null = idle, "saving" = in-flight, "error" = failed (banner stays
   // until next successful save). Bumped via setSaveStatus below.
   const [saveStatus, setSaveStatus] = useState(null);
+  // A "someone else changed this" message. Distinct from saveStatus because
+  // it must NOT invite a retry - the fix is to reload, not to push again.
+  const [saveError, setSaveError] = useState(null);
   const saveAttemptRef = useRef(0);
   // A blocked wipe is a real problem and must keep the banner up until the tab
   // is reloaded. An ordinary failed write is not — the retry usually succeeds a
@@ -1241,6 +1244,7 @@ export default function AllocationPanel({ isAdmin = true }) {
       // successfully. Leaving it up made every session look like it was losing
       // data when it wasn't. Only a blocked wipe stays.
       saveRetry.current = 0;
+      setSaveError(null);
       if (retryTimer.current) { clearTimeout(retryTimer.current); retryTimer.current = null; }
       if (id === saveAttemptRef.current && needsSave.current === false) {
         setSaveStatus(wipeBlocked.current ? "error" : null);
@@ -1253,6 +1257,14 @@ export default function AllocationPanel({ isAdmin = true }) {
       // nothing did - the next save only happened if the user edited something
       // else. A network blip on the last edit of the day meant the work was
       // simply gone. Back off and retry a few times, for real.
+      // A version conflict is NOT retryable: the whole point is that the
+      // server holds something newer. Retrying would push the stale value
+      // over it. Show the reason and stop; the user reloads.
+      if (e && e.conflict) {
+        setSaveError(e.message || "This record was changed by someone else. Reload NiRM.");
+        needsSave.current = false;
+        return;
+      }
       if (saveRetry.current < 5) {
         const wait = 2000 * Math.pow(2, saveRetry.current);
         saveRetry.current += 1;
@@ -2678,8 +2690,18 @@ export default function AllocationPanel({ isAdmin = true }) {
 
       {/* ═══ MAIN CONTENT ═══ */}
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+        {/* Someone else changed the record you were editing. Retrying would
+            push your older copy over theirs, so this banner offers Reload, not
+            Retry - and it takes priority over the generic save error. */}
+        {saveError && (
+          <div style={{background:"#FFFBEB",borderBottom:"1px solid #FDE68A",color:"#92400E",padding:"8px 16px",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:10,position:"sticky",top:0,zIndex:51}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:"#F59E0B",flexShrink:0}}/>
+            <span>{saveError}</span>
+            <button onClick={()=>window.location.reload()} style={{marginLeft:"auto",padding:"4px 10px",borderRadius:6,border:"1px solid #92400E",background:"transparent",color:"#92400E",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Reload</button>
+          </div>
+        )}
         {/* ── Save status banner (FIX #5 from senior-dev review) ── */}
-        {saveStatus === "error" && (
+        {saveStatus === "error" && !saveError && (
           <div style={{background:"#FEF2F2",borderBottom:"1px solid #FCA5A5",color:"#991B1B",padding:"8px 16px",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:10,position:"sticky",top:0,zIndex:50}}>
             <span style={{width:8,height:8,borderRadius:"50%",background:"#EF4444",flexShrink:0}}/>
             <span>Couldn't save your last change. We'll keep retrying — please don't close this tab until it succeeds.</span>
