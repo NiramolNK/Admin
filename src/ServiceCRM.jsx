@@ -4947,10 +4947,16 @@ function SignatureSettings({ me, toast }) {
      logoUrl/logoWidth, so Enfa mail can carry the Enfa logo. */
   const saveOrg = async (patch) => {
     const next = { ...cfg, ...patch };
-    const { error } = await supabase.from("kv_state")
-      .upsert({ key: "nirm-crm-signatures", value: next }, { onConflict: "key" });
-    if (error) toast(error.message, "error");
-    else { setCfg(next); toast(t("sigLogoSaved")); }
+    // FIX (2026-08-19 audit): this used to upsert the WHOLE org-wide signature
+    // object straight to kv_state, bypassing every safety check - no version,
+    // no merge. `cfg` is read once at mount, so saving here at 16:00 wrote back
+    // the 09:00 copy and erased every signature colleagues had saved during the
+    // day. Going through window.storage gives it the same compare-and-merge
+    // protection as the rest of NiRM.
+    try {
+      await window.storage.set("nirm-crm-signatures", next);
+      setCfg(next); toast(t("sigLogoSaved"));
+    } catch (e) { toast(e?.message || String(e), "error"); }
   };
   const logoBox = box;   // one selector: the logo follows the "Signature for" mailbox choice
   const logoOwn = logoBox === SIG_ALL ? null : (cfg?.logoByMailbox || {})[logoBox] || null;   // this box's own logo
@@ -5066,11 +5072,15 @@ function SignatureSettings({ me, toast }) {
       boxes: Object.fromEntries(Object.entries(perBox).map(([b, m]) => [b, resolve(m)])),
     };
     const next = { ...cfg, byAgent: { ...(cfg.byAgent || {}), [key]: rec } };
-    const { error } = await supabase.from("kv_state")
-      .upsert({ key: "nirm-crm-signatures", value: next }, { onConflict: "key" });
+    // See saveOrg above - same whole-object clobber, same fix. The per-agent
+    // shape merges cleanly, so two people saving their own signature at the
+    // same time now both survive.
+    let err = null;
+    try { await window.storage.set("nirm-crm-signatures", next); }
+    catch (e) { err = e; }
     setBusy(false);
-    if (!error) setCfg(next);
-    toast(error ? error.message : t("sigSaved"), error ? "error" : "ok");
+    if (!err) setCfg(next);
+    toast(err ? (err.message || String(err)) : t("sigSaved"), err ? "error" : "ok");
   };
 
   if (!cfg) return null;
