@@ -1814,6 +1814,13 @@ export default function AllocationPanel({ isAdmin = true }) {
       alert("PCode is required.");
       return;
     }
+    // FIX (2026-08-19 audit): a cleared rate field gives Number("") === 0, which
+    // silently produced ฿0.00 invoices downstream. Daily-rate teams must have a
+    // real rate; T2 staff are salaried and are allowed 0.
+    if (["T1","Return","RT&RF","CC"].includes(editAgent.team) && !(Number(editAgent.costDay) > 0)) {
+      alert("Cost/Day must be greater than 0 for T1, Return and CC agents — otherwise their invoice comes out as ฿0.");
+      return;
+    }
     const originalId = editAgent._originalId || candidateId;
     const isRename = !editAgent._isNew && originalId !== candidateId;
 
@@ -3815,6 +3822,14 @@ export default function AllocationPanel({ isAdmin = true }) {
               alert("กรุณาอัปโหลดสำเนาบัตรประชาชนและสมุดบัญชีก่อนส่ง / Please upload your ID card and bookbank copies in Personal Info before submitting.");
               return;
             }
+            // FIX (2026-08-19 audit): a blank/zero cost-per-day produced a ฿0.00
+            // invoice that could be signed and approved like any other - one slip
+            // in the agent editor and someone works a full month for nothing.
+            // Refuse it here and name the problem instead of paying zero.
+            if (!(Number(fig?.subtotal) > 0)) {
+              alert("ยอดใบแจ้งหนี้เป็น 0 - กรุณาแจ้งหัวหน้างาน / This invoice totals ฿0. Your daily rate or your worked days are missing — please contact your CS Manager before submitting.");
+              return;
+            }
             const id = invoiceId(myPayrollAgent.id, period);
             const now = new Date().toISOString();
             const prior = invoices.find(i => i.id === id);
@@ -4179,7 +4194,12 @@ export default function AllocationPanel({ isAdmin = true }) {
               const teams=agentTeamF==="all"?["T1","Return","CC"]:[agentTeamF];
               const t1rList=agents.filter(a=>teams.includes(a.team)&&(agentSearch===""||a.name.toLowerCase().includes(agentSearch.toLowerCase()))).sort((a,b)=>(a.id||"").localeCompare(b.id||"",undefined,{numeric:true}));
               if(!t1rList.length) return null;
-              const t1rTotal=t1rList.filter(a=>a.active).reduce((s,a)=>{let c=0;dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&!isOffCode(v)&&v!=="TOIL"){c+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${dt.date}`];if(ex&&ex.h)c+=ex.h*(a.costDay/8)*(ex.x||1);}});return s+c;},0);
+              // FIX (2026-08-19 audit): these columns are headed "Days Worked" /
+              // "Period Cost" and were counting the CALENDAR month, while every
+              // invoice counts the pay period (24th of prev month → 23rd). The two
+              // never matched, so the Teams tab and Finance disagreed every month.
+              // computeInvoiceFigures is the single source of invoice maths - use it.
+              const t1rTotal=t1rList.filter(a=>a.active).reduce((s,a)=>s+(computeInvoiceFigures(a.id,currentMK)?.subtotal||0),0);
               return (
                 <div>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -4201,7 +4221,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         {t1rList.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true})).map((a,idx) => {
                           // TOIL is unpaid leave, not a worked day - counting it here made
                           // the Teams tab disagree with the invoice the agent receives.
-                          let dw=0, dcost=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&!isOffCode(v)&&v!=="TOIL"){dw++;dcost+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${dt.date}`];if(ex&&ex.h)dcost+=ex.h*(a.costDay/8)*(ex.x||1);}});
+                          const _f=computeInvoiceFigures(a.id,currentMK); const dw=_f?.workDays||0, dcost=_f?.subtotal||0;
                           const pc=dcost;   // OT 1.5x + extra hours included (was dw*costDay)
                           const prof = userProfiles[(a.name||"").toLowerCase()] || {};
                           return (
@@ -5640,24 +5660,40 @@ export default function AllocationPanel({ isAdmin = true }) {
               );
 
               const exportPayCSV = () => {
-                const rows = [["PO Number","PCode","Agent","Full Name","ID Card","Tax ID","Bank","Account Number","Account Holder","Period","Work Days","Cost/Day (฿)","Extra Hrs","Extra Pay (฿)","Total Pay (฿)","ID Card Photo","Bookbank Photo"]];
+                // FIX (2026-08-19 audit): this export showed GROSS while the Finance
+                // email showed NET - the same manager producing two numbers ~3% apart
+                // from the same tab. Now it carries gross, WHT and net, computed the
+                // same way computeInvoiceFigures does (WHT to the satang, then
+                // net = gross − WHT), and the TOTAL is the sum of the printed rows.
+                const rows = [["PO Number","PCode","Agent","Full Name","ID Card","Tax ID","Bank","Account Number","Account Holder","Period","Work Days","Cost/Day (฿)","Extra Hrs","Extra Pay (฿)","Gross Pay (฿)","WHT 3% (฿)","Net Pay (฿)","ID Card Photo","Bookbank Photo"]];
+                let sumGross = 0, sumWht = 0, sumNet = 0;
                 payRows.forEach(({ag,workDays,totalPay,extraH,extraPay}) => {
-                  rows.push([`${payYear}${String(payMonth).padStart(2,"0")}${ag.id}`,ag.id,ag.name,ag.fullName||ag.thaiName||"",ag.idCard||"",ag.taxId||"",ag.bankName||"",ag.bankAccount||"",ag.bankAccountName||"",periodLabel,workDays,ag.costDay,extraH||0,Math.round(extraPay||0),Math.round(totalPay),ag.idCardPhotoUrl||"",ag.bookbankPhotoUrl||""]);
+                  const gross = Math.round((totalPay||0)*100)/100;
+                  const wht   = Math.round(gross*WITHHOLDING_RATE*100)/100;
+                  const net   = Math.round((gross-wht)*100)/100;
+                  sumGross += gross; sumWht += wht; sumNet += net;
+                  rows.push([`${payYear}${String(payMonth).padStart(2,"0")}${ag.id}`,ag.id,ag.name,ag.fullName||ag.thaiName||"",ag.idCard||"",ag.taxId||"",ag.bankName||"",ag.bankAccount||"",ag.bankAccountName||"",periodLabel,workDays,ag.costDay,extraH||0,Math.round((extraPay||0)*100)/100,gross,wht,net,ag.idCardPhotoUrl||"",ag.bookbankPhotoUrl||""]);
                 });
-                rows.push(["","","","","","","","","","","TOTAL","","","",Math.round(grandTotal),"",""]);
+                rows.push(["","","","","","","","","","","TOTAL","","","",Math.round(sumGross*100)/100,Math.round(sumWht*100)/100,Math.round(sumNet*100)/100,"",""]);
                 dlXLSX(rows, `Payment_${MONTHS[payMonth-1]}${payYear}.xlsx`);
               };
 
               const exportPayPDF = () => {
                 const win = window.open("","_blank","width=900,height=700");
                 if(!win){alert("Allow pop-ups to export PDF");return;}
-                const rowsHtml = payRows.map(({ag,workDays,totalPay,extraH,extraPay})=>`
+                let pGross=0,pWht=0,pNet=0;
+                const rowsHtml = payRows.map(({ag,workDays,totalPay,extraH,extraPay})=>{
+                  const gross=Math.round((totalPay||0)*100)/100, wht=Math.round(gross*WITHHOLDING_RATE*100)/100, net=Math.round((gross-wht)*100)/100;
+                  pGross+=gross;pWht+=wht;pNet+=net;
+                  return `
                   <tr><td style="font-weight:700">${ag.name}</td>
                   <td><span style="padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;font-family:monospace;background:${ag.team==="T1"?"#ede9fe":"#fee2e2"};color:${ag.team==="T1"?"#14b8a6":"#991b1b"}">${payYear}${String(payMonth).padStart(2,"0")}${ag.id}</span></td>
                   <td style="text-align:center">${workDays}</td>
                   <td style="text-align:right;font-family:monospace">฿${ag.costDay.toLocaleString()}</td>
                   <td style="text-align:right;font-family:monospace">${extraH>0?extraH+"h / ฿"+Math.round(extraPay).toLocaleString():"-"}</td>
-                  <td style="text-align:right;font-weight:800;font-family:monospace">฿${Math.round(totalPay).toLocaleString()}</td></tr>`).join("");
+                  <td style="text-align:right;font-family:monospace">฿${gross.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+                  <td style="text-align:right;font-family:monospace;color:#B91C1C">-฿${wht.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+                  <td style="text-align:right;font-weight:800;font-family:monospace">฿${net.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>`;}).join("");
                 // Per-agent ID card + bookbank photo pages (only for agents with uploads)
                 const photosHtml = payRows.map(({ag}) => {
                   if (!ag.idCardPhotoUrl && !ag.bookbankPhotoUrl) return "";
@@ -5688,10 +5724,12 @@ export default function AllocationPanel({ isAdmin = true }) {
                   <h1>Payment Summary — ${MONTHS[payMonth-1]} ${payYear}</h1>
                   <p>Period: ${periodLabel} &nbsp;·&nbsp; ${periodDates.length} days</p>
                   <table><thead><tr><th>Agent</th><th>PO Number</th><th>Work Days</th>
-                  <th style="text-align:right">Cost/Day</th><th style="text-align:right">Extra</th><th style="text-align:right">Total Pay</th></tr></thead>
+                  <th style="text-align:right">Cost/Day</th><th style="text-align:right">Extra</th><th style="text-align:right">Gross</th><th style="text-align:right">WHT 3%</th><th style="text-align:right">Net Pay</th></tr></thead>
                   <tbody>${rowsHtml}
                   <tr class="tot"><td colspan="5" style="padding:8px 10px">GRAND TOTAL</td>
-                  <td style="text-align:right;font-family:monospace;font-size:14px">฿${Math.round(grandTotal).toLocaleString()}</td></tr>
+                  <td style="text-align:right;font-family:monospace">฿${pGross.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+                  <td style="text-align:right;font-family:monospace;color:#B91C1C">-฿${pWht.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
+                  <td style="text-align:right;font-family:monospace;font-size:14px">฿${pNet.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>
                   </tbody></table>
                   ${photosHtml}
                   <script>
