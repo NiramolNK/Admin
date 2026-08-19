@@ -494,6 +494,22 @@ export function InvoiceBatchPanel({
       if (!ok) return;
     }
 
+    // FIX (2026-08-19 audit): now that the email prints ONLY the approved
+    // snapshot, an invoice approved without bank details reaches Finance
+    // saying "BANK DETAILS MISSING" instead of quietly borrowing whatever the
+    // agent has typed since. Say so up front so it can be fixed first.
+    const noBank = approved.filter(r => !r.inv?.bankAccount || !r.inv?.bankName);
+    if (noBank.length) {
+      const who = noBank.map(r => r.agent?.name || r.inv?.agentName).join(", ");
+      const ok = window.confirm(
+        `${noBank.length} approved invoice${noBank.length > 1 ? "s have" : " has"} no bank details in the approved snapshot:\n\n  ${who}\n\n` +
+        `Finance cannot pay ${noBank.length > 1 ? "them" : "that one"} without an account number.\n\n` +
+        `• Cancel  → add the details on the agent's card, Return the invoice, and have them resubmit.\n` +
+        `• OK      → send anyway; those rows will read "BANK DETAILS MISSING".`
+      );
+      if (!ok) return;
+    }
+
     // Warn about stragglers, but never block — they can go in a second batch.
     const problems = [];
     if (waitingMgr.length) problems.push(`${waitingMgr.length} still waiting for your approval: ${waitingMgr.map(r => r.agent.name).join(", ")}`);
@@ -532,7 +548,9 @@ export function InvoiceBatchPanel({
         invoices: approved.map(({ inv, agent }) => ({
           ...inv,
           history: undefined,
-          signatureDataUrl: agent?.signatures?.[period]?.dataUrl || "",
+          // Frozen at submit. The fallback only covers invoices submitted
+          // before the signature was part of the snapshot.
+          signatureDataUrl: inv.signatureDataUrl || agent?.signatures?.[period]?.dataUrl || "",
         })),
       };
       const r = await fetch(`${FN_BASE}/share-batch`, {
@@ -796,7 +814,7 @@ export function InvoiceBatchPanel({
   );
 }
 
-function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by, waitingMgr, notIn }) {
+export function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by, waitingMgr, notIn }) {
   const pad = (s, n) => String(s).padEnd(n).slice(0, n);
   const padL = (s, n) => String(s).padStart(n);
   const lines = [
@@ -817,9 +835,13 @@ function batchEmailText({ approved, period, batchTotal, batchGross, batchWht, by
     );
     // payment details ride on the same invoice row — Finance reads one block
     // per agent instead of cross-referencing a second list
-    const bank = [inv.bankName || agent.bankName, inv.bankAccount || agent.bankAccount].filter(Boolean).join(" ") || "bank details missing";
+    // FIX (2026-08-19 audit): these used to fall back to the LIVE agent record.
+    // The attached PDF prints only the frozen details, so if an agent changed
+    // their bank account after approval the email and the signed PDF disagreed
+    // — and Finance pays from the email. Approved figures, approved account.
+    const bank = [inv.bankName, inv.bankAccount].filter(Boolean).join(" ") || "BANK DETAILS MISSING";
     const acctName = inv.bankAccountName || agent.bankAccountName;
-    const tax = inv.taxId || agent.taxId;
+    const tax = inv.taxId;
     lines.push(`          ${bank}${acctName ? ` (${acctName})` : ""}${tax ? ` · Tax ID ${tax}` : ""}`);
   }
   lines.push("-".repeat(87));
