@@ -24,6 +24,7 @@ import {
   consumeRecoveryFlag,
   clearRecoveryFlag,
   isEarlyRecoveryLink,
+  DB_SCHEMA,
 } from "./supabase.js";
 import { installSafeStorage } from "./safeStorage.js";
 
@@ -335,7 +336,26 @@ export default function App() {
   // can use if needed.
   window.__nirmSignOut = signOut;
 
-  return <AllocationPanel />;
+  // An unmissable marker on any non-production build. The sandbox uses a
+  // COPY of the data, so it must never be mistaken for the real roster -
+  // someone could otherwise approve invoices here and wonder why Finance
+  // never received them.
+  return (
+    <>
+      {DB_SCHEMA !== "public" && (
+        <div style={{
+          position: "sticky", top: 0, zIndex: 9999,
+          background: "repeating-linear-gradient(45deg,#F59E0B,#F59E0B 12px,#B45309 12px,#B45309 24px)",
+          color: "#fff", textAlign: "center", padding: "5px 12px",
+          fontSize: 12, fontWeight: 800, letterSpacing: 0.4,
+          textShadow: "0 1px 2px rgba(0,0,0,.45)", fontFamily: "inherit",
+        }}>
+          SANDBOX — test copy of the data. Nothing here reaches real payroll or Finance.
+        </div>
+      )}
+      <AllocationPanel />
+    </>
+  );
 }
 
 // ─── Auth screen ───────────────────────────────────────────────────────────
