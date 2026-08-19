@@ -194,7 +194,12 @@ function allocMkDates(year,month){
 function mkDateRange(from, to) {
   const out=[];
   if(!from||!to) return out;
-  const start=new Date(from), end=new Date(to);
+  // Parse "YYYY-MM-DD" in LOCAL time. new Date("2026-08-24") parses as UTC
+  // midnight while every date we emit is formatted with local getters, so on
+  // any device west of UTC the whole pay window slid back one day - billing
+  // the 23rd twice and dropping the last day of the period.
+  const mkLocal=(s)=>{const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s)); return m?new Date(+m[1],+m[2]-1,+m[3]):new Date(s);};
+  const start=mkLocal(from), end=mkLocal(to);
   if(start>end) return out;
   for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
     const dt=new Date(d);const wd=dt.getDay();
@@ -2291,7 +2296,10 @@ export default function AllocationPanel({ isAdmin = true }) {
     let workDays = 0, otDays = 0, extraHours = 0, extraPay = 0;
     periodDates.forEach(d => {
       const v = periodAsgn[`${ag.id}_${d.date}`];
-      if (!v || v === "Off" || v === "TOIL") return;
+      // RO ("Requested to Off") is a day off the agent asked for - it is NOT
+      // worked and NOT paid, same as Off. Counting it inflated both the days
+      // and the subtotal on every invoice (reported 2026-08-19).
+      if (!v || isOffCode(v) || v === "TOIL") return;
       workDays++;
       if (v === "OT") otDays++;
       const e = periodXtra[`${ag.id}_${d.date}`];
@@ -2690,7 +2698,11 @@ export default function AllocationPanel({ isAdmin = true }) {
               if (dt < sD || dt > eD) continue;
               t1r.forEach(ag => {
                 const v = monthAsgn[`${ag.id}_${ds}`];
-                if (v && v !== "Off" && v !== "TOIL") t1rCost += ag.costDay * (v === "OT" ? 1.5 : 1);
+                if (v && !isOffCode(v) && v !== "TOIL") {
+                  t1rCost += ag.costDay * (v === "OT" ? 1.5 : 1);
+                  const ex = (allExtraHrs[mk]||{})[`${ag.id}_${ds}`];
+                  if (ex && ex.h) t1rCost += ex.h * (ag.costDay/8) * (ex.x || 1);
+                }
               });
             }
           });
@@ -2856,7 +2868,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                                 {/* Extra hours badge — agents see their extras same as the manager grid */}
                                 {(() => {
                                   const ex = extraHrs[cellK];
-                                  if (!ex || !ex.h || !val || val === "Off") return null;
+                                  if (!ex || !ex.h || !val || isOffCode(val)) return null;
                                   return <div style={{marginTop:3,textAlign:"center",fontSize:9,fontWeight:700,color:"#B45309",background:"#FEF3C7",borderRadius:4,padding:"2px 4px"}}>+{ex.h}h{ex.x===1.5?" ×1.5":""}</div>;
                                 })()}
                                 {editing && (
@@ -2896,14 +2908,14 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {/* Summary stats */}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:10,marginBottom:16}}>
                   {[
-                    ["Work Days", dates.filter(d=>{const v=asgn[`${myAgent.id}_${d.date}`];return v&&!isOffCode(v);}).length, "#0D9488"],
+                    ["Work Days", dates.filter(d=>{const v=asgn[`${myAgent.id}_${d.date}`];return v&&!isOffCode(v)&&v!=="TOIL";}).length, "#0D9488"],
                     ["Days Off", dates.filter(d=>{const v=asgn[`${myAgent.id}_${d.date}`];return v==="Off";}).length, "#EF4444"],
                     // days the agent asked for, shown separately from assigned days off
                     ...(()=>{ const n = dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="RO").length; return n>0?[["Requested Off", n, "#C2410C"]]:[]; })(),
                     ["Morning", dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="M").length, "#1D4ED8"],
                     ["Evening", dates.filter(d=>asgn[`${myAgent.id}_${d.date}`]==="E").length, "#065F46"],
                     // Extra hours worked this month (only counts worked days — same rule as pay)
-                    ...(()=>{ const tot = dates.reduce((s,d)=>{ const v=asgn[`${myAgent.id}_${d.date}`]; const ex=extraHrs[`${myAgent.id}_${d.date}`]; return (v&&!isOffCode(v)&&ex&&ex.h)?s+ex.h:s; },0); return tot>0?[["Extra Hours","+"+tot+"h","#B45309"]]:[]; })(),
+                    ...(()=>{ const tot = dates.reduce((s,d)=>{ const v=asgn[`${myAgent.id}_${d.date}`]; const ex=extraHrs[`${myAgent.id}_${d.date}`]; return (v&&!isOffCode(v)&&v!=="TOIL"&&ex&&ex.h)?s+ex.h:s; },0); return tot>0?[["Extra Hours","+"+tot+"h","#B45309"]]:[]; })(),
                   ].map(([label,count,color])=>(
                     <div key={label} style={{background:"#fff",borderRadius:10,border:"1px solid #E2E8F0",padding:"12px 16px",textAlign:"center"}}>
                       <div style={{fontSize:22,fontWeight:700,color}}>{count}</div>
@@ -4157,7 +4169,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               const teams=agentTeamF==="all"?["T1","Return","CC"]:[agentTeamF];
               const t1rList=agents.filter(a=>teams.includes(a.team)&&(agentSearch===""||a.name.toLowerCase().includes(agentSearch.toLowerCase()))).sort((a,b)=>(a.id||"").localeCompare(b.id||"",undefined,{numeric:true}));
               if(!t1rList.length) return null;
-              const t1rTotal=t1rList.filter(a=>a.active).reduce((s,a)=>{let d=0;dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off")d++;});return s+d*a.costDay;},0);
+              const t1rTotal=t1rList.filter(a=>a.active).reduce((s,a)=>{let c=0;dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&!isOffCode(v)&&v!=="TOIL"){c+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${dt.date}`];if(ex&&ex.h)c+=ex.h*(a.costDay/8)*(ex.x||1);}});return s+c;},0);
               return (
                 <div>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -4177,8 +4189,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                       </tr></thead>
                       <tbody>
                         {t1rList.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id),undefined,{numeric:true})).map((a,idx) => {
-                          let dw=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&v!=="Off")dw++;});
-                          const pc=dw*a.costDay;
+                          // TOIL is unpaid leave, not a worked day - counting it here made
+                          // the Teams tab disagree with the invoice the agent receives.
+                          let dw=0, dcost=0; dates.forEach(dt=>{const v=asgn[`${a.id}_${dt.date}`];if(v&&!isOffCode(v)&&v!=="TOIL"){dw++;dcost+=a.costDay*(v==="OT"?1.5:1);const ex=extraHrs[`${a.id}_${dt.date}`];if(ex&&ex.h)dcost+=ex.h*(a.costDay/8)*(ex.x||1);}});
+                          const pc=dcost;   // OT 1.5x + extra hours included (was dw*costDay)
                           const prof = userProfiles[(a.name||"").toLowerCase()] || {};
                           return (
                             <tr key={a.id} style={{borderBottom:"1px solid #F1F5F9",cursor:"pointer",opacity:a.active?1:0.5}} onClick={()=>openAgent(a)}>
@@ -5339,7 +5353,11 @@ export default function AllocationPanel({ isAdmin = true }) {
                   t1r.forEach(ag => {
                     allRangeDates.filter(d => `${d.y}-${String(d.m).padStart(2,"0")}` === mk).forEach(({date}) => {
                       const v = monthAsgn[`${ag.id}_${date}`];
-                      if (v && v!=="Off") rangeTotalCost += ag.costDay;
+                      if (v && !isOffCode(v) && v !== "TOIL") {
+                        rangeTotalCost += ag.costDay * (v === "OT" ? 1.5 : 1);
+                        const ex = (allExtraHrs[mk]||{})[`${ag.id}_${date}`];
+                        if (ex && ex.h) rangeTotalCost += ex.h * (ag.costDay/8) * (ex.x || 1);
+                      }
                     });
                   });
                   // T2 salary for this month (pro-rated if partial month).
@@ -5518,7 +5536,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     {active.filter(ag => ag.team !== "T2").map((ag,ri)=>{
                       const agCost = dates.map(d=>{
                         const v=asgn[`${ag.id}_${d.date}`];
-                        if(!v||v==="Off"||v==="TOIL") return 0;
+                        if(!v||isOffCode(v)||v==="TOIL") return 0;
                         let c=ag.costDay*(v==="OT"?1.5:1);
                         const ex=extraHrs[`${ag.id}_${d.date}`];
                         if(ex&&ex.h) c+=ex.h*(ag.costDay/8)*(ex.x||1);
@@ -5580,11 +5598,16 @@ export default function AllocationPanel({ isAdmin = true }) {
 
               const periodAsgn = {...(allAsgn[periodStart.slice(0,7)]||{}), ...(allAsgn[periodEnd.slice(0,7)]||{})};
               const periodXtra = {...(allExtraHrs[periodStart.slice(0,7)]||{}), ...(allExtraHrs[periodEnd.slice(0,7)]||{})};
-              const allPayRows = active.filter(a => a.team !== "T2").map(ag => {
+              // An agent who left mid-period is no longer "active" but is still
+              // owed for the days they DID work - dropping them here silently
+              // short-paid their final salary (same rule as the invoice batch).
+              const payEligible = agents.filter(a => a.team !== "T2" && (a.active ||
+                periodDates.some(d => { const v = periodAsgn[`${a.id}_${d.date}`]; return v && !isOffCode(v) && v !== "TOIL"; })));
+              const allPayRows = payEligible.map(ag => {
                 let workDays=0, normalDays=0, otDays=0, toilDays=0, extraH=0, extraPay=0;
                 periodDates.forEach(d => {
                   const v = periodAsgn[`${ag.id}_${d.date}`];
-                  if (!v || v==="Off") return;
+                  if (!v || isOffCode(v)) return;
                   if (v==="TOIL") { toilDays++; return; }
                   const e = periodXtra[`${ag.id}_${d.date}`];
                   if (e && e.h) { extraH += e.h; extraPay += e.h * (ag.costDay/8) * (e.x||1); }
