@@ -1112,6 +1112,10 @@ export default function AllocationPanel({ isAdmin = true }) {
     }
   };
 
+  // Retry bookkeeping for the failed-save backoff inside flushSave.
+  const saveRetry = useRef(0);
+  const retryTimer = useRef(null);
+
   const flushSave = () => {
     if (!window.storage) return;
     const state = stateRef.current;
@@ -1236,6 +1240,8 @@ export default function AllocationPanel({ isAdmin = true }) {
       // the banner — including an earlier failure that has since been retried
       // successfully. Leaving it up made every session look like it was losing
       // data when it wasn't. Only a blocked wipe stays.
+      saveRetry.current = 0;
+      if (retryTimer.current) { clearTimeout(retryTimer.current); retryTimer.current = null; }
       if (id === saveAttemptRef.current && needsSave.current === false) {
         setSaveStatus(wipeBlocked.current ? "error" : null);
       }
@@ -1243,6 +1249,16 @@ export default function AllocationPanel({ isAdmin = true }) {
       console.error("Per-domain save failed:", e);
       needsSave.current = true;
       setSaveStatus("error");
+      // FIX (2026-08-19 audit): the banner promised "we'll keep retrying" but
+      // nothing did - the next save only happened if the user edited something
+      // else. A network blip on the last edit of the day meant the work was
+      // simply gone. Back off and retry a few times, for real.
+      if (saveRetry.current < 5) {
+        const wait = 2000 * Math.pow(2, saveRetry.current);
+        saveRetry.current += 1;
+        if (retryTimer.current) clearTimeout(retryTimer.current);
+        retryTimer.current = setTimeout(() => { if (needsSave.current) flushSave(); }, wait);
+      }
     });
   };
 
@@ -1890,6 +1906,26 @@ export default function AllocationPanel({ isAdmin = true }) {
         }
         return next;
       });
+      // FIX (2026-08-19 audit): the rename moved the shift grid and the brand
+      // assignments but NOT the extra hours or the invoices, both of which are
+      // keyed by agent id. Renaming a PCODE therefore silently deleted every
+      // extra-hours entry from that agent's pay (they are keyed `${id}_${date}`)
+      // and orphaned any invoice they had already submitted.
+      setAllExtraHrs(prev => {
+        const next = {};
+        for (const [mk, m] of Object.entries(prev || {})) {
+          const updated = {};
+          for (const [k, v] of Object.entries(m || {})) {
+            if (k.startsWith(originalId + "_")) updated[candidateId + k.slice(originalId.length)] = v;
+            else updated[k] = v;
+          }
+          next[mk] = updated;
+        }
+        return next;
+      });
+      setInvoices(prev => (prev || []).map(i => i.agentId === originalId
+        ? { ...i, agentId: candidateId, id: `${candidateId}__${i.period}`, pcode: candidateId }
+        : i));
     }
     setAgentModal(false);
   };
@@ -2346,6 +2382,19 @@ export default function AllocationPanel({ isAdmin = true }) {
     ? globalFlags.financeRecipients
     : DEFAULT_FINANCE_RECIPIENTS;
   const saveFinanceRecipients = (r) => setGlobalFlags(p => ({ ...(p || {}), financeRecipients: r }));
+  // FIX (2026-08-19 audit): the 18th-20th window had no way out. Anyone who
+  // missed it - new starter, sick leave, docs not ready - could never submit
+  // that period, and the manager could not submit for them, so the month was
+  // simply never paid. The window stays as it is; the manager can now reopen
+  // it for ONE agent for ONE period, which is recorded and visible.
+  const lateSubmit = globalFlags?.lateSubmit || {};
+  const setLateSubmit = (per, agentId, on) => setGlobalFlags(p => {
+    const cur = { ...((p || {}).lateSubmit || {}) };
+    const list = new Set((cur[per] || []).map(String));
+    if (on) list.add(String(agentId)); else list.delete(String(agentId));
+    cur[per] = [...list];
+    return { ...(p || {}), lateSubmit: cur };
+  });
 
   // Time labels per shift code. The agent's actual roster shift on a date determines the label.
   const SHIFT_LABEL = { M: "Morning (07:00 - 16:00)", ME: "ME (12:00 - 21:00)", E: "Evening (16:00 - 01:00)" };
@@ -3137,7 +3186,13 @@ export default function AllocationPanel({ isAdmin = true }) {
                   const end = mgrReq.dateEnd && mgrReq.dateEnd >= mgrReq.date ? new Date(mgrReq.dateEnd+"T00:00:00") : start;
                   const rangeDates = [];
                   for (let d = new Date(start); d <= end; d.setDate(d.getDate()+1)) {
-                    rangeDates.push(d.toISOString().slice(0,10));
+                    // FIX (2026-08-19 audit): toISOString() converts to UTC, and
+                    // Thailand is UTC+7, so local midnight became the PREVIOUS day.
+                    // Asking an agent to take Fri the 15th off wrote Thu the 14th -
+                    // the wrong day was marked off and the right one still paid.
+                    // allocLocalStr formats the local date, like every other
+                    // date helper in this file.
+                    rangeDates.push(allocLocalStr(d));
                   }
                   // Pre-scan the whole range for rest violations, show ONE combined
                   // warning instead of a separate popup per day.
@@ -3440,7 +3495,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         dateOverrides: fillDateOverrides,
                       };
                       // FIX (data-loss pass): Fill All is destructive — confirm first.
-                      if (fillMode !== "fill" && !window.confirm("Fill All T1 rebuilds this month's ENTIRE roster.\n\nManual shifts, OT and TOIL for active agents will be replaced.\n(Inactive agents' history is preserved.)\n\nContinue?")) return;
+                      if (fillMode !== "fill" && !window.confirm("Fill All T1 rebuilds the REMAINING days of this month.\n\nManual shifts, OT and TOIL for active agents from tomorrow onward will be replaced.\n(Days already worked, and inactive agents' history, are kept.)\n\nContinue?")) return;
                       // Pass current asgn so fairness math accounts for manual pre-assignments
                       const filled = allocAutoFillConstrained(agents, dates, flags, constraints, brands, fillMode === "fill" ? asgn : {}, monthlyVol, currentMK);
 
@@ -3461,8 +3516,17 @@ export default function AllocationPanel({ isAdmin = true }) {
                         safeSetAsgn(prev => {
                           const fillIds = new Set(agents.filter(a => a.active).map(a => String(a.id)));
                           const preserved = {};
+                          // FIX (2026-08-19 audit): days that have already HAPPENED are
+                          // payroll history, not a plan. Re-filling mid-month used to
+                          // rebuild them too, so an invoice already submitted (or already
+                          // approved) suddenly disagreed with the roster it was based on.
+                          // Today and everything before it is now untouchable; Fill All
+                          // only plans the days still ahead.
+                          const todayStr = allocLocalStr(new Date());
                           Object.entries(prev || {}).forEach(([k, v]) => {
-                            if (!fillIds.has(k.split("_")[0])) preserved[k] = v;
+                            const agentPart = k.split("_")[0];
+                            const datePart = k.slice(agentPart.length + 1);
+                            if (!fillIds.has(agentPart) || datePart <= todayStr) preserved[k] = v;
                           });
                           return { ...filled, ...preserved };
                         });
@@ -3773,6 +3837,8 @@ export default function AllocationPanel({ isAdmin = true }) {
               computeFigures={computeInvoiceFigures}
               recipients={financeRecipients}
               onSaveRecipients={saveFinanceRecipients}
+              lateSubmit={lateSubmit}
+              onSetLateSubmit={setLateSubmit}
               role={role}
               loginUser={loginUser}
             />
@@ -3806,7 +3872,8 @@ export default function AllocationPanel({ isAdmin = true }) {
           // see InvoiceStatusBar - so a correction is never stuck a month.)
           const winStart = new Date(periodY, periodM, 18);
           const winEnd   = new Date(periodY, periodM, 20, 23, 59, 59, 999);
-          const isSignWindow = today >= winStart && today <= winEnd;
+          const lateOk = (lateSubmit[period] || []).map(String).includes(String(myPayrollAgent.id));
+          const isSignWindow = (today >= winStart && today <= winEnd) || lateOk;
           const signatureKey = `${periodY}-${String(periodM+1).padStart(2,"0")}`;
           const signature = (myPayrollAgent.signatures || {})[signatureKey];
 
