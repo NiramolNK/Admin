@@ -1658,9 +1658,19 @@ export default function AllocationPanel({ isAdmin = true }) {
     }
   }, [agents, brands, budget, fulltimeSalary, monthlyVol, agentPerf, lockedMonths, role, changeRequests, invoices, userProfiles, userAccounts, rosterYear, rosterMonth, allocTab, volYear, volMonth, allAsgn, allExtraHrs, allBrandAsgn, globalFlags, storageLoaded]);
 
+  // FIX (2026-08-19 audit): `flushSave` is re-created every render and closes
+  // over `storageLoaded`. The two effects below have [] deps, so they captured
+  // the FIRST render's flushSave - whose storageLoaded is permanently false -
+  // and every hide/unmount flush hit the `if (!storageLoaded) return` guard and
+  // did nothing. The whole flush-on-hide safety net was dead code: an agent who
+  // signed and switched apps within the 300ms debounce lost the signature.
+  // A ref always points at the current closure, so the flush actually runs.
+  const flushRef = useRef(null);
+  flushRef.current = flushSave;
+
   // Flush save on unmount
   useEffect(() => {
-    return () => { if (needsSave.current) flushSave(); };
+    return () => { if (needsSave.current) flushRef.current && flushRef.current(); };
   }, []);
 
   // FIX (data-loss pass): flush pending saves the moment the tab is hidden
@@ -1671,7 +1681,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     const onHide = () => {
       if (document.visibilityState === "hidden" && needsSave.current) {
         if (saveTimer.current) clearTimeout(saveTimer.current);
-        flushSave();
+        flushRef.current && flushRef.current();
       }
     };
     document.addEventListener("visibilitychange", onHide);

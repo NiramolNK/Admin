@@ -33,6 +33,19 @@ const TABLE = "kv_state";
 const RECORDS_TABLE = "kv_records";
 const MAX_RETRIES = 6;
 
+// Per-tab id stamped on every write, so this tab can recognise the realtime
+// echo of its OWN write and ignore it.
+//
+// v3.1 FIX (2026-08-19): v3 dropped the own-echo check the legacy shim had.
+// Postgres echoes your own write back to you; the handler applied it to
+// `latest`, broadcast it, and the app's sync handler re-applied that value
+// over React state that already contained NEWER local edits — then saved the
+// stale value back. Symptom: click two roster cells quickly and the second
+// one disappears. Now an echo carrying our own stamp is dropped on arrival.
+const CLIENT_ID =
+  (globalThis.crypto?.randomUUID?.() ||
+    `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
 // Keys stored per-record in kv_records instead of as one kv_state blob.
 // Every element of these arrays MUST carry a unique `id` (they do: agents
 // use pcode-style ids, invoices use `${agentId}__${period}`).
@@ -176,14 +189,22 @@ async function casWrite(key, storedValue) {
   let anc = shadow.get(key);
   if (!anc && !latest.has(key)) await fetchOne(key);
   if (!anc && latest.has(key)) {
-    anc = { value: {}, version: latest.get(key).version };
+    // v3.1 FIX (2026-08-19): this tab has NO true ancestor for the key — it
+    // never read it (the row didn't exist at load, or another component read
+    // it). Arming the CAS with the server's CURRENT version made the update
+    // succeed on the first try and replace the whole value, skipping the
+    // merge entirely — a silent whole-key clobber by a tab that never saw
+    // the data. (Almost certainly the unexplained 2026-07 allBrandAsgn wipe.)
+    // Version -1 can never match, so the CAS always fails once and the
+    // empty-ancestor UNION merge below runs — nothing is ever dropped.
+    anc = { value: {}, version: -1 };
   }
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     if (!anc) {
       const { data, error } = await supabase
         .from(TABLE)
-        .insert({ key, value: storedValue, version: 1 })
+        .insert({ key, value: storedValue, version: 1, updated_by: CLIENT_ID })
         .select("version")
         .maybeSingle();
       if (!error && data) {
@@ -199,7 +220,7 @@ async function casWrite(key, storedValue) {
     const nextVersion = anc.version + 1;
     const { data, error } = await supabase
       .from(TABLE)
-      .update({ value: storedValue, version: nextVersion })
+      .update({ value: storedValue, version: nextVersion, updated_by: CLIENT_ID })
       .eq("key", key)
       .eq("version", anc.version)
       .select("version");
@@ -274,7 +295,7 @@ async function casWriteRecord(domain, id, newValue) {
     if (!anc) {
       const { data, error } = await supabase
         .from(RECORDS_TABLE)
-        .insert({ domain, id, value: newValue, version: 1 })
+        .insert({ domain, id, value: newValue, version: 1, updated_by: CLIENT_ID })
         .select("version")
         .maybeSingle();
       if (!error && data) {
@@ -284,15 +305,17 @@ async function casWriteRecord(domain, id, newValue) {
       }
       // Insert raced an existing row — merge onto it with an EMPTY ancestor
       // (pure union: never drops the other side's fields).
+      // v3.1 FIX: force the union-merge path rather than gating on the
+      // server's current version (which would clobber the remote record).
       const row = await fetchRecord(domain, id);
-      if (row) anc = { value: {}, version: row.version };
+      if (row) anc = { value: {}, version: -1 };
       continue;
     }
 
     const nextVersion = anc.version + 1;
     const { data, error } = await supabase
       .from(RECORDS_TABLE)
-      .update({ value: newValue, version: nextVersion, updated_at: new Date().toISOString() })
+      .update({ value: newValue, version: nextVersion, updated_at: new Date().toISOString(), updated_by: CLIENT_ID })
       .eq("domain", domain)
       .eq("id", id)
       .eq("version", anc.version)
@@ -442,6 +465,9 @@ export async function installSafeStorage() {
           if (k) latest.delete(k);
         } else {
           const row = payload.new;
+          // Our own write coming back. casWrite already updated `latest`;
+          // re-applying it would push a now-stale value over newer local edits.
+          if (row.updated_by === CLIENT_ID) return;
           latest.set(row.key, { value: row.value, version: row.version });
         }
         broadcastSync();
@@ -467,6 +493,7 @@ export async function installSafeStorage() {
           if (domain && id) domainMap(recLatest, domain).delete(id);
         } else {
           const row = payload.new;
+          if (row.updated_by === CLIENT_ID) return;   // own echo — see CLIENT_ID
           domainMap(recLatest, row.domain).set(row.id, { value: row.value, version: row.version });
         }
         broadcastSync();
@@ -550,5 +577,5 @@ export async function installSafeStorage() {
   // no writes, no realtime application, no reconnect reloads. Two live
   // storage layers caused the 2026-07-08 brand-allocation wipe.
   window.__nirmKvActive = true;
-  console.info("[safeStorage] v3 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
+  console.info("[safeStorage] v3.1 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
 }
