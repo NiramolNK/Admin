@@ -3907,6 +3907,13 @@ export default function AllocationPanel({ isAdmin = true }) {
               status: "submitted",
               submittedAt: now, submittedBy: loginUser,
               signedAt: signature.signedAt || now,
+              // FIX (2026-08-19 audit): the SIGNATURE IMAGE was not frozen - only
+              // the timestamp was - and the PDF sent to Finance read it live at
+              // share time. Re-signing after approval put a signature the manager
+              // never saw onto an approved invoice; losing it printed the nickname
+              // in the signature space while still saying "electronically signed".
+              // The image is now part of the frozen record, like the figures.
+              signatureDataUrl: signature.dataUrl || "",
               // Snapshot the docs like the figures: the batch pack shows what
               // was on file at submission, immune to later replacements.
               idCardPhotoUrl: myPayrollAgent.idCardPhotoUrl,
