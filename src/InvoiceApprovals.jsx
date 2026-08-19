@@ -372,6 +372,8 @@ export function InvoiceBatchPanel({
   computeFigures,          // (agentId, period) => figures | null
   recipients,              // { to: [], cc: [] } — persisted in globalFlags
   onSaveRecipients,        // ({to, cc}) => void
+  lateSubmit = {},         // { "2026-08": ["10"] } — agents allowed to sign late
+  onSetLateSubmit,         // (period, agentId, on) => void
   role, loginUser,
 }) {
   const [busy, setBusy] = useState(false);
@@ -512,11 +514,17 @@ export function InvoiceBatchPanel({
     // "part 1/2" emails automatically if a month is too heavy for one message.
     // Nothing is marked shared unless it reports success, so a failure at any
     // step (a corrupt document, a SendGrid rejection) changes nothing here.
+    // One id for this attempt. The server records it against every invoice it
+    // claims, so a retry can tell "already sent" from "not sent yet", and
+    // Finance can see the same reference in the email.
+    const batchId = `${period}-${stamp().replace(/\D/g, "").slice(0, 14)}`;
+
     let shareResult = null;
     try {
       const { data: s } = await supabase.auth.getSession();
       const payload = {
         period,
+        batchId,
         to: rcpt.to,
         cc: rcpt.cc,
         subject: `CS parttime payment — ${periodLabel(period)}`,
@@ -533,28 +541,64 @@ export function InvoiceBatchPanel({
         body: JSON.stringify(payload),
       });
       shareResult = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(shareResult.detail || shareResult.error || `HTTP ${r.status}`);
+      // A partial send comes back 200 with ok:true and a `sent` list — those
+      // invoices ARE with Finance and must be marked, or the retry sends them
+      // a second time. Only a hard failure (nothing delivered) throws.
+      if (!r.ok || shareResult.ok === false) {
+        throw new Error(shareResult.note || shareResult.detail || shareResult.error || `HTTP ${r.status}`);
+      }
     } catch (e) {
       setNote({ tone: "warn", text: `NOT shared — ${e.message || e}. Nothing was changed; fix the problem and press Share again.` });
       setBusy(false);
       return;
     }
 
-    // 3. Only now do the invoices move.
+    // 3. Only the invoices the server says Finance actually received move.
+    //
+    // FIX (2026-08-19 audit): this used to mark EVERY approved invoice as sent
+    // regardless of what came back. When a heavy month went out as two emails
+    // and the second failed, the old code showed "nothing was changed" while
+    // Finance already held part 1 — and pressing Share again sent part 1 twice.
     const now = stamp();
-    const batchId = `${period}-${now.replace(/\D/g, "").slice(0, 14)}`;
-    const ids = new Set(approved.map(r => r.inv.id));
+    const sentNumbers = Array.isArray(shareResult.sent) ? new Set(shareResult.sent.map(String)) : null;
+    const inBatch = new Set(approved.map(r => r.inv.id));
+    const wasSent = (i) => inBatch.has(i.id) && (!sentNumbers || sentNumbers.has(String(i.invoiceNumber)));
     const fileByInvoice = new Map((shareResult.files || []).map(f => [String(f.name).split(" ")[0], f.url]));
-    setInvoices(prev => prev.map(i => ids.has(i.id)
+
+    setInvoices(prev => prev.map(i => wasSent(i)
       ? {
           ...i, status: "sent_to_finance",
-          batchId, sharedAt: now, sharedBy: loginUser,
+          batchId: shareResult.batchId || batchId, sharedAt: now, sharedBy: loginUser,
           pdfUrl: fileByInvoice.get(i.invoiceNumber) || null,
-          history: [...(i.history || []), { at: now, by: loginUser || "—", role, action: "Shared with Finance by email (PDF attached)", note: `batch ${batchId} → ${rcpt.to.join(", ")}` }],
+          history: [...(i.history || []), { at: now, by: loginUser || "—", role, action: "Shared with Finance by email (PDF attached)", note: `batch ${shareResult.batchId || batchId} → ${rcpt.to.join(", ")}` }],
         }
       : i
     ));
-    setNote({ tone: "ok", text: `Emailed ${approved.length} invoice PDFs (฿${THB(batchTotal)}) to ${rcpt.to.join(", ")}${shareResult.emails > 1 ? ` in ${shareResult.emails} parts` : ""}. Copies filed in NiRM storage.` });
+
+    const sentCount = sentNumbers ? approved.filter(r => sentNumbers.has(String(r.inv.invoiceNumber))).length : approved.length;
+    const skipped   = (shareResult.skipped || []).length;
+    const unsent    = (shareResult.unsent || []).length;
+    const warnings  = shareResult.warnings || [];
+
+    if (unsent) {
+      setNote({ tone: "warn", text:
+        `Partly sent: ${sentCount} invoice${sentCount === 1 ? "" : "s"} reached Finance, ${unsent} did NOT. ` +
+        `The ones that arrived are marked as shared, so pressing Share again sends ONLY the remaining ${unsent}. ` +
+        `(${shareResult.detail || "mail server rejected the rest"})` });
+    } else if (warnings.length) {
+      // Documents that could not be merged still went out, with a placeholder
+      // page. Finance will bounce those, so say so instead of a green tick.
+      setNote({ tone: "warn", text:
+        `Emailed ${sentCount} invoice PDFs (฿${THB(batchTotal)}) to ${rcpt.to.join(", ")}, but ${warnings.length} had a document problem: ` +
+        warnings.map(w => `${w.name} — ${(w.notes || []).join("; ")}`).join(" · ") +
+        `. Fix the uploads and re-send those agents if Finance rejects them.` });
+    } else {
+      setNote({ tone: "ok", text:
+        `Emailed ${sentCount} invoice PDFs (฿${THB(batchTotal)}) to ${rcpt.to.join(", ")}` +
+        `${shareResult.emails > 1 ? ` in ${shareResult.emails} parts` : ""}` +
+        `${skipped ? ` · ${skipped} were already sent earlier and were not sent again` : ""}` +
+        `. Copies filed in NiRM storage.` });
+    }
     setBusy(false);
   };
 
@@ -702,6 +746,29 @@ export function InvoiceBatchPanel({
                     <span style={{ padding: "3px 8px", borderRadius: 999, background: s.bg, border: `1px solid ${s.border}`, color: s.color, fontSize: 10, fontWeight: 700 }}>
                       {pending ? "Not submitted (roster estimate)" : s.label}
                     </span>
+                    {/* FIX (2026-08-19 audit): an agent who misses the 18th-20th
+                        window could never be paid for that period and nobody
+                        could submit for them. The manager can reopen it here
+                        for that one agent. */}
+                    {pending && onSetLateSubmit && (() => {
+                      const isLate = (lateSubmit[period] || []).map(String).includes(String(r.agent.id));
+                      return (
+                        <button
+                          onClick={() => onSetLateSubmit(period, r.agent.id, !isLate)}
+                          title={isLate
+                            ? "Signing is open for this agent outside the 18th-20th window. Click to close it again."
+                            : "Let this agent sign and submit now, even though the 18th-20th window has passed."}
+                          style={{
+                            marginLeft: 6, padding: "3px 8px", borderRadius: 999, cursor: "pointer",
+                            border: `1px solid ${isLate ? "#6EE7B7" : "#E2E8F0"}`,
+                            background: isLate ? "#D1FAE5" : "#fff",
+                            color: isLate ? "#065F46" : "#64748B",
+                            fontSize: 10, fontWeight: 700, fontFamily: "inherit",
+                          }}>
+                          {isLate ? "late signing open ✓" : "allow late"}
+                        </button>
+                      );
+                    })()}
                   </td>
                 </tr>
               );
@@ -813,14 +880,27 @@ export default function InvoiceApprovals({
   );
   const shown = tab === "todo" ? todo : rest;
 
-  const patch = (inv, changes, action, note) => {
-    setInvoices(prev => prev.map(x => x.id === inv.id
-      ? {
-          ...x, ...changes,
-          history: [...(x.history || []), { at: stamp(), by: loginUser || "—", role, action, note: note || "" }],
-        }
-      : x
-    ));
+  // FIX (2026-08-19 audit): the button you clicked was drawn from the state as
+  // it was at RENDER time, but the write applied unconditionally. If the
+  // invoice had moved on since — another manager approved it, the agent
+  // resubmitted, or it was already emailed to Finance — the stale click
+  // silently overwrote the newer state. Worst case: an invoice already sent to
+  // Finance flipped back to "approved" and went out in the NEXT batch too.
+  // Now the update only lands if the invoice is still in the status the button
+  // was drawn for; otherwise it no-ops and says so.
+  // The status the button was drawn for is checked again inside the updater,
+  // against the freshest state React has. If the invoice moved on in between,
+  // the write is dropped and the row simply re-renders showing the truth.
+  const patch = (inv, changes, action, note, expectFrom) => {
+    const from = expectFrom ?? inv.status;
+    setInvoices(prev => prev.map(x => {
+      if (x.id !== inv.id) return x;
+      if (from && x.status !== from) return x;   // moved on — do not overwrite
+      return {
+        ...x, ...changes,
+        history: [...(x.history || []), { at: stamp(), by: loginUser || "—", role, action, note: note || "" }],
+      };
+    }));
   };
 
   const approve = (inv) => {
