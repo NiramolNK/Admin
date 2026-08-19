@@ -578,9 +578,19 @@ export function InvoiceBatchPanel({
     // and the second failed, the old code showed "nothing was changed" while
     // Finance already held part 1 — and pressing Share again sent part 1 twice.
     const now = stamp();
-    const sentNumbers = Array.isArray(shareResult.sent) ? new Set(shareResult.sent.map(String)) : null;
+    // A reply that reports `unsent` but omits `sent` must never be read as
+    // "everything went" — that would mark undelivered invoices as paid and
+    // hide them from the retry. Derive from `unsent` when that is what we got,
+    // and only fall back to the whole batch when the reply mentions neither.
+    const sentNumbers   = Array.isArray(shareResult.sent)   ? new Set(shareResult.sent.map(String))   : null;
+    const unsentNumbers = Array.isArray(shareResult.unsent) ? new Set(shareResult.unsent.map(String)) : null;
     const inBatch = new Set(approved.map(r => r.inv.id));
-    const wasSent = (i) => inBatch.has(i.id) && (!sentNumbers || sentNumbers.has(String(i.invoiceNumber)));
+    const wasSent = (i) => {
+      if (!inBatch.has(i.id)) return false;
+      if (sentNumbers)   return sentNumbers.has(String(i.invoiceNumber));
+      if (unsentNumbers) return !unsentNumbers.has(String(i.invoiceNumber));
+      return true;                       // old server: no per-invoice detail
+    };
     const fileByInvoice = new Map((shareResult.files || []).map(f => [String(f.name).split(" ")[0], f.url]));
 
     setInvoices(prev => prev.map(i => wasSent(i)
@@ -593,7 +603,7 @@ export function InvoiceBatchPanel({
       : i
     ));
 
-    const sentCount = sentNumbers ? approved.filter(r => sentNumbers.has(String(r.inv.invoiceNumber))).length : approved.length;
+    const sentCount = approved.filter(r => wasSent(r.inv)).length;
     const skipped   = (shareResult.skipped || []).length;
     const unsent    = (shareResult.unsent || []).length;
     const warnings  = shareResult.warnings || [];
@@ -610,6 +620,14 @@ export function InvoiceBatchPanel({
         `Emailed ${sentCount} invoice PDFs (฿${THB(batchTotal)}) to ${rcpt.to.join(", ")}, but ${warnings.length} had a document problem: ` +
         warnings.map(w => `${w.name} — ${(w.notes || []).join("; ")}`).join(" · ") +
         `. Fix the uploads and re-send those agents if Finance rejects them.` });
+    } else if (sentCount === 0) {
+      // Nothing actually went out. Most likely a previous attempt claimed
+      // these invoices and then died before emailing. A green tick here would
+      // have the manager believe Finance was paid when nothing left the
+      // building — the one failure mode that must never look like success.
+      setNote({ tone: "warn", text:
+        `NOTHING was emailed. ${shareResult.note || "Every invoice in this batch is already claimed by an earlier attempt."} ` +
+        `If Finance has not received them, ask for the claim on period ${period} to be cleared before retrying.` });
     } else {
       setNote({ tone: "ok", text:
         `Emailed ${sentCount} invoice PDFs (฿${THB(batchTotal)}) to ${rcpt.to.join(", ")}` +
@@ -769,10 +787,10 @@ export function InvoiceBatchPanel({
                         could submit for them. The manager can reopen it here
                         for that one agent. */}
                     {pending && onSetLateSubmit && (() => {
-                      const isLate = (lateSubmit[period] || []).map(String).includes(String(r.agent.id));
+                      const isLate = (lateSubmit[period] || []).map(String).includes(String(agent.id));
                       return (
                         <button
-                          onClick={() => onSetLateSubmit(period, r.agent.id, !isLate)}
+                          onClick={() => onSetLateSubmit(period, agent.id, !isLate)}
                           title={isLate
                             ? "Signing is open for this agent outside the 18th-20th window. Click to close it again."
                             : "Let this agent sign and submit now, even though the 18th-20th window has passed."}
