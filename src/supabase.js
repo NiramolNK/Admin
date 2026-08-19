@@ -40,8 +40,27 @@ if (!SUPABASE_URL || !SUPABASE_ANON) {
   );
 }
 
+// ─── SANDBOX ROUTING ──────────────────────────────────────────────────────
+// The live site (nirmroster.vercel.app) reads and writes the real payroll
+// data in the `public` schema. Any OTHER deployment - a Vercel preview
+// build from a branch, or localhost - is a sandbox and is pointed at the
+// `staging` schema instead: a full copy of the same tables with a copy of
+// the data. Nothing tested in a sandbox can reach real payroll, and no
+// configuration is required to keep it that way - it follows the URL.
+//
+// Vercel preview URLs look like nirmroster-git-<branch>-<team>.vercel.app,
+// so anything that is not the exact production host is treated as a test.
+const PROD_HOSTS = ["nirmroster.vercel.app"];
+const IS_SANDBOX = typeof window !== "undefined" &&
+  !PROD_HOSTS.includes(window.location.hostname);
+export const DB_SCHEMA = IS_SANDBOX ? "staging" : "public";
+if (IS_SANDBOX && typeof console !== "undefined") {
+  console.warn("[NiRM] SANDBOX build — using the `staging` copy of the data. Real payroll is not affected.");
+}
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
   auth: { persistSession: true, autoRefreshToken: true },
+  db: { schema: DB_SCHEMA },
 });
 
 // ─── Recovery-flow detection (module-level) ────────────────────────────────
