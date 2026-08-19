@@ -1417,10 +1417,19 @@ const PERM_OF = { manager: "admin" };
 
 async function loadOrgPeople() {
   try {
-    const { data } = await supabase.from("kv_state").select("key,value")
-      .in("key", ["nirm-agents", "nirm-userAccounts"]);
+    // FIX (2026-08-19 audit): agents moved to the per-record `kv_records`
+    // table on 18 Aug. This still read the legacy kv_state copy, which the app
+    // no longer writes — so the Service Desk people directory was frozen at
+    // the pre-migration roster and anyone hired since was invisible here.
+    const [{ data }, { data: recs }] = await Promise.all([
+      supabase.from("kv_state").select("key,value").in("key", ["nirm-agents", "nirm-userAccounts"]),
+      supabase.from("kv_records").select("value").eq("domain", "nirm-agents"),
+    ]);
     const byKey = Object.fromEntries((data ?? []).map((r) => [r.key, r.value]));
-    const roster = Array.isArray(byKey["nirm-agents"]) ? byKey["nirm-agents"] : [];
+    const fromRecords = (recs ?? []).map((r) => r.value).filter(Boolean);
+    const roster = fromRecords.length
+      ? fromRecords
+      : (Array.isArray(byKey["nirm-agents"]) ? byKey["nirm-agents"] : []);
     const accounts = Array.isArray(byKey["nirm-userAccounts"]) ? byKey["nirm-userAccounts"] : [];
     if (!roster.length) return false;
 
