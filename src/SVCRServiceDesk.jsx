@@ -1203,7 +1203,7 @@ function SettingsPane({ settings, setSettings }) {
   useEffect(() => {
     (async () => {
       try {
-        const r = await window.storage.get("nirm-brands");
+        const r = await (window.storage.peek ? window.storage.peek("nirm-brands") : window.storage.get("nirm-brands"));
         if (!r || r.value == null) return;
         const list = typeof r.value === "string" ? JSON.parse(r.value) : r.value;
         const eligiblePlatforms = ["Line MyShop", "Amaze", "Brand.com", "Call CC"];
