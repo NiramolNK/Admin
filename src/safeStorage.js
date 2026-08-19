@@ -94,7 +94,20 @@ function deepEqual(a, b) {
 // records at once. Arrays whose elements all carry a unique `id` now merge
 // PER RECORD. (v3 moves agents/invoices out of arrays entirely, but this
 // merge still protects any other keyed array kept in kv_state.)
-const recId = (e) => (isObj(e) && e.id != null ? String(e.id) : null);
+// v3.2 FIX (2026-08-19 audit): `nirm-userAccounts` is an array of
+// { username, password, role } with NO id, so isKeyedArray rejected it and the
+// merge fell through to "whoever saved last wins the whole list" — the exact
+// failure that destroyed the roster, still live on the list that controls who
+// can log in. Treating a natural unique field as the identity makes those
+// arrays merge per record like everything else.
+const ID_FIELDS = ["id", "username", "email", "key"];
+const recId = (e) => {
+  if (!isObj(e)) return null;
+  for (const f of ID_FIELDS) {
+    if (e[f] != null && e[f] !== "") return String(e[f]).toLowerCase();
+  }
+  return null;
+};
 const isKeyedArray = (arr) =>
   Array.isArray(arr) &&
   arr.every((e) => recId(e) !== null) &&
@@ -330,6 +343,27 @@ async function casWriteRecord(domain, id, newValue) {
 
     const remote = await fetchRecord(domain, id);
     if (!remote) { anc = null; continue; }
+
+    // v3.2 FIX (2026-08-19 audit): field-by-field merging is right for a
+    // profile (name here, bank details there) but WRONG for a workflow record.
+    // An invoice merged leaf-by-leaf could come out stamped "approved" by the
+    // manager while carrying the amounts from the agent's simultaneous
+    // resubmission — an approval for a number nobody approved. Worse, a stale
+    // tab could merge "manager_approved" back over "sent_to_finance" and put
+    // an already-paid invoice into the next batch.
+    // If the status moved underneath us, this write is based on a world that
+    // no longer exists: keep the server's version and tell the caller.
+    const ancS = isObj(anc.value) ? anc.value.status : undefined;
+    const remS = isObj(remote.value) ? remote.value.status : undefined;
+    const newS = isObj(newValue) ? newValue.status : undefined;
+    if (ancS !== undefined && remS !== ancS && newS !== remS) {
+      domainMap(recShadow, domain).set(id, { value: remote.value, version: remote.version });
+      throw new Error(
+        `"${id}" was changed by someone else (${ancS} → ${remS}) while you had it open. ` +
+        `Your change was not applied — reload NiRM to see its current state.`
+      );
+    }
+
     newValue = threeWayMerge(anc.value, newValue, remote.value);
     anc = { value: anc.value, version: remote.version };
   }
@@ -566,6 +600,29 @@ export async function installSafeStorage() {
       return { key, deleted: true, shared: true };
     },
 
+    // v3.2 FIX (2026-08-19 audit): get() advances the merge ancestor, which is
+    // only correct for the component that will also SAVE that key. Other
+    // screens read shared keys just to display them (App.jsx re-reads accounts
+    // on every token refresh; the Service Desk and Knowledge Base read brands),
+    // and each of those reads silently re-anchored the ancestor — so the next
+    // save from the roster passed the version check with no merge and
+    // overwrote whatever another tab had done in between. peek() reads without
+    // touching the ancestor; use it anywhere you are not the owner of the key.
+    async peek(key) {
+      if (RECORD_DOMAINS.has(key)) {
+        if (!recLatest.has(key)) await fetchDomain(key);
+        if ((recLatest.get(key) || new Map()).size === 0) return null;
+        return { key, value: assembleDomain(key), shared: true };
+      }
+      let row = latest.get(key);
+      if (!row) {
+        const fetched = await fetchOne(key);
+        if (!fetched) return null;
+        row = latest.get(key);
+      }
+      return { key, value: fromStored(row.value), shared: true };
+    },
+
     async list(prefix = "") {
       const keys = new Set([...latest.keys(), ...RECORD_DOMAINS]);
       return { keys: [...keys].filter((k) => k.startsWith(prefix)), prefix, shared: true };
@@ -577,5 +634,5 @@ export async function installSafeStorage() {
   // no writes, no realtime application, no reconnect reloads. Two live
   // storage layers caused the 2026-07-08 brand-allocation wipe.
   window.__nirmKvActive = true;
-  console.info("[safeStorage] v3.1 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
+  console.info("[safeStorage] v3.2 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
 }
