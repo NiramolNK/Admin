@@ -11,3 +11,6 @@ pr.txt
 
 *.txt-diag
 d.txt
+
+# Stale git lock files parked here when they can't be unlinked directly.
+_to_delete/
