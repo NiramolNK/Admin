@@ -918,6 +918,13 @@ export default function InvoiceApprovals({
     () => invoices.filter(i => !actionFor(i)).sort((a, b) => (b.submittedAt || "").localeCompare(a.submittedAt || "")),
     [invoices, role]
   );
+  const restLabel = useMemo(() => {
+    if (!rest.length) return "Approved (0)";
+    if (rest.some(i => i.status === "rejected"))        return `Approved & returned (${rest.length})`;
+    if (rest.some(i => i.status === "sent_to_finance")) return `Approved & sent (${rest.length})`;
+    return `Approved (${rest.length})`;
+  }, [rest]);
+
   const shown = tab === "todo" ? todo : rest;
 
   // FIX (2026-08-19 audit): the button you clicked was drawn from the state as
@@ -1019,7 +1026,10 @@ export default function InvoiceApprovals({
       )}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
-        {[["todo", `Needs me (${todo.length})`], ["all", `Everything else (${rest.length})`]].map(([k, l]) => (
+        {/* This tab holds everything not waiting on the manager. That is
+           almost always the approved pile, so say so — but stay honest
+           once some have gone to Finance or been returned. */}
+        {[["todo", `Needs me (${todo.length})`], ["all", restLabel]].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             style={{
               padding: "7px 14px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
