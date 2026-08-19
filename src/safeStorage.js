@@ -104,7 +104,12 @@ const ID_FIELDS = ["id", "username", "email", "key"];
 const recId = (e) => {
   if (!isObj(e)) return null;
   for (const f of ID_FIELDS) {
-    if (e[f] != null && e[f] !== "") return String(e[f]).toLowerCase();
+    if (e[f] == null || e[f] === "") continue;
+    // `id` IS the primary key of kv_records — it must be byte-identical to the
+    // stored row id. Lower-casing it renamed every A-prefixed agent ("A01" →
+    // "a01") through a delete-and-reinsert on the next save. Only the
+    // human-entered identifiers are case-folded.
+    return f === "id" ? String(e[f]) : String(e[f]).toLowerCase();
   }
   return null;
 };
@@ -226,7 +231,11 @@ async function casWrite(key, storedValue) {
         return storedValue;
       }
       const row = await fetchOne(key);
-      if (row) anc = { value: {}, version: row.version };
+      // version -1 can never match, so the next pass fails the gate and runs
+      // the empty-ancestor UNION merge. Using row.version here (as this line
+      // did) let the update succeed first try and replace the whole key with
+      // no merge at all.
+      if (row) anc = { value: {}, version: -1 };
       continue;
     }
 
@@ -357,11 +366,18 @@ async function casWriteRecord(domain, id, newValue) {
     const remS = isObj(remote.value) ? remote.value.status : undefined;
     const newS = isObj(newValue) ? newValue.status : undefined;
     if (ancS !== undefined && remS !== ancS && newS !== remS) {
-      domainMap(recShadow, domain).set(id, { value: remote.value, version: remote.version });
-      throw new Error(
+      // Do NOT touch the ancestor here. An earlier version advanced it to the
+      // server's version before throwing, which disarmed the compare-and-swap:
+      // the caller's retry two seconds later then matched on that version and
+      // wrote the stale record straight over the newer one — silently undoing
+      // an approval. Leaving the ancestor alone means every retry keeps
+      // failing the gate, which is the safe direction.
+      const err = new Error(
         `"${id}" was changed by someone else (${ancS} → ${remS}) while you had it open. ` +
         `Your change was not applied — reload NiRM to see its current state.`
       );
+      err.conflict = true;      // callers must NOT retry this
+      throw err;
     }
 
     newValue = threeWayMerge(anc.value, newValue, remote.value);
@@ -433,7 +449,12 @@ function broadcastSync() {
     const cache = {};
     for (const [k, r] of latest) cache[k] = fromStored(r.value);
     for (const d of RECORD_DOMAINS) {
+      // Always take these from the record store. Falling through to the legacy
+      // kv_state blob when the domain is momentarily empty published a stale
+      // roster to the app, which autosave then wrote back — deleting the
+      // records the blob did not know about.
       if ((recLatest.get(d)?.size || 0) > 0) cache[d] = assembleDomain(d);
+      else delete cache[d];
     }
     window.dispatchEvent(new CustomEvent("nirm-storage-sync", { detail: cache }));
   }, 200);
@@ -509,7 +530,11 @@ export async function installSafeStorage() {
     )
     .subscribe((status) => {
       if (status === "SUBSCRIBED") {
-        fetchAll().catch((e) =>
+        // After a socket drop (laptop sleep, wifi change, phone lock) the
+        // caches are refreshed here — but nothing told the app, so React state
+        // stayed at whatever the tab had before the gap and the next save was
+        // based on a stale world. Broadcast the refreshed state.
+        fetchAll().then(broadcastSync).catch((e) =>
           console.error("[safeStorage] refetch after reconnect failed", e)
         );
       }
@@ -535,7 +560,7 @@ export async function installSafeStorage() {
     )
     .subscribe((status) => {
       if (status === "SUBSCRIBED") {
-        Promise.all([...RECORD_DOMAINS].map(fetchDomain)).catch((e) =>
+        Promise.all([...RECORD_DOMAINS].map(fetchDomain)).then(broadcastSync).catch((e) =>
           console.error("[safeStorage] records refetch after reconnect failed", e)
         );
       }
