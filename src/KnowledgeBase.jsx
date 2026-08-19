@@ -133,7 +133,7 @@ async function saveKey(key, val) {
 // array/object rather than a string — handle both shapes defensively.
 async function loadRosterBrands() {
   try {
-    const r = await window.storage.get("nirm-brands");
+    const r = await (window.storage.peek ? window.storage.peek("nirm-brands") : window.storage.get("nirm-brands"));
     if (!r || r.value == null) return [];
     return typeof r.value === "string" ? JSON.parse(r.value) : r.value;
   } catch (e) { console.warn("[KB] failed to load nirm-brands", e); return []; }
