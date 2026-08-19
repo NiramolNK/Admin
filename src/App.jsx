@@ -168,9 +168,13 @@ export default function App() {
       // since AllocationRoster reads only from the per-domain keys — which
       // is how the admin's userAccounts entry kept going missing and the
       // user got stuck on the legacy login screen.
-      const uaRow    = await window.storage.get("nirm-userAccounts");
-      const roleRow  = await window.storage.get("nirm-role");
-      const prefsRow = await window.storage.get("nirm-prefs");
+      // peek() = read without claiming ownership of the merge ancestor.
+      // A plain get() here (it runs on every token refresh, hourly) made the
+      // roster's next save overwrite other people's changes with no merge.
+      const rd = (k) => (window.storage.peek ? window.storage.peek(k) : window.storage.get(k));
+      const uaRow    = await rd("nirm-userAccounts");
+      const roleRow  = await rd("nirm-role");
+      const prefsRow = await rd("nirm-prefs");
       const accounts = Array.isArray(uaRow?.value) ? uaRow.value.slice() : [];
       const matchIdx = accounts.findIndex(
         (a) => a && a.username && a.username.toLowerCase() === profile.username.toLowerCase()
