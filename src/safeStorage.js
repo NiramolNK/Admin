@@ -59,8 +59,15 @@ const shadow = new Map();
 // Per-record equivalents: Map<domain, Map<id, {value, version}>>
 const recLatest = new Map();
 const recShadow = new Map();
+// domain -> Set of ids that have been deliberately deleted. A record here is
+// NOT resurrected, however convinced a stale tab is that it still exists.
+const tombstones = new Map();
+const domainSet = (store, domain) => {
+  if (!store.has(domain)) store.set(domain, new Set());
+  return store.get(domain);
+};
 const domainMap = (store, domain) => {
-  if (!store.has(domain)) store.set(domain, new Map());
+  if (!store.has(domain)) store.set(domain, store === tombstones ? new Set() : new Map());
   return store.get(domain);
 };
 
@@ -278,27 +285,37 @@ async function casWrite(key, storedValue) {
 async function fetchDomain(domain) {
   const { data, error } = await supabase
     .from(RECORDS_TABLE)
-    .select("id,value,version")
+    .select("id,value,version,deleted_at")
     .eq("domain", domain);
   if (error) throw error;
   const m = new Map();
-  for (const row of data || []) m.set(row.id, { value: row.value, version: row.version });
+  const dead = new Set();
+  for (const row of data || []) {
+    if (row.deleted_at) { dead.add(row.id); continue; }   // tombstoned — gone
+    m.set(row.id, { value: row.value, version: row.version });
+  }
   recLatest.set(domain, m);
+  tombstones.set(domain, dead);
   return m;
 }
 
 async function fetchRecord(domain, id) {
   const { data, error } = await supabase
     .from(RECORDS_TABLE)
-    .select("id,value,version")
+    .select("id,value,version,deleted_at")
     .eq("domain", domain)
     .eq("id", id)
     .maybeSingle();
   if (error) throw error;
   const m = domainMap(recLatest, domain);
-  if (data) m.set(id, { value: data.value, version: data.version });
-  else m.delete(id);
-  return data;
+  if (data && !data.deleted_at) {
+    m.set(id, { value: data.value, version: data.version });
+    domainMap(tombstones, domain).delete(id);
+  } else {
+    m.delete(id);
+    if (data?.deleted_at) domainMap(tombstones, domain).add(id);
+  }
+  return data && !data.deleted_at ? data : null;
 }
 
 // Assemble the domain into the array shape the app has always used.
@@ -311,6 +328,13 @@ function assembleDomain(domain) {
 
 // CAS write for ONE record; on conflict, 3-way merge just this record.
 async function casWriteRecord(domain, id, newValue) {
+  // Deleted means deleted. Without this, a tab that still had the record in
+  // memory re-created it on its next save — which is exactly how nine removed
+  // agents reappeared on 2026-08-19.
+  if (domainMap(tombstones, domain).has(id)) {
+    domainMap(recShadow, domain).delete(id);
+    return;
+  }
   let anc = domainMap(recShadow, domain).get(id) || null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -393,11 +417,12 @@ async function casDeleteRecord(domain, id) {
   if (!anc) return; // never saw it → nothing to delete safely
   const { error } = await supabase
     .from(RECORDS_TABLE)
-    .delete()
+    .update({ deleted_at: new Date().toISOString(), version: anc.version + 1, updated_by: CLIENT_ID })
     .eq("domain", domain)
     .eq("id", id)
     .eq("version", anc.version);
   if (error) throw error;
+  domainMap(tombstones, domain).add(id);
   // Whether we deleted it or someone updated it first (version moved on),
   // this tab no longer owns an ancestor for it.
   domainMap(recShadow, domain).delete(id);
@@ -553,7 +578,13 @@ export async function installSafeStorage() {
         } else {
           const row = payload.new;
           if (row.updated_by === CLIENT_ID) return;   // own echo — see CLIENT_ID
-          domainMap(recLatest, row.domain).set(row.id, { value: row.value, version: row.version });
+          if (row.deleted_at) {
+            domainMap(recLatest, row.domain).delete(row.id);
+            domainMap(tombstones, row.domain).add(row.id);
+          } else {
+            domainMap(tombstones, row.domain).delete(row.id);
+            domainMap(recLatest, row.domain).set(row.id, { value: row.value, version: row.version });
+          }
         }
         broadcastSync();
       }
@@ -659,5 +690,5 @@ export async function installSafeStorage() {
   // no writes, no realtime application, no reconnect reloads. Two live
   // storage layers caused the 2026-07-08 brand-allocation wipe.
   window.__nirmKvActive = true;
-  console.info("[safeStorage] v3.2 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
+  console.info("[safeStorage] v3.3 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
 }
