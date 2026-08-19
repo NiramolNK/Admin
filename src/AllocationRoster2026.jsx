@@ -4395,6 +4395,34 @@ export default function AllocationPanel({ isAdmin = true }) {
                           style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
                     </div>
                     <div style={{fontSize:10,color:"#94A3B8",marginTop:-6}}>Shown under the nickname in the invoice batch, and on the invoice sent to Finance. Agents can also fill these themselves in Personal Info.</div>
+                    {/* FIX (2026-08-19): payment details were only enterable by the AGENT,
+                        in Personal Info. If they never filled them in, nobody could - the
+                        manager had no field for it - and the invoice reached Finance saying
+                        BANK DETAILS MISSING with no way to correct it from here. */}
+                    <div style={{marginTop:2,paddingTop:10,borderTop:"1px dashed #E2E8F0"}}>
+                      <div style={{fontSize:10,fontWeight:800,color:"#0D9488",textTransform:"uppercase",letterSpacing:0.3,marginBottom:8}}>Payment details — what Finance pays against</div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:10}}>
+                        <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Bank</label>
+                          <input value={editAgent.bankName||""} onChange={e=>setEditAgent({...editAgent,bankName:e.target.value})}
+                            placeholder="เช่น กสิกรไทย" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                        <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Account number</label>
+                          <input value={editAgent.bankAccount||""} onChange={e=>setEditAgent({...editAgent,bankAccount:e.target.value})}
+                            placeholder="e.g. 074-1-09333-2" style={{...{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}, fontFamily:"monospace"}}/></div>
+                      </div>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                        <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Account holder name</label>
+                          <input value={editAgent.bankAccountName||""} onChange={e=>setEditAgent({...editAgent,bankAccountName:e.target.value})}
+                            placeholder="ชื่อบัญชีตามสมุดบัญชี" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                        <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Tax ID / เลขผู้เสียภาษี</label>
+                          <input value={editAgent.taxId||""} onChange={e=>setEditAgent({...editAgent,taxId:e.target.value})}
+                            placeholder="13 digits" style={{...{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}, fontFamily:"monospace"}}/></div>
+                      </div>
+                      <div style={{fontSize:10,color:"#94A3B8",marginTop:6}}>
+                        Copy these from the agent's bookbank and ID card. Finance pays the
+                        typed account number, not the photo — an invoice approved without one
+                        reaches them reading <strong>BANK DETAILS MISSING</strong>.
+                      </div>
+                    </div>
                     <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Cost / Day (฿){role!=="manager"&&<span style={{marginLeft:6,color:"#94A3B8",fontWeight:500,textTransform:"none"}}>(read-only)</span>}</label>
                       <input type="number" value={editAgent.costDay} readOnly={role!=="manager"} onChange={e=>{if(role==="manager")setEditAgent({...editAgent,costDay:Number(e.target.value)})}}
                         style={{padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:role!=="manager"?"#F1F5F9":"#FAFBFC",color:role!=="manager"?"#64748B":"#1A1D2E",fontSize:13,fontFamily:"monospace",outline:"none",cursor:role!=="manager"?"not-allowed":"text"}}/></div>
