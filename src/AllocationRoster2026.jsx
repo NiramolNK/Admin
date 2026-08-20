@@ -180,6 +180,34 @@ const CS_BRANDS_INIT = [
 function allocLocalStr(dt){
   return dt.getFullYear()+"-"+String(dt.getMonth()+1).padStart(2,"0")+"-"+String(dt.getDate()).padStart(2,"0");
 }
+// ── Shrink a photo before uploading ────────────────────────────────────────
+// Phone cameras produce 4-8 MB images. Those get merged into the invoice PDF
+// that goes to Finance, and one agent with two big scans pushed the August
+// batch to 20 MB of attachments (2 emails, and it broke the 5 MB storage
+// limit outright). 1600px at JPEG 75 is still comfortably readable for an ID
+// card or a passbook and lands around 200-400 KB.
+// If anything at all goes wrong we upload the original untouched - a slightly
+// large document is a nuisance, a failed upload stops someone getting paid.
+const ALLOC_MAX_EDGE = 1600, ALLOC_JPEG_Q = 0.75;
+async function allocShrinkImage(file){
+  try {
+    if (!file || !/^image\//.test(file.type)) return file;   // PDFs pass through
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, ALLOC_MAX_EDGE / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h);         // flatten transparency
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close?.();
+    const blob = await new Promise(res => c.toBlob(res, "image/jpeg", ALLOC_JPEG_Q));
+    if (!blob || blob.size >= file.size) return file;         // no gain, keep original
+    const name = (file.name || "photo").replace(/\.[^.]+$/, "") + ".jpg";
+    return new File([blob], name, { type: "image/jpeg" });
+  } catch (_) { return file; }
+}
+
 function allocMkDates(year,month){
   const out=[];
   const start=new Date(year,month-1,1);
@@ -4606,9 +4634,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                         </div>
                         <input type="file" accept="image/*" capture="user" style={{display:"none"}}
                           onChange={async (e)=>{
-                            const file = e.target.files?.[0];
-                            if(!file) return;
-                            const ext = file.name.split('.').pop() || 'jpg';
+                            const picked = e.target.files?.[0];
+                            if(!picked) return;
+                            const file = await allocShrinkImage(picked);
+                            const ext = (file.name.split('.').pop() || 'jpg');
                             const path = `payroll-docs/profile_${inviteFormAgentId}_${Date.now()}.${ext}`;
                             try {
                               const { error: upErr } = await supabase.storage.from("payroll-docs").upload(path, file, { upsert: true, cacheControl: "3600" });
@@ -4694,10 +4723,20 @@ export default function AllocationPanel({ isAdmin = true }) {
                         ) : (
                           <input type="file" accept="image/*,.pdf"
                             onChange={async (e)=>{
-                              const file = e.target.files?.[0];
-                              if(!file) return;
-                              const ext = file.name.split('.').pop() || 'jpg';
+                              const picked = e.target.files?.[0];
+                              if(!picked) return;
+                              const file = await allocShrinkImage(picked);
+                              const ext = (file.name.split('.').pop() || 'jpg');
                               const path = `payroll-docs/${kind}_${inviteFormAgentId}_${Date.now()}.${ext}`;
+                              // A PDF scan cannot be shrunk here. Say so plainly rather
+                              // than silently sending Finance a 4 MB attachment.
+                              if (file.size > 3 * 1024 * 1024) {
+                                const mb = (file.size/1024/1024).toFixed(1);
+                                if (!window.confirm(`ไฟล์นี้มีขนาด ${mb} MB ซึ่งใหน่มาก / This file is ${mb} MB, which is large.\n\nถ่ายรูปด้วยกล้องมือถือแทน PDF จะเล็กกว่ามาก / A photo taken with your phone will be much smaller than a PDF scan.\n\nอัปโหลดต่อไปหรือไม่ / Upload it anyway?`)) {
+                                  e.target.value = "";
+                                  return;
+                                }
+                              }
                               try {
                                 const { error: upErr } = await supabase.storage.from("payroll-docs").upload(path, file, { upsert: true, cacheControl: "3600" });
                                 if (upErr) throw upErr;
