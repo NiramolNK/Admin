@@ -2803,7 +2803,10 @@ export default function AllocationPanel({ isAdmin = true }) {
 
           // T1+Return — sum worked-day cost across all dates in range (OT 1.5x)
           let t1rCost = 0;
-          const t1r = agents.filter(a => a.active && a.team !== "T2");
+          // Switched-off agents still have worked days in the period that must be
+          // paid, so they belong in the cost. Filtering them out here is what made
+          // this tile disagree with the Finance batch.
+          const t1r = agents.filter(a => a.team !== "T2");
           rMonths.forEach(({ y, m }) => {
             const mk = `${y}-${String(m).padStart(2,"0")}`;
             const monthAsgn = allAsgn[mk] || {};
@@ -2828,28 +2831,27 @@ export default function AllocationPanel({ isAdmin = true }) {
           // to 23rd of the selected pay month, TOIL unpaid, OT 1.5x, and
           // T2 salary taken from the pay month.
           if (!isRangeSet) {
-            const ppPrevM = payMonth === 1 ? 12 : payMonth - 1;
-            const ppPrevY = payMonth === 1 ? payYear - 1 : payYear;
-            const ppStart = `${ppPrevY}-${String(ppPrevM).padStart(2,"0")}-24`;
-            const ppEnd   = `${payYear}-${String(payMonth).padStart(2,"0")}-23`;
-            const ppDates = mkDateRange(ppStart, ppEnd);
-            const ppAsgn  = {...(allAsgn[ppStart.slice(0,7)]||{}), ...(allAsgn[ppEnd.slice(0,7)]||{})};
-            const ppXtra  = {...(allExtraHrs[ppStart.slice(0,7)]||{}), ...(allExtraHrs[ppEnd.slice(0,7)]||{})};
-            t1rCost = 0;
-            agents.filter(a => a.active && a.team !== "T2").forEach(ag => {
-              ppDates.forEach(d => {
-                const v = ppAsgn[`${ag.id}_${d.date}`];
-                if (!v || isOffCode(v) || v === "TOIL") return;
-                t1rCost += ag.costDay * (v === "OT" ? 1.5 : 1);
-                const e = ppXtra[`${ag.id}_${d.date}`];
-                if (e && e.h) t1rCost += e.h * (ag.costDay/8) * (e.x || 1);
-              });
-            });
-            t2Cost = (fulltimeSalary && fulltimeSalary[`${payYear}-${String(payMonth).padStart(2,"0")}`]) || 0;
+            // FIX (2026-08-20): this tile had its OWN copy of the invoice maths and
+            // counted active agents only, so it read 161,963 while Finance was
+            // asked for 169,762.50. computeInvoiceFigures is the single source of
+            // invoice maths (24th of prev month to the 23rd, TOIL unpaid, OT 1.5x);
+            // call it for everyone who worked instead of recomputing here.
+            const ppMk = `${payYear}-${String(payMonth).padStart(2,"0")}`;
+            t1rCost = agents.filter(a => a.team !== "T2")
+              .reduce((sum, ag) => sum + (computeInvoiceFigures(ag.id, ppMk)?.subtotal || 0), 0);
+            t2Cost = (fulltimeSalary && fulltimeSalary[ppMk]) || 0;
           }
-          const grand = Math.round(t2Cost + t1rCost);
-          const t2Rounded = Math.round(t2Cost);
-          const t1rRounded = Math.round(t1rCost);
+
+          const grand = t2Cost + t1rCost;
+          // Show the exact satang, so these tiles can be compared with the batch
+          // email digit for digit instead of being 50 satang out.
+          const baht = n => Number(n || 0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+          const t2Rounded = baht(t2Cost);
+          const t1rRounded = baht(t1rCost);
+          const ppMkLabel = `${payYear}-${String(payMonth).padStart(2,"0")}`;
+          const t1rHeads = isRangeSet
+            ? agents.filter(a => a.team !== "T2").length
+            : agents.filter(a => a.team !== "T2" && (computeInvoiceFigures(a.id, ppMkLabel)?.subtotal || 0) > 0).length;
           const rangeLabel = isRangeSet
             ? `${rs} → ${re}`
             : `Pay period 24 ${MONTHS[(payMonth===1?12:payMonth-1)-1]} - 23 ${MONTHS[payMonth-1]} ${payYear}`;
@@ -2858,17 +2860,17 @@ export default function AllocationPanel({ isAdmin = true }) {
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:14,marginBottom:22}}>
               <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
                 <div style={{fontSize:10,color:"#1D4ED8",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T2 — Fixed Salary</div>
-                <div style={{fontSize:22,fontWeight:700,color:"#1D4ED8"}}>฿{t2Rounded.toLocaleString()}</div>
+                <div style={{fontSize:22,fontWeight:700,color:"#1D4ED8"}}>฿{t2Rounded}</div>
                 <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t2Agents.filter(a=>a.active).length} fulltime · {rangeLabel}</div>
               </div>
               <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:"1px solid #E2E8F0",boxShadow:"0 1px 3px #0001"}}>
                 <div style={{fontSize:10,color:"#0D9488",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>T1 + Return + CC</div>
-                <div style={{fontSize:22,fontWeight:700,color:"#0D9488"}}>฿{t1rRounded.toLocaleString()}</div>
-                <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{agents.filter(a=>a.active&&a.team!=="T2").length} agents · {rangeLabel}</div>
+                <div style={{fontSize:22,fontWeight:700,color:"#0D9488"}}>฿{t1rRounded}</div>
+                <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>{t1rHeads} agents paid · {rangeLabel}</div>
               </div>
               <div style={{background:"#fff",borderRadius:12,padding:"16px 20px",border:`1px solid ${grand>totalBudget?"#FCA5A5":"#BBF7D0"}`,boxShadow:"0 1px 3px #0001"}}>
                 <div style={{fontSize:10,color:"#64748B",fontWeight:600,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>Grand Total</div>
-                <div style={{fontSize:22,fontWeight:700,color:grand>totalBudget?"#EF4444":"#059669"}}>฿{grand.toLocaleString()}</div>
+                <div style={{fontSize:22,fontWeight:700,color:grand>totalBudget?"#EF4444":"#059669"}}>฿{baht(grand)}</div>
                 <div style={{fontSize:10,color:"#94A3B8",marginTop:4}}>All teams · {rangeLabel}</div>
               </div>
             </div>
