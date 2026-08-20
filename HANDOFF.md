@@ -563,7 +563,23 @@ maths; it now calls `computeInvoiceFigures` like everything else.
 `build/teamstotaltest.mjs` replays the real August numbers and fails if either
 place starts filtering on `active` again.
 
-**The corrected batch.** Sent as 3 emails (groups of 7) to the usual Finance list
+**The corrected batch - and the mess I made of it.** It first went as 3 emails
+(groups of 7), because rebuilding 19 merged PDFs in one call kept hitting the
+compute limit. That was the wrong fix twice over: April had asked for one email,
+and each of the three carried a banner reading "This replaces the batch emailed
+earlier", so anyone reading group 2 or 3 would think groups 1 and 2 were the bad
+ones. The PDFs were ALREADY built and filed in storage - attaching finished files
+is far lighter than generating them, and all 19 fit in a single call easily.
+`final-batch-email` (now retired) did exactly that: one email, 19 attachments,
+6.8 MB, with a notice naming precisely which earlier email to ignore. It also
+purged three stale PDFs left under the pre-correction filenames
+(`20260808 PHEERAPAT.pdf`, `20260809 Mr.Supichak Rajchasic.pdf`,
+`20260820 Apple.pdf`) so the archive holds exactly one file per invoice.
+
+LESSON: to re-send a batch, attach what is in `invoice-pdfs/<period>/`. Only
+rebuild when the content itself has to change.
+
+The 3-group send went to the usual Finance list
 with Prim copied, each carrying a red "CORRECTED COPY - replaces the earlier
 email, amounts unchanged, do NOT pay twice" banner and the grand total for all 19.
 `invoice_sends` still holds **exactly the one original batch of 19 claims from
