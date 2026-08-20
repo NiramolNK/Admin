@@ -4323,7 +4323,14 @@ export default function AllocationPanel({ isAdmin = true }) {
               // invoice counts the pay period (24th of prev month → 23rd). The two
               // never matched, so the Teams tab and Finance disagreed every month.
               // computeInvoiceFigures is the single source of invoice maths - use it.
-              const t1rTotal=t1rList.filter(a=>a.active).reduce((s,a)=>s+(computeInvoiceFigures(a.id,currentMK)?.subtotal||0),0);
+              // FIX (2026-08-20): this total counted ACTIVE agents only, so the Teams
+              // tab never matched the amount Finance was asked to pay - August read
+              // 161,962.50 here against 169,762.50 in the batch. An agent switched
+              // off part way through the period has still worked days that must be
+              // paid, so the total now counts everyone who has a figure.
+              const t1rTotal=t1rList.reduce((s,a)=>s+(computeInvoiceFigures(a.id,currentMK)?.subtotal||0),0);
+              const t1rPayable=t1rList.filter(a=>(computeInvoiceFigures(a.id,currentMK)?.subtotal||0)>0).length;
+              const t1rMoney=t1rTotal.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
               return (
                 <div>
                   <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
@@ -4332,7 +4339,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                       {(agentTeamF==="all"||agentTeamF==="Return")&&<span style={{fontSize:11,padding:"3px 10px",borderRadius:8,background:"#FEE2E2",color:"#B91C1C",fontWeight:700}}>Return</span>}
                       <span style={{fontSize:13,fontWeight:700,color:"#1A1D2E"}}>Cost per Day — Actual Worked Days</span>
                     </div>
-                    <div style={{fontFamily:"monospace",fontSize:15,fontWeight:700,color:"#0D9488"}}>฿{t1rTotal.toLocaleString()} this period</div>
+                    <div style={{fontFamily:"monospace",fontSize:15,fontWeight:700,color:"#0D9488"}}>฿{t1rMoney} to pay this period</div>
                   </div>
                   <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden"}}>
                     <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
@@ -4364,8 +4371,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                           );
                         })}
                         <tr style={{background:"#14b8a611",borderTop:"2px solid #5EEAD4"}}>
-                          <td colSpan={7} style={{padding:"8px 12px",fontWeight:700,color:"#0D9488",fontSize:11}}>T1 + RETURN + CC TOTAL ({t1rList.filter(a=>a.active).length} active)</td>
-                          <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:14,fontWeight:700,color:"#0D9488"}}>฿{t1rTotal.toLocaleString()}</td>
+                          <td colSpan={7} style={{padding:"8px 12px",fontWeight:700,color:"#0D9488",fontSize:11}}>T1 + RETURN + CC TOTAL TO PAY ({t1rPayable} with worked days{t1rPayable!==t1rList.filter(a=>a.active).length?` · includes ${t1rPayable-t1rList.filter(a=>a.active&&(computeInvoiceFigures(a.id,currentMK)?.subtotal||0)>0).length} switched off`:""})</td>
+                          <td style={{padding:"8px 12px",fontFamily:"monospace",fontSize:14,fontWeight:700,color:"#0D9488"}}>฿{t1rMoney}</td>
                           <td colSpan={2}/>
                         </tr>
                       </tbody>
