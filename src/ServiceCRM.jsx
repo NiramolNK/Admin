@@ -426,6 +426,10 @@ function mapDbTicket(t, msgs) {
     phone: t.customer_phone || "", email: t.customer_email || "",
     order: t.order_ref || (t.meta && t.meta.order) || null,
     channel: t.channel, priority: t.priority, status: t.status,
+    // Which brand the case belongs to and which platform it came from. Both
+    // columns already existed on `tickets`; nothing read them, so the panel
+    // could not show them and reporting by brand had nothing to group on.
+    brand: t.brand || null, platform: t.platform || null,
     owner: t.owner || null,
     createdAt: new Date(t.created_at).getTime(),
     firstResponseMin: t.first_response_at ? Math.max(1, Math.round((new Date(t.first_response_at) - new Date(t.created_at)) / 60000)) : null,
@@ -617,6 +621,9 @@ const D = {
   fName: ["Customer name", "ชื่อลูกค้า"], fPhone: ["Contact number", "เบอร์ติดต่อ"],
   fOrder: ["Order number", "เลขที่คำสั่งซื้อ"], fChanIn: ["Channel it came in on", "ช่องทางที่ติดต่อเข้ามา"],
   fCat: ["Request type", "ประเภทเรื่อง"], fPri: ["Priority", "ความเร่งด่วน"],
+  fBrand: ["Brand", "แบรนด์"], fPlatform: ["Platform", "แพลตฟอร์ม"],
+  brandSaved: ["Brand updated", "อัปเดตแบรนด์แล้ว"],
+  platformSaved: ["Platform updated", "อัปเดตแพลตฟอร์มแล้ว"],
   fCustEmail: ["Customer email", "อีเมลลูกค้า"], fFromBox: ["Send from mailbox", "ส่งจากอีเมล"],
   errCustEmail: ["Enter a valid customer email address", "กรอกอีเมลลูกค้าให้ถูกต้อง"],
   errSubjReq: ["Subject is required for an email case", "ต้องระบุหัวข้ออีเมล"],
@@ -1289,6 +1296,12 @@ const PRI = {
 };
 const PRI_KEYS = ["urgent", "high", "normal", "low"];
 
+// Where the conversation actually came from. Kept separate from `channel`:
+// channel is HOW it reached us (email, webchat, phone), platform is the
+// marketplace or social account the customer was on, which is what Duoke
+// shows the agents and what the brands ask us to report by.
+const PLATFORMS = ["TikTok", "Shopee", "Lazada", "Line", "Facebook", "Instagram", "Website", "Phone", "Email"];
+
 let CAT = {
   delay:     { en: "Delivery delay", th: "จัดส่งล่าช้า" },
   damaged:   { en: "Damaged on arrival", th: "สินค้าชำรุด/เสียหาย" },
@@ -1417,19 +1430,10 @@ const PERM_OF = { manager: "admin" };
 
 async function loadOrgPeople() {
   try {
-    // FIX (2026-08-19 audit): agents moved to the per-record `kv_records`
-    // table on 18 Aug. This still read the legacy kv_state copy, which the app
-    // no longer writes — so the Service Desk people directory was frozen at
-    // the pre-migration roster and anyone hired since was invisible here.
-    const [{ data }, { data: recs }] = await Promise.all([
-      supabase.from("kv_state").select("key,value").in("key", ["nirm-agents", "nirm-userAccounts"]),
-      supabase.from("kv_records").select("value").eq("domain", "nirm-agents"),
-    ]);
+    const { data } = await supabase.from("kv_state").select("key,value")
+      .in("key", ["nirm-agents", "nirm-userAccounts"]);
     const byKey = Object.fromEntries((data ?? []).map((r) => [r.key, r.value]));
-    const fromRecords = (recs ?? []).map((r) => r.value).filter(Boolean);
-    const roster = fromRecords.length
-      ? fromRecords
-      : (Array.isArray(byKey["nirm-agents"]) ? byKey["nirm-agents"] : []);
+    const roster = Array.isArray(byKey["nirm-agents"]) ? byKey["nirm-agents"] : [];
     const accounts = Array.isArray(byKey["nirm-userAccounts"]) ? byKey["nirm-userAccounts"] : [];
     if (!roster.length) return false;
 
@@ -2904,6 +2908,18 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
 
   const [compose, setCompose] = useState(false);  // New message window
   const [escOpen, setEscOpen] = useState(false);  // escalate-to-brand modal
+
+  // The brand directory, for the Brand picker on the case panel. Read straight
+  // from the brands table so adding a brand there makes it selectable here -
+  // no second list to keep in step. Offboarded brands stay out of the picker
+  // but an old case tagged with one still shows it (see the panel).
+  const [brandList, setBrandList] = useState([]);
+  useEffect(() => {
+    let dead = false;
+    supabase.from("brands").select("id,name").eq("offboarded", false).order("name")
+      .then(({ data }) => { if (!dead) setBrandList(data || []); });
+    return () => { dead = true; };
+  }, []);
   const [collide, setCollide] = useState(null);   // { name } — confirm before double-replying
 
   const send = (force) => {
@@ -2995,6 +3011,12 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
       if (p.priority) upd.priority = p.priority;
       if ("catKey" in p) upd.category = p.catKey || null;   // was never persisted — type reset on every refresh
       if ("order" in p) upd.order_ref = p.order || null;
+      if ("brand" in p) upd.brand = p.brand || null;
+      // brand_id is what the SLA contract was snapshotted from. Re-tagging the
+      // brand points the case at the right one for reporting; it deliberately
+      // does NOT rewrite this case's already-running clock.
+      if ("brandId" in p) upd.brand_id = p.brandId || null;
+      if ("platform" in p) upd.platform = p.platform || null;
       if (Object.keys(upd).length) supabase.from("tickets").update(upd).eq("id", tk.dbId).then(() => {});
     }
   };
@@ -3274,6 +3296,30 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             </div>
 
             <div className="p-4 border-b space-y-2.5" style={{ borderColor: "var(--line)" }}>
+              <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fBrand")}</span>
+                {/* Values are brand NAMES, because that is what tickets.brand holds
+                    and what the brands group their reports by. brand_id is set too
+                    when the name matches a row in the directory. A case already
+                    tagged with something outside the directory (an offboarded brand,
+                    or an inbox default like "CREA") keeps showing it instead of
+                    going blank. */}
+                <select className="fld" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} value={tk.brand || ""}
+                        onChange={(e) => {
+                          const name = e.target.value || null;
+                          const hit = brandList.find((b) => b.name === name);
+                          patch({ brand: name, brandId: hit ? hit.id : tk.brandId || null }, t("brandSaved"));
+                        }}>
+                  <option value="">&mdash;</option>
+                  {tk.brand && !brandList.some((b) => b.name === tk.brand) && <option value={tk.brand}>{tk.brand}</option>}
+                  {brandList.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
+                </select></div>
+              <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fPlatform")}</span>
+                <select className="fld" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} value={tk.platform || ""}
+                        onChange={(e) => patch({ platform: e.target.value || null }, t("platformSaved"))}>
+                  <option value="">&mdash;</option>
+                  {tk.platform && !PLATFORMS.includes(tk.platform) && <option value={tk.platform}>{tk.platform}</option>}
+                  {PLATFORMS.map((k) => <option key={k} value={k}>{k}</option>)}
+                </select></div>
               <div className="flex items-center justify-between"><span className="text-[12px]" style={{ color: "var(--muted)" }}>{t("fOrder")}</span>
                 {/* editable — email cases arrive without one, the agent types it in */}
                 <input className="fld" style={{ width: 160, padding: "4px 8px", fontSize: 12 }} defaultValue={tk.order || ""} key={tk.id + (tk.order || "")}
@@ -4956,16 +5002,10 @@ function SignatureSettings({ me, toast }) {
      logoUrl/logoWidth, so Enfa mail can carry the Enfa logo. */
   const saveOrg = async (patch) => {
     const next = { ...cfg, ...patch };
-    // FIX (2026-08-19 audit): this used to upsert the WHOLE org-wide signature
-    // object straight to kv_state, bypassing every safety check - no version,
-    // no merge. `cfg` is read once at mount, so saving here at 16:00 wrote back
-    // the 09:00 copy and erased every signature colleagues had saved during the
-    // day. Going through window.storage gives it the same compare-and-merge
-    // protection as the rest of NiRM.
-    try {
-      await window.storage.set("nirm-crm-signatures", next);
-      setCfg(next); toast(t("sigLogoSaved"));
-    } catch (e) { toast(e?.message || String(e), "error"); }
+    const { error } = await supabase.from("kv_state")
+      .upsert({ key: "nirm-crm-signatures", value: next }, { onConflict: "key" });
+    if (error) toast(error.message, "error");
+    else { setCfg(next); toast(t("sigLogoSaved")); }
   };
   const logoBox = box;   // one selector: the logo follows the "Signature for" mailbox choice
   const logoOwn = logoBox === SIG_ALL ? null : (cfg?.logoByMailbox || {})[logoBox] || null;   // this box's own logo
@@ -5081,15 +5121,11 @@ function SignatureSettings({ me, toast }) {
       boxes: Object.fromEntries(Object.entries(perBox).map(([b, m]) => [b, resolve(m)])),
     };
     const next = { ...cfg, byAgent: { ...(cfg.byAgent || {}), [key]: rec } };
-    // See saveOrg above - same whole-object clobber, same fix. The per-agent
-    // shape merges cleanly, so two people saving their own signature at the
-    // same time now both survive.
-    let err = null;
-    try { await window.storage.set("nirm-crm-signatures", next); }
-    catch (e) { err = e; }
+    const { error } = await supabase.from("kv_state")
+      .upsert({ key: "nirm-crm-signatures", value: next }, { onConflict: "key" });
     setBusy(false);
-    if (!err) setCfg(next);
-    toast(err ? (err.message || String(err)) : t("sigSaved"), err ? "error" : "ok");
+    if (!error) setCfg(next);
+    toast(error ? error.message : t("sigSaved"), error ? "error" : "ok");
   };
 
   if (!cfg) return null;
