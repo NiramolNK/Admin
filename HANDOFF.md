@@ -474,3 +474,45 @@ Fonts + ID card + bookbank), files a copy in
 5. Older open items from the sections above are untouched: Redshift env vars
    in Vercel for live CUSP orders, the Report-tab cost window decision, M365
    mail auto-sync (blocked on IT), Shopify webchat go-live.
+
+---
+
+## 2026-08-20 — Document compression (so the Finance batch email fits)
+
+**Problem.** The batch failed with "The object exceeded the maximum allowed size", and
+even after the bucket limit was raised the attachments were ~28 MB — over the mail limit.
+Root cause was a handful of huge scans, worst of all Otar's ID card (4.2 MB), Eve's ID
+card (4.0 MB, a 24-megapixel phone photo) and Otar's bookbank (3.4 MB).
+
+**What was done.** 17 documents were re-encoded at max 1600 px / JPEG quality 72-75 and
+written to NEW object paths (`<original>_c.jpg` / `_c.pdf`). Originals were left untouched
+in the bucket as a safety net. Agent records and the frozen snapshots on all 19 un-sent
+August invoices were then re-pointed at the compressed copies (`updated_by='doc-compress'`,
+version bumped, so open tabs pick it up over realtime).
+
+Referenced document payload for the August batch: **~18.5 MB -> 6.3 MB**. It now fits in
+one email.
+
+**Every output was checked by eye before any record was re-pointed.** That mattered: the
+first pass produced a solid-black page for Daran's bookbank (grayscale JPEG inside a PDF).
+Never re-point a record at a compressed file you have not looked at.
+
+**Bank details cross-check.** While the bookbanks were open, the account numbers for
+agents 02, 04, 05, 06, 07, 12, 15, 16 and 19 were compared against the app: all nine match.
+
+**Tooling used, and its state now.**
+- Edge function `doc-compress` (inspect / compress / ingest) — **disabled**, returns 410.
+  Source is in its version history (v3) if a future pass is needed. Its `ingest` route was
+  an upload path guarded only by a hard-coded secret, which is why it is not left open.
+- Edge function `dc-env` (env-var diagnostic) — **disabled**, returns 410.
+- The `http` Postgres extension was installed temporarily to call the function from SQL and
+  has been **dropped** again, along with the `public._dc()` helper.
+- Supabase image transformations are **not available** on this plan (`FeatureNotEnabled`),
+  which is why compression had to be hand-rolled.
+- This container cannot reach `*.supabase.co` directly (proxy blocks it). Bytes were moved
+  via the user's own machine (PowerShell + System.Drawing for the 24 MP file that was too
+  large for the edge runtime to decode) and via the device bridge.
+
+**Prevention.** `allocShrinkImage()` in `AllocationRoster2026.jsx` downscales images in the
+browser at upload time — but that code is **still un-pushed**. It also does not touch PDFs,
+so a large scanned PDF can still slip in. If the size problem returns, look at PDFs first.
