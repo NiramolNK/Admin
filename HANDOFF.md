@@ -516,3 +516,67 @@ agents 02, 04, 05, 06, 07, 12, 15, 16 and 19 were compared against the app: all 
 **Prevention.** `allocShrinkImage()` in `AllocationRoster2026.jsx` downscales images in the
 browser at upload time — but that code is **still un-pushed**. It also does not touch PDFs,
 so a large scanned PDF can still slip in. If the size problem returns, look at PDFs first.
+
+---
+
+## 2026-08-20 (later) — the August batch went out twice: once wrong, once corrected
+
+**What Finance received first.** Prim pressed Share at 16:19 Bangkok. All 19 invoices
+were delivered, but every Thai character on the invoice page printed as an empty
+box, and the email body was a monospace text block.
+
+**Root cause of the boxes.** `share-batch` fetched Sarabun through the Google Fonts
+CSS endpoint, which serves the **latin subset**. The TTF embedded without
+complaint, so the code's `thaiOk` flag stayed true and it happily drew Thai
+characters the font had no glyphs for.
+
+**share-batch v4.3 now:**
+- Loads the complete Sarabun TTF from the Google Fonts repo, caches it in storage
+  (`payroll-docs/assets/`), and **verifies it really has Thai glyphs**
+  (`hasGlyphForCodePoint` for a letter, the baht sign and a tone mark) before
+  trusting it. With no usable font the build FAILS rather than emailing boxes.
+- Page 1 is a field-for-field reproduction of the app's own Print view - the Thai
+  tax invoice: payee block, boxed title, CREA's customer details, one service
+  line for the month, net and withholding, payment channel, eSign block.
+  Addresses come from the agent record (they are not in the invoice snapshot).
+- **Every Thai string lives in `labels.ts` as \u escapes** so `index.ts` is pure
+  ASCII and the Thai cannot be mangled by an edit. All 27 strings were verified
+  against `AllocationRoster2026.jsx` by extracting text from a generated PDF.
+- Every merged document page is normalised to A4: oversized scans are scaled
+  down, smaller ones are centred on white space, nothing is enlarged. Rotation is
+  left alone (the target box is swapped for 90/270 pages).
+- Finance gets an **HTML table** (row per agent, Thai name, bank account, tax ID,
+  totals row) with the old text block kept as the plain-text fallback.
+- The "approved by" line names the invoice's OWN `managerBy`, not whoever pressed
+  the button, so a corrected copy matches the one Finance already holds.
+
+**Data fixed along the way** (snapshots frozen before the names were completed):
+08 `PHEERAPAT` -> `Ms. Pheerapat Kuayniam`, 20 `Apple` -> `Ms. Tanaporn Tonghwan`,
+09 `Mr.Supichak Rajchasic ` -> `Mr. Supichak Rajchasic`. All 20 agents now match
+April's HR table exactly, in both the agent record and the August invoice.
+
+**Teams tab.** The bottom total AND the summary tile above it both counted
+`a.active` only, so they read 161,962.50 against the 169,762.50 Finance was asked
+to pay - the gap is Ploy 5,400 + Apple 2,400 + Nan 0, all switched off but all
+with worked days. The tile also kept its own private copy of the pay-period
+maths; it now calls `computeInvoiceFigures` like everything else.
+`build/teamstotaltest.mjs` replays the real August numbers and fails if either
+place starts filtering on `active` again.
+
+**The corrected batch.** Sent as 3 emails (groups of 7) to the usual Finance list
+with Prim copied, each carrying a red "CORRECTED COPY - replaces the earlier
+email, amounts unchanged, do NOT pay twice" banner and the grand total for all 19.
+`invoice_sends` still holds **exactly the one original batch of 19 claims from
+09:19** - the resend path never claims, releases or changes a status, so no
+double payment was possible.
+
+### TOP FOLLOW-UP for next month
+Building 19 merged PDFs in ONE function call sits right on the edge-runtime
+compute limit: it succeeded once and failed twice with `WORKER_RESOURCE_LIMIT`.
+The app's Share button still sends everything in one call, so **September may fail
+the same way**. A retry is safe (failed claims are released), but the fix is to
+build and send per chunk instead of building all of them first - or have the app
+call share-batch in groups of ~7, which is what the retired `resend-batch` v2 did.
+
+Also retired: `doc-compress`, `dc-env`, `resend-batch` (all return 410; working
+source is in each function's version history).
