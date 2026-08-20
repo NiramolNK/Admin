@@ -364,6 +364,12 @@ function ShiftBoard({ agents, role, getShift }) {
     if (getShift) {
       for (const a of agents || []) {
         if (a.active === false || seen.has(a.id)) continue;
+        // T2 are the salaried full-timers. They do not run the part-time chat
+        // tally, so a roster shift for them is not a missing count - it was
+        // showing all six of them as Missing on every single shift. Anyone with
+        // REAL recorded activity is untouched: rows from the view are seeded
+        // above, so a T2 who does tap still appears.
+        if ((a.team || "") === "T2") continue;
         if (getShift(a.id, date) !== shift) continue;
         seen.set(a.id, { work_date: date, shift, agent_id: a.id, tapped_total: 0,
           event_count: 0, confirmed_total: null, submitted_at: null, reopened_at: null,
