@@ -5,6 +5,8 @@ import KnowledgeBase, { normalizeBrandName } from "./KnowledgeBase.jsx";
 import InvoiceApprovals, { InvoiceStatusBar, InvoiceBatchPanel, invoiceId, DEFAULT_FINANCE_RECIPIENTS } from "./InvoiceApprovals.jsx";
 import { supabase, onStateChange } from "./supabase.js";
 import DailyCount from "./DailyCount.jsx";
+import LiveNow from "./LiveNow.jsx";
+import { joinPresence, setPresenceTab, leavePresence } from "./livePresence.js";
 import { installFlushHooks as installTallyHooks, myAgentId as fetchMyTallyAgentId } from "./dailyTally.js";
 
 // Daily Count buffers taps in memory and flushes them on a timer and on
@@ -2489,6 +2491,31 @@ export default function AllocationPanel({ isAdmin = true }) {
     return hit ? hit.id : null;
   })();
 
+  // Presence. Joins once signed in, republishes when the tab changes, and
+  // leaves on unmount. The payload is deliberately thin — display name, role
+  // and tab label — because Realtime presence has no per-subscriber filtering,
+  // so anything published here is readable by any signed-in user on the socket.
+  const TAB_LABELS = {
+    roster:"Roster", payment:"My Invoice", invoices:"Invoice Approvals",
+    allocation:"Allocation", dates:"Dates", volume:"Performance",
+    daily:"Daily Count", agents:"Teams", budget:"Report",
+    analytics:"CS Analytics", crm:"Service Desk", kb:"Knowledge Base",
+  };
+  useEffect(() => {
+    if (!loggedIn) return;
+    const display = (agents.find(a => a.id === myTallyAgentId) || {}).name
+      || loginUser || "unknown";
+    joinPresence({ agentId: myTallyAgentId, name: display, role },
+      TAB_LABELS[allocTab] || allocTab);
+    return () => {};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedIn, myTallyAgentId, role, loginUser]);
+  useEffect(() => {
+    if (loggedIn) setPresenceTab(TAB_LABELS[allocTab] || allocTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allocTab, loggedIn]);
+  useEffect(() => () => leavePresence(), []);
+
   // Roster code for any agent on any date. allAsgn is keyed by month, then
   // `${agentId}_${YYYY-MM-DD}` — so this reads across month boundaries, which
   // matters because a pay period and a shift board both straddle them.
@@ -2810,7 +2837,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div>
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
-                {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="invoices"?"Invoice Approvals":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
+                {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="invoices"?"Invoice Approvals":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="daily"?"Daily Count":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
               </div>
               {/* Service Desk has no subtitle — the old "3 channels connected"
                   was a hardcoded demo string, not a real connection count. */}
@@ -2820,11 +2847,16 @@ export default function AllocationPanel({ isAdmin = true }) {
             </div>
           </div>
 
-          <MonthPicker
-            rosterYear={rosterYear} setRosterYear={setRosterYear}
-            rosterMonth={rosterMonth} setRosterMonth={setRosterMonth}
-            MONTHS={MONTHS}
-          />
+          <div style={{display:"flex",alignItems:"center",gap:12,marginLeft:"auto"}}>
+            {/* Who is in NiRM right now. Managers and T2 see names and the tab
+                each person is on; everyone else sees a count only. */}
+            <LiveNow canSeeNames={role==="manager" || role==="fulltime"} />
+            <MonthPicker
+              rosterYear={rosterYear} setRosterYear={setRosterYear}
+              rosterMonth={rosterMonth} setRosterMonth={setRosterMonth}
+              MONTHS={MONTHS}
+            />
+          </div>
         </div>
 
         {/* ── Content Area ── */}
