@@ -16,6 +16,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as DC from "./dailyTally";
+import { PresenceDot, usePresenceTick } from "./LiveNow.jsx";
+import { statusOf } from "./livePresence";
 
 const WORKED = new Set(["M", "ME", "E", "OT"]);
 
@@ -344,6 +346,7 @@ function ShiftBoard({ agents, role, getShift }) {
   const [date, setDate] = useState(DC.bkkToday());
   const [shift, setShift] = useState("M");
   const [msg, setMsg] = useState(null);
+  usePresenceTick();   // re-render as people come and go / go idle
   const { data, loading, error, reload } = useAsync(
     () => DC.fetchShiftBoard({ work_date: date, shift }), [date, shift]);
 
@@ -380,6 +383,11 @@ function ShiftBoard({ agents, role, getShift }) {
   }, [data, agents, getShift, date, shift]);
 
   const outstanding = rows.filter((r) => r.status !== "ended").length;
+  /* The actionable pair: someone who hasn't ended their shift AND is in the
+   * app right now can be nudged this second. Someone who hasn't ended it and
+   * went home two hours ago is a different problem — same row, same status. */
+  const reachable = rows.filter((r) => r.status !== "ended"
+    && statusOf(r.agent_id) === "online");
 
   const doReopen = async (r) => {
     try {
@@ -433,7 +441,10 @@ function ShiftBoard({ agents, role, getShift }) {
             {rows.map((r) => (
               <tr key={r.agent_id}>
                 <td style={{ ...S.td, fontWeight: 600 }}>
-                  {nameOf(r.agent_id)}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <PresenceDot agentId={r.agent_id} />
+                    {nameOf(r.agent_id)}
+                  </span>
                   {r.rostered && <span style={{ fontSize: 10.5, color: T.ink3 }}> from roster</span>}
                 </td>
                 <td style={{ ...S.td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
