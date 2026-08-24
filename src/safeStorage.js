@@ -46,6 +46,22 @@ const CLIENT_ID =
   (globalThis.crypto?.randomUUID?.() ||
     `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
+// ─── Bulk-delete guard ────────────────────────────────────────────────────
+// INCIDENT 2026-08-21 10:58: one save tombstoned all 21 agent records that
+// had a login account, in a single moment. The mechanism is in
+// setRecordDomain: any id the tab holds in its ancestor but which is MISSING
+// from the array being saved gets deleted. That is correct for a real
+// per-record delete and catastrophic for a save carrying a truncated list.
+//
+// kv_state already had this protection ("Refused: userAccounts shrank from 19
+// to 3", July) — the per-record store never got one. This is that guard.
+//
+// A genuine removal is one agent at a time from the Teams tab, so anything
+// past a handful is a bug, not an intention. Writes still go through; only
+// the deletions are refused, and the domain is re-read from the server so the
+// tab stops believing its short list.
+const MAX_BULK_DELETE = 3;
+
 // Keys stored per-record in kv_records instead of as one kv_state blob.
 // Every element of these arrays MUST carry a unique `id` (they do: agents
 // use pcode-style ids, invoices use `${agentId}__${period}`).
@@ -454,10 +470,44 @@ async function setRecordDomain(domain, arr) {
   }
   // Deletions: only ids this tab HAS SEEN (in its ancestor) and has now
   // removed. Records the tab never loaded are physically untouchable.
-  const deletes = [];
+  const doomed = [];
   for (const id of shadowM.keys()) {
-    if (!incoming.has(id)) deletes.push(casDeleteRecord(domain, id));
+    if (!incoming.has(id)) doomed.push(id);
   }
+
+  // BULK-DELETE GUARD (see MAX_BULK_DELETE at the top of this file).
+  // Refuse the deletions, keep the writes, then re-read the domain from the
+  // server so this tab stops acting on the short list it just tried to save.
+  if (doomed.length > MAX_BULK_DELETE) {
+    const detail = {
+      at: new Date().toISOString(),
+      domain,
+      wouldDelete: doomed.length,
+      keptWrites: writes.length,
+      incomingSize: incoming.size,
+      ancestorSize: shadowM.size,
+      ids: doomed.slice(0, 50),
+    };
+    console.error(
+      `[safeStorage] REFUSED bulk delete: ${domain} save would have removed ` +
+      `${doomed.length} records (incoming array had ${incoming.size}, this tab ` +
+      `knew ${shadowM.size}). Deletions blocked, writes kept. ` +
+      `Ids: ${doomed.join(", ")}`);
+    // Kept for diagnosis; the console is gone by the time anyone asks.
+    try {
+      globalThis.__nirmBlockedDeletes = globalThis.__nirmBlockedDeletes || [];
+      globalThis.__nirmBlockedDeletes.push(detail);
+      window.dispatchEvent(new CustomEvent("nirm-bulk-delete-refused", { detail }));
+    } catch (e) { /* non-browser context */ }
+
+    await Promise.all(writes);
+    // Re-read server truth and hand it to the app, so React state stops
+    // holding the truncated list that triggered this.
+    try { await fetchDomain(domain); broadcastSync(); } catch (e) {}
+    return assembleDomain(domain);
+  }
+
+  const deletes = doomed.map((id) => casDeleteRecord(domain, id));
   await Promise.all([...writes, ...deletes]);
   return assembleDomain(domain);
 }
