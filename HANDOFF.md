@@ -596,3 +596,189 @@ call share-batch in groups of ~7, which is what the retired `resend-batch` v2 di
 
 Also retired: `doc-compress`, `dc-env`, `resend-batch` (all return 410; working
 source is in each function's version history).
+
+---
+
+# DAILY COUNT + PRESENCE SESSION - HANDOFF (2026-08-21)
+
+## Goal
+Collect daily volume from the platforms that are NEITHER in Duoke NOR already in
+NiRM - Amaze, Call CC, Line MyShop, Brand.com - by having agents tap a counter
+during the shift instead of recalling a number at the end. Then show who is in
+NiRM live. Along the way: recover from a mass agent-delete (see INCIDENT below).
+
+## Decisions April made (do not re-litigate)
+| Decision | Chosen |
+|---|---|
+| What counts as 1 | One customer you replied to. Same person back later = tap again. |
+| Phone | ONE counter, "calls handled". No missed-call counter. |
+| Phone grain | Per brand, same as chat. |
+| Signing/edit window | Today and yesterday (Bangkok). Manager can reopen one shift. |
+| Presence visibility | Manager + T2 see names and current tab. Everyone else sees a count only. |
+| Show tab name | Yes. |
+
+Tap surface is small on purpose: only 8 brands carry a manual platform
+(b03/b28/b32/imp...rp6c = Amaze, b78/b79/b80 = Brand.com + Call CC,
+imp...wkh = Line MyShop) - about 11 brand-platform pairs for the whole team.
+That is why per-brand phone costs nothing: only 3 brands have Call CC.
+
+## DB installed (public AND staging, both live)
+- `daily_tally` - APPEND-ONLY tally events. Count = `SUM(delta)`.
+  **There is deliberately NO update and NO delete policy, for anyone.** A
+  miscount is a `delta = -1` row. This is the one shape a stale tab cannot wipe.
+  `event_id` is client-generated, so a re-flush / crash replay is a no-op.
+- `shift_submission` - the "End shift" press, PK (work_date, shift, agent_id).
+  Its ABSENCE is what makes a shift read Missing; a row with
+  `confirmed_total = 0` is a real quiet shift. Without it you cannot tell the
+  two apart.
+- Views (all `security_invoker`): `v_tally_daily`, `v_tally_hourly`,
+  `v_tally_brand_day`, `v_shift_status`.
+- Helpers: `bkk_today()`, `my_agent_id()`, `is_supervisor()` - SECURITY DEFINER,
+  pinned search_path, EXECUTE revoked from `anon`. Trigger functions have
+  EXECUTE revoked from authenticated too (they were exposed as RPC endpoints).
+- Trigger `daily_tally_guard` - blocks future dates, blocks shifts older than
+  yesterday unless a manager reopened that exact shift, blocks writing another
+  agent's row, blocks a non-manager writing `source <> 'manual'`.
+- RLS: agent sees own rows; `role in ('manager','fulltime')` sees all.
+- `user_id` / `submitted_by` are NULLABLE on purpose - `auth.uid()` is NULL for
+  the service role, so an importer could never have written a row otherwise.
+- 12 self-tests passed at install. Staging is seeded with 7 days of dummy taps
+  (~2,550 rows) for previewing; production tables started empty.
+
+## Agent <-> login mapping
+`my_agent_id()` matches `auth.users.email` to the agent record's `email`.
+21 of 27 agents have an auth account; the 6 A-prefixed T2 rows do not and get
+null (the screen says so plainly instead of failing). If someone reports "not
+linked", check their agent record's `email` equals their login email.
+
+## Files
+- `src/dailyTally.js` - data layer. Tap buffer lives in the MODULE, not React
+  state (the old flush-on-hide was dead code because of a stale closure over
+  `storageLoaded` with `[]` deps). Buffer mirrored to localStorage so a crash
+  does not lose an agent's afternoon; replay is safe because of `event_id`.
+  Uses plain `.from()` - the client in `supabase.js` is ALREADY schema-scoped,
+  so re-applying `.schema()` would defeat sandbox routing. Public helpers are
+  reached with `supabase.schema('public').rpc(...)`.
+- `src/DailyCount.jsx` - three views: agent My Shift (tap), Shift Board, Volume.
+- `src/livePresence.js` - Supabase Realtime Presence. No table, no writes.
+- `src/LiveNow.jsx` - header chip + `PresenceDot` + `usePresenceTick`.
+- `AllocationRoster2026.jsx` - new `daily` tab: ROLES tabs, sidebar entry+icon,
+  header title, content block, `LiveNow` in the top bar, and three wiring
+  helpers (`myTallyAgentId`, `tallyShiftFor`, `tallyBrandsFor`) next to
+  `brandsForAgentOn`. `installTallyHooks()` runs at module load, not in an
+  effect, deliberately.
+- `safeStorage.js` - the bulk-delete guard (below).
+
+Naming trap: the data layer is `dailyTally.js`, NOT `dailyCount.js`. On Windows
+a case-only difference from `DailyCount.jsx` resolves to the wrong file.
+
+## INCIDENT 2026-08-21 10:58 - all 21 agent records tombstoned in one save
+
+**Symptom.** Agents saw "No personal schedule linked ... isn't linked to an
+agent yet" and the roster rendered empty. The email on the record was correct.
+
+**What actually happened.** Every agent record that HAS a login account - 01-20
+plus F07, 21 records - had `deleted_at` set within the same minute, by the same
+`updated_by` client id, in a single save. No values were changed; `updated_at`
+stayed at its older timestamps. The 6 survivors (A01-A05, A16) are exactly the
+agents with NO auth user.
+
+**Nothing else was lost.** `nirm-allAsgn` (12 months), `nirm-allBrandAsgn`
+(6 months), `nirm-allExtraHrs`, `nirm-brands` (78), `nirm-userAccounts` (29) all
+intact. Invoices intact: 19 live for 2026-08, all 19 present in `invoice_sends`.
+The roster only LOOKED empty because it had no agents to draw rows for.
+
+**Mechanism** - `safeStorage.setRecordDomain`:
+```js
+for (const id of shadowM.keys())
+  if (!incoming.has(id)) deletes.push(casDeleteRecord(domain, id));
+```
+Anything the tab holds in its ancestor but which is MISSING from the array being
+saved gets tombstoned. Correct for a real one-agent delete; catastrophic for a
+save carrying a truncated list. `kv_state` already had a shrink guard
+("Refused: userAccounts shrank from 19 to 3"); the per-record store never did.
+
+**Recovery.** `update public.kv_records set deleted_at = null, version = version
++ 1, updated_by = 'restore-mass-delete-20260821' where domain = 'nirm-agents'
+and deleted_at is not null and deleted_at >= '2026-08-21 00:00+07' and
+updated_by <> 'duplicate-cleanup-20260819'` -> 21 restored, 27 live again.
+The nine A-prefixed duplicates from 19 Aug stay deleted. `active` flags were
+untouched, so Ploy/Nan/Apple remain deactivated as intended.
+Always bump `version` - clients CAS on it. Then hard-refresh every tab.
+
+**ROOT CAUSE NOT PROVEN.** The guard stops the damage but the line that saved
+the short array was never identified. Strongest clue: the deleted set is exactly
+the login-holding agents and the survivors exactly those without, which points
+at whatever reconciles agent records against user accounts. If it recurs,
+`window.__nirmBlockedDeletes` now records incoming/ancestor sizes and the ids.
+
+## FIX SHIPPED - bulk-delete guard (`safeStorage.js`)
+`const MAX_BULK_DELETE = 3;` plus a branch in `setRecordDomain`: if a save would
+delete more than 3 records it REFUSES the deletions, still performs the writes,
+logs every id with `console.error`, pushes the detail onto
+`window.__nirmBlockedDeletes`, fires a `nirm-bulk-delete-refused` event, and
+then re-reads the domain from the server so the tab stops acting on its short
+list (without that it would retry the same bad save every autosave). Covers
+`nirm-invoices` as well as `nirm-agents`. A genuine one-at-a-time delete from
+Teams is unaffected.
+
+## Bugs found and fixed in the new code
+1. **Missing status was unreachable.** An agent with no taps AND no End shift has
+   no row in either table, so `v_shift_status` cannot produce them - the Shift
+   Board would have shown a clean board with a person absent from it. Fixed by
+   merging the rostered list in on the client. Same trap as the invoice tests
+   where every test row had an invoice.
+2. **All 6 T2 shown as Missing on every shift** (my bug - I filtered only on
+   `active === false`). T2 are salaried and do not run the part-time tally, so
+   `DailyCount.jsx` now skips `team === "T2"` when seeding rostered-but-absent
+   rows. A T2 who genuinely taps still appears, because view rows are seeded
+   first.
+
+## What worked
+- Supabase MCP for all server work: `apply_migration`, `execute_sql`,
+  `get_advisors`. No PowerShell needed.
+- Desktop Commander `edit_block` for surgical edits to the 7,200-line
+  `AllocationRoster2026.jsx`. Because the edits were surgical, a fix another
+  session had made to `DailyCount.jsx` was NOT clobbered - check file mtimes
+  before assuming your copy is current.
+- **Node IS available on April's machine** at
+  `C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe`
+  (v24). `npm` is not, and there is no `node_modules`. Copy a `.js` to a `.mjs`
+  and run `node --check` on it for a real parse check of plain-JS files.
+- Reading `.git/HEAD` and `.git/logs/HEAD` with Get-Content to see branch and
+  recent commits. Do NOT run git - it leaves a `.git/index.lock` the bridge
+  cannot unlink and April's next commit then fails.
+- Deriving the channel vocabulary from `nirm-brands[].platforms` instead of
+  inventing one. The names Shopee/Lazada/Tiktok/Amaze/Brand.com/Call CC/Email/
+  Line MyShop already exist there.
+
+## What didn't work
+- `npm run build` locally - no npm, no node_modules. Vercel is the compile check.
+- The sandbox container cannot reach supabase.co (still true).
+- A standalone HTML preview page was the wrong answer to "can we see it in the
+  sandbox" - she meant NiRM itself. The right answer is a branch + Vercel
+  preview, which routes to `staging` automatically.
+- Selecting whole `nirm-agents` values in SQL - the base64 signature images
+  blow up the response. Select named fields only.
+
+## Next steps
+1. **Commit and push.** Presence and the guard are uncommitted in the working
+   tree on CREA-HQ (= production). Hard-refresh every device afterwards; the
+   restore bumped every version so open tabs hold stale shadows.
+2. **Extend the snapshot trigger to `kv_records`.** `kv_snapshots` only archives
+   `kv_state`, so agent and invoice records have NO version history. Recovery
+   worked this time only because the delete was soft. Fallback today is the
+   `kv_records_good_20260819` table.
+3. **Write the auto importer** for Email/Webchat (`source = 'auto'` from
+   `tickets`/`messages`). Until it exists the Volume matrix shows tapped volume
+   only - the screen says so rather than showing a fake zero.
+4. Add to the 08:00 health check: shifts with taps but no submission older than
+   yesterday, `v_shift_status.drifted = true`, and any `daily_tally` row on a
+   Duoke platform (means double counting).
+5. Only after ~2 weeks of real taps: feed actual volume into brand allocation
+   (replacing the `monthChats/30/2` estimate) and into the Report tab's
+   cost-per-chat. The `recalled` flag tells you whose numbers to trust first.
+6. Presence payload (name, role, tab) rides a shared Realtime channel with no
+   per-subscriber filtering, so the count-only view for agents is a UI rule, not
+   a wire rule. A curious agent with dev tools can read the names. Gate it in an
+   edge function if that matters.
