@@ -986,6 +986,23 @@ const D = {
   /* settings */
   chansTitle: ["Connected channels", "ช่องทางที่เชื่อมต่อ"],
   chansSub: ["Turn on the channels that should feed the inbox", "เปิดช่องทางที่ต้องการให้เคสไหลเข้ากล่องงาน"],
+  /* TikTok brand-account connections — an admin screen, so adding the
+     twentieth brand never needs a developer */
+  ttTitle: ["TikTok accounts", "บัญชี TikTok ของแบรนด์"],
+  ttSub: ["Connect each brand's TikTok account once — comments and DMs then arrive as cases", "เชื่อมบัญชี TikTok ของแต่ละแบรนด์ครั้งเดียว คอมเมนต์และแชทจะเข้ามาเป็นเคส"],
+  ttIdPh: ["TikTok Business Account ID", "TikTok Business Account ID"],
+  ttConnect: ["Connect", "เชื่อมต่อ"],
+  ttReconnect: ["Reconnect", "เชื่อมต่อใหม่"],
+  ttDisconnect: ["Disconnect", "ยกเลิกการเชื่อมต่อ"],
+  ttLive: ["Connected", "เชื่อมต่อแล้ว"],
+  ttOff: ["Not connected", "ยังไม่เชื่อมต่อ"],
+  ttNeedId: ["Enter the account ID first", "กรอก Account ID ก่อน"],
+  ttOpened: ["TikTok opened in a new tab — approve there, then press Refresh", "เปิด TikTok ในแท็บใหม่แล้ว กดอนุมัติ แล้วกลับมากด Refresh"],
+  ttRefresh: ["Refresh", "รีเฟรช"],
+  ttDropped: ["%s disconnected", "ยกเลิกการเชื่อมต่อ %s แล้ว"],
+  ttAppMissing: ["The TikTok app keys are not set in Supabase yet — Connect will not work until they are", "ยังไม่ได้ตั้งค่า TikTok app ใน Supabase ปุ่มเชื่อมต่อจะยังใช้ไม่ได้"],
+  ttShopNote: ["This is the brand's own TikTok account (video comments + DMs). TikTok Shop buyer chat is separate and still handled in Duoke.", "ช่องทางนี้คือบัญชี TikTok ของแบรนด์ (คอมเมนต์และแชทเพจ) ส่วนแชทผู้ซื้อใน TikTok Shop ยังใช้ Duoke ตามเดิม"],
+  ttSaveFail: ["Could not save — %s", "บันทึกไม่สำเร็จ — %s"],
   chanOn: ["Connected · cases arrive automatically", "เชื่อมต่อแล้ว · รับเคสอัตโนมัติ"],
   chanOff: ["Not connected", "ยังไม่เปิดใช้งาน"],
   chanTurnedOn: ["Now receiving cases from %s", "เปิดรับเคสจาก %s"],
@@ -5354,6 +5371,133 @@ function SignatureSettings({ me, toast }) {
    Retiring is a soft delete: the row stays so historic cases keep their label,
    it just stops being offered. Hard deletes are deliberately not available
    here; losing the label off every case that used it is not an undo. */
+/* ── TikTok accounts, one row per brand ────────────────────────────────────
+   The point of this screen: connecting a brand is an admin job, not a
+   developer job. The app keys are set once in Supabase; after that, adding
+   the twentieth brand is the same two actions as the first — paste its
+   Account ID, press Connect, approve on TikTok's own screen. Nothing here
+   ever holds a token: the browser only ever sees whether a brand is
+   connected, never what it is connected with. */
+function TikTokAccounts({ toast }) {
+  const [brands, setBrands] = useState([]);
+  const [state, setState] = useState({ configured: false, accounts: [], loaded: false });
+  const [ids, setIds] = useState({});      // brandId → typed account id
+  const [busy, setBusy] = useState("");
+
+  const loadStatus = async () => {
+    try {
+      const r = await fetch(`${FN_BASE}/tiktok-auth/status`);
+      if (!r.ok) throw new Error(`status ${r.status}`);
+      const d = await r.json();
+      setState({ ...d, loaded: true });
+      // show the saved account id for a brand that was linked earlier
+      setIds((p) => {
+        const n = { ...p };
+        (d.accounts || []).forEach((a) => { if (a.brand_id && !n[a.brand_id]) n[a.brand_id] = a.business_id; });
+        return n;
+      });
+    } catch (e) {
+      setState((s) => ({ ...s, loaded: true }));
+      console.warn("[CRM] TikTok status unavailable", e);
+    }
+  };
+
+  useEffect(() => {
+    supabase.from("brands").select("id,name").eq("offboarded", false).order("name")
+      .then(({ data }) => setBrands(data ?? []));
+    loadStatus();
+  }, []);
+
+  const rowFor = (brandId) => (state.accounts || []).find((a) => a.brand_id === brandId);
+  const isLive = (brandId) => Boolean(rowFor(brandId)?.live);
+
+  // Link then open TikTok in one press — two clicks for something this routine
+  // is one click too many, and the link has to exist before consent comes back.
+  const connect = async (b) => {
+    const businessId = String(ids[b.id] || "").trim();
+    if (!businessId) return toast(t("ttNeedId"), "error");
+    setBusy(b.id);
+    try {
+      const { data: s } = await supabase.auth.getSession();
+      const r = await fetch(`${FN_BASE}/tiktok-auth/link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
+        body: JSON.stringify({ business_id: businessId, brand: b.name, brand_id: b.id }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast(t("ttSaveFail", j.error || `error ${r.status}`), "error"); return; }
+      window.open(j.connectUrl, "_blank", "noopener");
+      toast(t("ttOpened"));
+      await loadStatus();
+    } catch (e) {
+      toast(t("ttSaveFail", "network error"), "error");
+    } finally { setBusy(""); }
+  };
+
+  const disconnect = async (b) => {
+    const businessId = String(ids[b.id] || rowFor(b.id)?.business_id || "").trim();
+    if (!businessId) return;
+    setBusy(b.id);
+    try {
+      const { data: s } = await supabase.auth.getSession();
+      await fetch(`${FN_BASE}/tiktok-auth/disconnect`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
+        body: JSON.stringify({ business_id: businessId }),
+      });
+      toast(t("ttDropped", b.name));
+      await loadStatus();
+    } finally { setBusy(""); }
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="kpi-ic" style={{ background: "#E3F5F3" }}><Smartphone size={20} style={{ color: "#0F766E" }} /></div>
+        <div><h3 className="font-bold text-[15px]">{t("ttTitle")}</h3>
+          <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("ttSub")}</p></div>
+        <button className="btn btn-g ml-auto" style={{ padding: "6px 12px", fontSize: 12 }} onClick={loadStatus}>{t("ttRefresh")}</button>
+      </div>
+      <p className="text-[11.5px] mb-3" style={{ color: "var(--muted)" }}>{t("ttShopNote")}</p>
+      {state.loaded && !state.configured && (
+        <div className="rounded-xl p-3 mb-3 text-[12px]" style={{ background: "var(--amber-bg, #FEF3C7)", color: "#92400E" }}>
+          {t("ttAppMissing")}
+        </div>
+      )}
+      <div className="space-y-2">
+        {brands.map((b) => {
+          const live = isLive(b.id);
+          const row = rowFor(b.id);
+          return (
+            <div key={b.id} className="flex items-center gap-2 py-2 border-b" style={{ borderColor: "#E2E8F0" }}>
+              <div style={{ width: 150 }}>
+                <b className="text-[13px]">{b.name}</b>
+                <p className="text-[11px] mt-0.5" style={{ color: live ? "var(--green)" : "var(--muted)" }}>
+                  {live ? `✓ ${t("ttLive")}` : t("ttOff")}
+                </p>
+              </div>
+              <input className="fld flex-1" placeholder={t("ttIdPh")} value={ids[b.id] || ""}
+                     onChange={(e) => setIds((p) => ({ ...p, [b.id]: e.target.value.trim() }))} />
+              <button className="btn btn-p" style={{ padding: "6px 12px", fontSize: 12 }}
+                      disabled={busy === b.id} onClick={() => connect(b)}>
+                {live ? t("ttReconnect") : t("ttConnect")}
+              </button>
+              {live && (
+                <button className="btn btn-g" style={{ padding: "6px 10px", fontSize: 12 }}
+                        disabled={busy === b.id} onClick={() => disconnect(b)}>{t("ttDisconnect")}</button>
+              )}
+              {row?.last_sync_note && (
+                <span className="text-[10.5px]" style={{ color: "var(--muted)", maxWidth: 150 }}>{row.last_sync_note}</span>
+              )}
+            </div>
+          );
+        })}
+        {!brands.length && <p className="text-[12px]" style={{ color: "var(--muted)" }}>—</p>}
+      </div>
+    </div>
+  );
+}
+
 function TaxonomySettings({ toast }) {
   const [cats, setCats] = useState([]);
   const [sts, setSts] = useState([]);
@@ -5468,6 +5612,7 @@ function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip
     <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
       <div className="space-y-4">
         <SignatureSettings me={me} toast={toast} />
+        <TikTokAccounts toast={toast} />
         <TaxonomySettings toast={toast} />
 
         <div className="card p-6">
