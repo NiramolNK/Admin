@@ -171,26 +171,39 @@ function isChannelConnected(settings, brand, key) {
 // contract so a future edge function just needs to match it:
 //   GET  {endpoint}/messages?account_id=X → { messages: [...] }
 //   POST {endpoint}/send  { account_id, conversation_id, user_id, text }
+// The edge functions answer failures with { error: "…" }, and a TikTok account
+// that has never been authorised comes back as 428 + needsConnect. Reading that
+// out is the difference between an agent seeing "comments 428" and seeing
+// "this brand is not connected yet — use the Connect link in Settings".
+async function channelError(r, what) {
+  let msg = `${what} ${r.status}`;
+  try { const j = await r.json(); if (j && j.error) msg = j.error; } catch { /* body was not JSON */ }
+  const e = new Error(msg);
+  e.status = r.status;
+  e.needsConnect = r.status === 428;
+  return e;
+}
+
 async function fetchChannelRaw(endpoint, key, accountId) {
   if (key === "tiktok_comment") {
     const r = await fetch(`${endpoint}/comments?business_id=${encodeURIComponent(accountId)}`);
-    if (!r.ok) throw new Error(`comments ${r.status}`);
+    if (!r.ok) throw await channelError(r, "comments");
     return (await r.json()).comments || [];
   }
   if (key === "tiktok_dm") {
     const r = await fetch(`${endpoint}/messages?business_id=${encodeURIComponent(accountId)}`);
-    if (!r.ok) throw new Error(`messages ${r.status}`);
+    if (!r.ok) throw await channelError(r, "messages");
     return (await r.json()).messages || [];
   }
   const r = await fetch(`${endpoint}/messages?account_id=${encodeURIComponent(accountId)}`);
-  if (!r.ok) throw new Error(`messages ${r.status}`);
+  if (!r.ok) throw await channelError(r, "messages");
   return (await r.json()).messages || [];
 }
 
 async function sendChannelMessage(endpoint, key, payload) {
   const path = key === "tiktok_comment" ? "/reply" : "/send";
   const r = await fetch(`${endpoint}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-  if (!r.ok) throw new Error(`send ${r.status}`);
+  if (!r.ok) throw await channelError(r, "send");
   return r.json();
 }
 
@@ -1184,6 +1197,27 @@ function SettingsPane({ settings, setSettings }) {
   const setI = (k, v) => setInp((p) => ({ ...p, [k]: v }));
   const [rosterCandidates, setRosterCandidates] = useState([]); // brands from Roster with an eligible SVCR platform
   const [rosterPick, setRosterPick] = useState("");
+  // Which TikTok Business Accounts have actually been authorised. Filling in an
+  // Account ID is not the same thing as TikTok granting us a token, and the old
+  // green dot only ever meant "the two boxes are filled in" — which is how a
+  // brand can look connected here and still return nothing all morning.
+  const [ttAuth, setTtAuth] = useState({ configured: false, accounts: [], loaded: false });
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      try {
+        const r = await fetch(fnUrl(settings, "tiktok-auth/status"));
+        if (!r.ok) throw new Error(`status ${r.status}`);
+        const d = await r.json();
+        if (!dead) setTtAuth({ configured: !!d.configured, accounts: d.accounts || [], redirectUri: d.redirectUri, webhookUrl: d.webhookUrl, loaded: true });
+      } catch (e) {
+        if (!dead) setTtAuth((s) => ({ ...s, loaded: true }));
+        console.warn("[SVCR] TikTok connection status unavailable", e);
+      }
+    })();
+    return () => { dead = true; };
+  }, [settings.fnBase]);
+  const ttLive = (accountId) => Boolean(accountId) && (ttAuth.accounts || []).some((a) => a.business_id === accountId && a.live);
 
   // Same auto-seed-all-channels logic used by the free-text "+ Add" below —
   // shared so the Roster dropdown picker below adds a brand identically.
@@ -1293,12 +1327,28 @@ function SettingsPane({ settings, setSettings }) {
                     const conn = getChannelConn(settings, b, c.key);
                     const connected = isChannelConnected(settings, b, c.key);
                     return (
-                      <div key={c.key} style={{ display: "grid", gridTemplateColumns: "140px 1fr 1fr", gap: 8, alignItems: "center" }}>
+                      <div key={c.key} style={{ display: "grid", gridTemplateColumns: "140px 1fr 1fr 128px", gap: 8, alignItems: "center" }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}><span style={S.dot(connected)} />{c.label}</span>
                         <input style={S.input} value={conn.accountId || ""} placeholder="Account / Channel ID"
                           onChange={(e) => setChannelField(b, c.key, "accountId", e.target.value.trim())} />
                         <input style={S.input} value={conn.endpoint || ""} placeholder={c.builtIn ? "(default) leave blank" : "Endpoint URL — not built yet"}
                           onChange={(e) => setChannelField(b, c.key, "endpoint", e.target.value.trim())} />
+                        {/* TikTok is the only channel where filling the boxes is
+                            not enough: the account itself has to authorise us.
+                            One click, TikTok's own consent screen, done. */}
+                        {c.key === "tiktok_comment" || c.key === "tiktok_dm" ? (
+                          ttLive(conn.accountId) ? (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: TEAL }}>✓ Authorised</span>
+                          ) : (
+                            <a href={conn.accountId ? `${fnUrl(settings, "tiktok-auth/start")}?business_id=${encodeURIComponent(conn.accountId)}&brand=${encodeURIComponent(b)}` : undefined}
+                               target="_blank" rel="noreferrer"
+                               title={conn.accountId ? "Sign in to TikTok and grant access for this brand" : "Fill the Account / Channel ID first"}
+                               style={{ ...S.btnGhost, textAlign: "center", padding: "6px 8px", fontSize: 11,
+                                        pointerEvents: conn.accountId ? "auto" : "none", opacity: conn.accountId ? 1 : 0.45, textDecoration: "none" }}>
+                              Connect TikTok
+                            </a>
+                          )
+                        ) : <span />}
                       </div>
                     );
                   })}
