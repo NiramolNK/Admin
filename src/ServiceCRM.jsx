@@ -473,9 +473,26 @@ function mapDbTicket(t, msgs) {
   };
 }
 
+/* TikTok video comments and DMs are cases like any other now — the Service Desk
+   page is no longer a second inbox to check. Asking the server to sync before
+   reading is cheap: tiktok-crm throttles itself to one real pull per account per
+   45s, so ten agents refreshing at once still costs TikTok one call. It never
+   blocks or breaks the inbox — if it fails, the existing cases still load. */
+async function syncTikTok() {
+  try {
+    const r = await fetch(`${FN_BASE}/tiktok-crm/sync`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    if (!r.ok) throw new Error(`sync ${r.status}`);
+  } catch (e) {
+    console.warn("[CRM] TikTok sync skipped", e);
+  }
+}
+
 async function fetchRealTickets() {
+  await syncTikTok();
   const { data: tks, error } = await supabase.from("tickets").select("*")
-    .in("channel", ["email", "webchat"]).order("created_at", { ascending: false }).limit(200);
+    .in("channel", ["email", "webchat", "tiktok"]).order("created_at", { ascending: false }).limit(200);
   if (error || !tks || !tks.length) return [];
   const ids = tks.map((t) => t.id);
   const [{ data: msgs }, { data: slas }] = await Promise.all([
@@ -2954,6 +2971,31 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
           const { error } = await supabase.from("messages").insert({ ticket_id: tk.dbId, direction: "out", channel: "webchat", author: tv(me.n), body: msgText });
           if (error) toast("💬 chat send failed — " + error.message);
           else supabase.from("tickets").update({ status: "pending" }).eq("id", tk.dbId).then(() => {});
+        })();
+      } else if (tk.channel === "tiktok") {
+        /* One reply box, two TikTok surfaces. The server knows from the case
+           whether this is a video comment or a DM and posts to the right
+           endpoint — the agent never has to know or care. Same failure
+           handling as email: a refused send puts the draft back rather than
+           quietly swallowing what was typed. */
+        (async () => {
+          try {
+            const r = await fetch(`${FN_BASE}/tiktok-crm/reply`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, agentName: tv(me.n) }),
+            });
+            if (!r.ok) {
+              const j = await r.json().catch(() => ({}));
+              let why = j.error || `error ${r.status}`;
+              if (r.status === 428) why = "this brand's TikTok account is not connected — Service Desk → Settings → Connect TikTok";
+              else if (j.detail?.message) why = j.detail.message;
+              setText((cur) => cur ? cur : msgText);
+              toast("TIKTOK REPLY NOT SENT — " + why + " · your draft was restored", "error");
+            }
+          } catch (e) {
+            setText((cur) => cur ? cur : msgText);
+            toast("TIKTOK REPLY NOT SENT — network error · your draft was restored", "error");
+          }
         })();
       } else if (tk.channel === "email") {
         (async () => {
