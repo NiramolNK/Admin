@@ -281,6 +281,15 @@ export default function KnowledgeBase({ role, canEdit }) {
         setPics(pc);
       }
 
+      // An intentionally emptied directory stays empty (2026-08-21). The whole
+      // table gets cleared before importing a fresh file, and the Roster sync
+      // below would put a blank row back for every active brand within seconds
+      // of the clear — so the table can never actually be emptied. Skip the
+      // sync while the stored list is empty AND the one-time seed has already
+      // run (so this can never be a first-load). It resumes on the next load
+      // after there is at least one row again, e.g. straight after an import.
+      if (alreadySeeded && !pc.length) { setLoaded(true); return; }
+
       // Auto-link new brands from Roster on every load — not gated by the
       // one-time seed flag above, since Roster's brand list changes over
       // time and each load should pick up anything added since the last one.
