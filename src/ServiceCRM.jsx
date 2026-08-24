@@ -492,7 +492,7 @@ async function syncTikTok() {
 async function fetchRealTickets() {
   await syncTikTok();
   const { data: tks, error } = await supabase.from("tickets").select("*")
-    .in("channel", ["email", "webchat", "tiktok"]).order("created_at", { ascending: false }).limit(200);
+    .in("channel", ["email", "webchat", "tiktok_biz"]).order("created_at", { ascending: false }).limit(200);
   if (error || !tks || !tks.length) return [];
   const ids = tks.map((t) => t.id);
   const [{ data: msgs }, { data: slas }] = await Promise.all([
@@ -1262,13 +1262,22 @@ const CH = {
   webchat:{ n: { en: "Webchat", th: "เว็บแชท" },       c: "#6366F1", bg: "#EDEDFC", ic: Globe },
   line:   { n: { en: "LINE OA", th: "LINE OA" },      c: "#06C755", bg: "#E3F9EC", ic: MessageSquare },
   fb:     { n: { en: "Facebook", th: "Facebook" },    c: "#1877F2", bg: "#E7F0FE", ic: MessageSquare },
-  tiktok: { n: { en: "TikTok Shop", th: "TikTok Shop" }, c: "#111827", bg: "#EEF0F3", ic: Smartphone },
+  /* Two different TikToks, and calling them both "TikTok" is how an agent ends
+     up answering a shop buyer on a video comment.
+       tiktok      = TikTok Shop buyer chat. Reserved, NOT connected: the Shop
+                     Customer Service API sits behind a partner-scale gate
+                     (~1,000 authorised sellers or 1M calls/day), so these cases
+                     still come through Duoke by hand.
+       tiktok_biz  = the brand's own TikTok account — video comments and account
+                     DMs. This is the one NiRM actually reads and replies to. */
+  tiktok: { n: { en: "TikTok Shop", th: "แชท TikTok Shop" }, c: "#111827", bg: "#EEF0F3", ic: ShoppingBag },
+  tiktok_biz: { n: { en: "TikTok Account", th: "TikTok บัญชีแบรนด์" }, c: "#0F766E", bg: "#E3F5F3", ic: Smartphone },
   shopee: { n: { en: "Shopee", th: "Shopee" },        c: "#EE4D2D", bg: "#FDECE8", ic: ShoppingBag },
   lazada: { n: { en: "Lazada", th: "Lazada" },        c: "#7C4DBF", bg: "#F1EAFB", ic: ShoppingBag },
   email:  { n: { en: "Email", th: "อีเมล" },           c: "#0891B2", bg: "#E0F4F8", ic: Mail },
   phone:  { n: { en: "Phone", th: "โทรศัพท์" },        c: "#0F172A", bg: "#F1F5F9", ic: Phone },
 };
-const CH_KEYS = ["email", "webchat", "phone", "line", "fb", "tiktok", "shopee", "lazada"];
+const CH_KEYS = ["email", "webchat", "phone", "line", "fb", "tiktok_biz", "tiktok", "shopee", "lazada"];
 const P1_CHANNELS = ["email", "webchat", "phone"]; // Phase 1 scope
 
 /* ── taxonomy ──────────────────────────────────────────────────────────────
@@ -2972,7 +2981,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
           if (error) toast("💬 chat send failed — " + error.message);
           else supabase.from("tickets").update({ status: "pending" }).eq("id", tk.dbId).then(() => {});
         })();
-      } else if (tk.channel === "tiktok") {
+      } else if (tk.channel === "tiktok_biz") {
         /* One reply box, two TikTok surfaces. The server knows from the case
            whether this is a video comment or a DM and posts to the right
            endpoint — the agent never has to know or care. Same failure
