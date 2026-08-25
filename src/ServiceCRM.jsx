@@ -1003,6 +1003,16 @@ const D = {
   ttAppMissing: ["The TikTok app keys are not set in Supabase yet — Connect will not work until they are", "ยังไม่ได้ตั้งค่า TikTok app ใน Supabase ปุ่มเชื่อมต่อจะยังใช้ไม่ได้"],
   ttShopNote: ["This is the brand's own TikTok account (video comments + DMs). TikTok Shop buyer chat is separate and still handled in Duoke.", "ช่องทางนี้คือบัญชี TikTok ของแบรนด์ (คอมเมนต์และแชทเพจ) ส่วนแชทผู้ซื้อใน TikTok Shop ยังใช้ Duoke ตามเดิม"],
   ttSaveFail: ["Could not save — %s", "บันทึกไม่สำเร็จ — %s"],
+  /* LINE login codes — admin only */
+  otpTitle: ["LINE login codes", "รหัสเข้าสู่ระบบ LINE"],
+  otpSub: ["One-time codes LINE emails when someone signs in to an Official Account", "รหัสใช้ครั้งเดียวที่ LINE ส่งมาตอนเข้าสู่ระบบ LINE OA"],
+  otpNone: ["No LINE codes in the last 24 hours", "ไม่มีรหัสจาก LINE ใน 24 ชั่วโมงที่ผ่านมา"],
+  otpNever: ["No LINE email has ever reached NiRM. The address LINE sends to must forward into a CREA mailbox first.", "ยังไม่เคยมีอีเมลจาก LINE เข้ามาที่ NiRM ต้องตั้งฟอร์เวิร์ดอีเมลที่ LINE ส่งไปยังเมลบ็อกซ์ CREA ก่อน"],
+  otpCopy: ["Copy", "คัดลอก"],
+  otpCopied: ["Code copied", "คัดลอกรหัสแล้ว"],
+  otpMins: ["%s min ago", "%s นาทีที่แล้ว"],
+  otpStale: ["probably expired", "น่าจะหมดอายุแล้ว"],
+  otpNoCode: ["no code found in this email", "ไม่พบรหัสในอีเมลนี้"],
   chanOn: ["Connected · cases arrive automatically", "เชื่อมต่อแล้ว · รับเคสอัตโนมัติ"],
   chanOff: ["Not connected", "ยังไม่เปิดใช้งาน"],
   chanTurnedOn: ["Now receiving cases from %s", "เปิดรับเคสจาก %s"],
@@ -5371,6 +5381,100 @@ function SignatureSettings({ me, toast }) {
    Retiring is a soft delete: the row stays so historic cases keep their label,
    it just stops being offered. Hard deletes are deliberately not available
    here; losing the label off every case that used it is not an undo. */
+/* ── LINE login codes ──────────────────────────────────────────────────────
+   Signing in to a LINE Official Account emails a one-time code to whichever
+   address is registered on it, and today that means someone opens a shared
+   mailbox and hunts for it while the code ticks down. Robot mail already gets
+   archived to platform_notifications by the email function, so the code is
+   sitting in our own database — this just pulls out the digits.
+
+   ADMIN ONLY, deliberately. A code shown here is a working key to that LINE
+   account for the next few minutes: whoever can read it can finish the login.
+   It is never emailed, forwarded or written into a case. */
+const OTP_SENDERS = ["linecorp.com", "line.me", "line-beta.me"];
+// Real LINE mail is mostly Thai/English with the code on its own line. Look
+// near a "code" word first so a random order number or year can't win, then
+// fall back to any standalone 4–8 digit run.
+const CODE_NEAR = /(?:code|verification|one[- ]time|otp|รหัส|ยืนยัน|認証|確認)[^0-9]{0,40}(\d{4,8})/i;
+const CODE_ANY = /(?<![0-9])(\d{4,8})(?![0-9])/;
+function pickCode(subject, body) {
+  const hay = `${subject || ""}\n${body || ""}`;
+  return (hay.match(CODE_NEAR)?.[1] ?? hay.match(CODE_ANY)?.[1]) || null;
+}
+
+function LineCodes({ toast }) {
+  const [rows, setRows] = useState(null);   // null = still loading
+  const [ever, setEver] = useState(true);   // has LINE mail EVER arrived?
+  const [tick, setTick] = useState(0);
+
+  const load = async () => {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    /* Match the body as well as the sender. A mailbox rule that *forwards*
+       rather than *redirects* rewrites the From to the person forwarding, so
+       sender-only matching would quietly find nothing — the original LINE
+       address survives inside the forwarded body either way. */
+    const like = OTP_SENDERS.flatMap((d) => [`sender.ilike.%${d}%`, `body.ilike.%${d}%`]).join(",");
+    const { data } = await supabase.from("platform_notifications")
+      .select("id, sender, subject, body, our_box, received_at")
+      .or(like).gte("received_at", since)
+      .order("received_at", { ascending: false }).limit(10);
+    setRows(data ?? []);
+    if (!data?.length) {
+      // distinguish "quiet today" from "this has never been wired up" — very
+      // different problems, and only one of them is worth chasing IT about
+      const { count } = await supabase.from("platform_notifications")
+        .select("id", { count: "exact", head: true }).or(like);
+      setEver(Boolean(count));
+    } else setEver(true);
+  };
+
+  useEffect(() => {
+    load().catch((e) => { console.warn("[CRM] LINE codes unavailable", e); setRows([]); });
+    const iv = setInterval(() => { setTick((n) => n + 1); load().catch(() => {}); }, 20000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const copy = (code) => {
+    navigator.clipboard?.writeText(code).then(() => toast(t("otpCopied")), () => {});
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="kpi-ic" style={{ background: "#E3F9EC" }}><MessageSquare size={20} style={{ color: "#06C755" }} /></div>
+        <div><h3 className="font-bold text-[15px]">{t("otpTitle")}</h3>
+          <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("otpSub")}</p></div>
+      </div>
+      {rows === null ? <p className="text-[12px]" style={{ color: "var(--muted)" }}>…</p>
+        : rows.length === 0 ? (
+          <p className="text-[12px]" style={{ color: "var(--muted)" }}>{ever ? t("otpNone") : t("otpNever")}</p>
+        ) : rows.map((r) => {
+          const code = pickCode(r.subject, r.body);
+          const mins = Math.max(0, Math.round((Date.now() - new Date(r.received_at)) / 60000));
+          const stale = mins > 10;
+          return (
+            <div key={r.id} className="flex items-center gap-3 py-2.5 border-b" style={{ borderColor: "#E2E8F0" }}>
+              <div style={{ minWidth: 116 }}>
+                {code ? (
+                  <b className="text-[19px] tracking-[3px]" style={{ fontFamily: "ui-monospace,Menlo,monospace", color: stale ? "var(--muted)" : "var(--ink, #0F172A)" }}>{code}</b>
+                ) : <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>{t("otpNoCode")}</span>}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] truncate">{r.subject || "—"}</p>
+                <p className="text-[11px]" style={{ color: "var(--muted)" }}>
+                  {r.our_box || r.sender} · {t("otpMins", String(mins))}{stale ? ` · ${t("otpStale")}` : ""}
+                </p>
+              </div>
+              {code && !stale && (
+                <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12 }} onClick={() => copy(code)}>{t("otpCopy")}</button>
+              )}
+            </div>
+          );
+        })}
+    </div>
+  );
+}
+
 /* ── TikTok accounts, one row per brand ────────────────────────────────────
    The point of this screen: connecting a brand is an admin job, not a
    developer job. The app keys are set once in Supabase; after that, adding
@@ -5612,6 +5716,8 @@ function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip
     <div className="grid gap-4" style={{ gridTemplateColumns: "1.2fr 1fr" }}>
       <div className="space-y-4">
         <SignatureSettings me={me} toast={toast} />
+        {/* a live login code is a working key for a few minutes — admins only */}
+        {me.role === "admin" && <LineCodes toast={toast} />}
         <TikTokAccounts toast={toast} />
         <TaxonomySettings toast={toast} />
 
