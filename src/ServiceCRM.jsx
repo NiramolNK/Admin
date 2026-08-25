@@ -2006,8 +2006,6 @@ function Dashboard({ tickets, trend, scope, go, open, me, toast }) {
 
   return (
     <div className="space-y-5">
-      {/* Every role, but only while a code is actually live — see LineCodeAlert */}
-      <LineCodeAlert me={me} toast={toast} />
       {/* ── VOLUME ── */}
       <SecHead>{t("secVolume")}</SecHead>
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${2 + chanTiles.length}, minmax(0,1fr))`, marginTop: 8 }}>
