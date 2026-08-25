@@ -782,3 +782,142 @@ Teams is unaffected.
    per-subscriber filtering, so the count-only view for agents is a UI rule, not
    a wire rule. A curious agent with dev tools can read the names. Gate it in an
    edge function if that matters.
+
+
+# SERVICE CRM + LOADER SESSION — HANDOFF (2026-08-25)
+
+## Goal
+April's day was mostly Service CRM: a Manual tab, an editable reply recipient,
+same-topic case threading, and a loading animation. One item is unfinished (the
+People tab). One thing I broke and fixed — read the incident below before
+touching AllocationRoster2026.jsx.
+
+## INCIDENT — I deleted Daily Count from the Roster (fixed same day)
+My sandbox copy of `src/AllocationRoster2026.jsx` was ~5 KB behind the repo. I
+wrote it over hers to add two lines, and it took **Daily Count, Live Now, the
+presence wiring and the tally hooks** with it (commit `a45e95a`). Restored from
+`a45e95a~1`, my two lines re-applied on top, verified live.
+
+**Rule for the next agent: never write a file you have not diffed against the
+device copy in this session.** The sandbox is not authoritative. `certutil
+-hashfile <file> MD5` on the device vs `md5sum` locally takes ten seconds.
+`otptest.mjs` now asserts Daily Count / Live Now / presence still exist in the
+Roster, so this specific loss fails a test instead of reaching production.
+(Also: in `cmd`, `^` is an escape char — `git show a45e95a^:file` silently gives
+you the WRONG commit. Use `a45e95a~1`.)
+
+## Shipped and LIVE (verified in the deployed bundle 2026-08-25 ~16:30 UTC+7)
+- **Manual tab** in Service CRM (`src/CrmManual.jsx`, new). How-to-use-the-CRM
+  doc, all CRM roles read, Manager/T2 edit, markdown-lite renderer (no
+  dangerouslySetInnerHTML). Content in new table `crm_manual`, RLS: read =
+  authenticated, write = `is_manager()`. Seeded with 7 sections written from the
+  real SLA/status/channel rules. Thai titles present, Thai bodies empty on
+  purpose (falls back to English — the team should write their own).
+- **LINE login-code card** moved to the Roster shell, **Roster tab only**, and
+  removed from the CRM dashboard (it was rendering twice).
+- **Editable To: on replies** — chips, add/remove any (including the last),
+  paste several at once, amber chips suggest real correspondents from the case.
+  Empty To disables Send rather than blocking the edit.
+- **From: outbox dropdown** on replies, and the **signature re-resolves** for the
+  chosen mailbox.
+- **Loading cat** (`src/CuteLoader.jsx` + `src/assets/cat-idle.png`). April's own
+  4-frame sprite sheet, magenta chroma-keyed with a despill pass, frames aligned
+  on the feet, 30 KB, CSS `steps()`. Hooked into `window.fetch` ONCE — counts
+  non-GET requests, so every save in the app shows it with no call-site changes.
+  250 ms grace period; `pointer-events:none` so it can never trap a click.
+  `tools/sprite.py` rebuilds the strip from any new sheet.
+- **Duplicate inbound emails fixed.** SendGrid occasionally delivered the same
+  message twice within a second and both passed the pre-insert dedupe check.
+  Removed 5 existing copies (backed up to `messages_dupe_backup_20260825`),
+  added unique index `messages_inbound_msgid_uniq (external_id, meta->>ourBox)`
+  and a BEFORE INSERT trigger that silently skips a duplicate so the webhook
+  answers 200 instead of 500.
+- **email edge function v31 deployed** (version 34, `verify_jwt` stays FALSE —
+  SendGrid cannot send a JWT). Now also in the repo at
+  `supabase/functions/email/index.ts`; it previously existed ONLY on Supabase's
+  servers with no history and no review path. Three changes: optional `to` on
+  `/send` (validated, refuses our own mailboxes, per-message only —
+  `tickets.customer_email` is never rewritten); `/recipients` returns `senders`
+  and `suggestedTo`; inbound tolerates the new unique index.
+- **Same-topic threading.** An open case is now matched on subject alone when the
+  subject is distinctive (carries a 5+ digit reference, or is 15+ chars).
+  Generic subjects ("สอบถาม", "(no subject)", "urgent") still require the same
+  sender, or two customers would end up in one case. Resolved/closed never join.
+  Mailbox groups live in kv_state key `nirm-crm-mailbox-groups`, currently
+  `[["cs.solution@crea.asia","nestlepro.cs@crea.asia","cs@crea.asia"]]` — I added
+  cs@ on my own judgement because the real Nestlé split was cs.solution vs cs@.
+  April may want it removed; it is config, not code.
+
+## The Mars case — still open, needs a human
+**TK-E10478** "Mars Shopee Order : 260529NX6RX08F". The case was opened by an
+email WE sent, so `tickets.customer_email` = `cs.solution@crea.asia` — our own
+address. Two replies on 24 Aug went To: ourselves with `contact@sea.mars.com` on
+neither To nor Cc, so Mars's case system never received the consumer's email
+address and asked again on 25 Aug. The editable To: now fixes this in the UI,
+but **nobody has actually sent the reply yet.**
+
+## What Worked
+- Reading the deployed JS bundle to prove what is actually live. `Invoke-WebRequest`
+  the index, regex the `/assets/*.js`, `.Contains()` for marker strings. This is
+  how I found the real cause of "To: still can't edit": the UI was live but the
+  function was not deployed, so the server silently ignored the `to` field.
+- Querying `function_edge_logs` for status codes per path. Note the field is
+  `log_attributes['request.pathname']`, NOT `request.path` (that returns empty),
+  and the window is capped at 24 h so a week takes seven queries.
+- Extracting the real functions out of `index.ts` with regex and running them in
+  Node to test threading rules against actual subjects (`threadtest.mjs`) —
+  tests the shipped code, not a copy that can drift.
+- Chroma-keying with a despill pass (where min(r,b) > g, pull r and b down).
+  Without it every whisker keeps a pink halo.
+- Asking before deploying to the live email path. April said "no deploy" once,
+  then chose to deploy later. Both were the right call at the time.
+
+## What Didn't Work / gotchas
+- The Supabase CLI is NOT installed on April's machine (`supabase` and `npx` both
+  unrecognised). Edge functions must be deployed via the Supabase MCP tool, which
+  needs the whole file inline in the call (~11k tokens).
+- PowerShell mangles Thai and em-dashes in console output — a signature that
+  looked corrupted ("NestlAc Professional") was fine in the database. Verify in
+  SQL before reporting data corruption.
+- `Get-FileHash ... | ForEach-Object { $_.Hash }` breaks through the MCP shell
+  (`$_` is eaten). Use `certutil -hashfile` via `cmd /c`.
+- Failed outbound sends leave NO trace in the app — the row is only written after
+  SendGrid accepts. The only record is the edge function log, which expires.
+  Worth fixing if April asks about "did this send" again.
+
+## Next steps
+1. **People tab (`UsersView`) — the unfinished item.** April: "not all people
+   here, should be automatic add when added, and can edit."
+   Findings so far:
+   - `nirm-agents` holds **23 entries, 22 active** — exactly what the tab shows.
+     The CRM is NOT dropping anyone; the missing people are missing from
+     `nirm-agents` itself. Confirm with April WHO is missing before writing code,
+     then check whether Roster › Teams actually saved them.
+   - `loadOrgPeople()` runs **once**, at mount (ServiceCRM.jsx ~line 6220). Add
+     someone in Roster › Teams and Service CRM will not show them until a full
+     reload. Needs a refresh — poll, or a Realtime subscription on `kv_state`.
+   - The tab is **read-only**, and there is a dead `add` modal in `UsersView`
+     (state and `create()` exist, no button renders it). `create()` only pushes
+     into local state — it never persists. Either wire it to write `nirm-agents`
+     or delete it; leaving it would let someone "add" a person who vanishes.
+   - One roster entry has an **empty email**, which is why the count is 23 total
+     but role/mailbox matching can miss.
+2. **Ask April about `cs@crea.asia`** in the mailbox group (see above).
+3. **Send the Mars reply** on TK-E10478 — or tell April it is still waiting.
+4. Optional, offered and not yet taken: **log failed sends** so a failure leaves a
+   visible record on the case instead of only a red toast.
+5. The threading change only affects mail arriving from now on. The two split
+   Nestlé cases (9458, 9825) from 8 Aug stay separate; merge by hand if wanted.
+
+## Files touched today
+```
+src/CrmManual.jsx            new — Manual tab
+src/CuteLoader.jsx           new — loading cat
+src/assets/cat-idle.png      new — 4-frame sprite strip, 30 KB
+tools/sprite.py              new — rebuilds the strip from a sheet
+src/ServiceCRM.jsx           Manual tab, To: chips, From: dropdown, dup card removed
+src/AllocationRoster2026.jsx LINE card Roster-only, CuteLoader mounted (SEE INCIDENT)
+supabase/functions/email/index.ts  v31 — now in the repo for the first time
+```
+Test files in the sandbox (not in the repo): cutetest, otptest, manualtest,
+totest, threadtest, plus the earlier suites. All green at end of session.
