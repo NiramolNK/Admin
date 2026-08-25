@@ -412,7 +412,12 @@ function IncomingCall({ ev, match, onAnswer, onDecline }) {
     </div>
   );
 }
-const safeAttName = (s) => (s || "file").replace(/[^\w.\-\u0E00-\u0E7F ]+/g, "_").slice(0, 120);
+/* Storage KEYS must be ASCII \u2014 Supabase Storage refuses anything else with
+   "Invalid key", so a Thai-named file (\u0E02\u0E2D\u0E07\u0E41\u0E16\u0E21\u0E0A\u0E33\u0E23\u0E38\u0E14.docx) failed to upload and
+   the agent just saw "attachment upload failed". The pretty name is kept
+   separately on the message, so nothing is lost by flattening it here: this
+   string only has to be unique and safe inside a path. */
+const safeAttName = (s) => (s || "file").replace(/[^\w.\- ]+/g, "_").slice(0, 120);
 
 function mapDbTicket(t, msgs) {
   return {
@@ -1013,6 +1018,9 @@ const D = {
   otpMins: ["%s min ago", "%s นาทีที่แล้ว"],
   otpStale: ["probably expired", "น่าจะหมดอายุแล้ว"],
   otpNoCode: ["no code found in this email", "ไม่พบรหัสในอีเมลนี้"],
+  otpLiveHint: ["just arrived — expires in a few minutes", "เพิ่งเข้ามา หมดอายุในไม่กี่นาที"],
+  otpAudit: ["Copying is recorded with your name.", "ระบบบันทึกชื่อผู้กดคัดลอก"],
+  otpLogTitle: ["Recently copied", "ประวัติการคัดลอกล่าสุด"],
   chanOn: ["Connected · cases arrive automatically", "เชื่อมต่อแล้ว · รับเคสอัตโนมัติ"],
   chanOff: ["Not connected", "ยังไม่เปิดใช้งาน"],
   chanTurnedOn: ["Now receiving cases from %s", "เปิดรับเคสจาก %s"],
@@ -1931,7 +1939,7 @@ function Login({ onLogin, lang, setLang }) {
 
 /* ═══════════════════════ DASHBOARD ═══════════════════════ */
 
-function Dashboard({ tickets, trend, scope, go, open, me }) {
+function Dashboard({ tickets, trend, scope, go, open, me, toast }) {
   const rows = scope(tickets);
   const todayIn = rows.filter((x) => x.createdAt >= days0());
   const backlog = rows.filter((x) => OPEN_ST.includes(x.status));
@@ -1991,6 +1999,8 @@ function Dashboard({ tickets, trend, scope, go, open, me }) {
 
   return (
     <div className="space-y-5">
+      {/* Every role, but only while a code is actually live — see LineCodeAlert */}
+      <LineCodeAlert me={me} toast={toast} />
       {/* ── VOLUME ── */}
       <SecHead>{t("secVolume")}</SecHead>
       <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${2 + chanTiles.length}, minmax(0,1fr))`, marginTop: 8 }}>
@@ -5402,12 +5412,95 @@ function pickCode(subject, body) {
   return (hay.match(CODE_NEAR)?.[1] ?? hay.match(CODE_ANY)?.[1]) || null;
 }
 
-function LineCodes({ toast }) {
+/* Shared by the Settings panel (24-hour history, admins) and the Dashboard
+   card (live codes only, everyone). One loader so the two can never disagree
+   about what counts as a LINE code. */
+function useLineCodes(windowMs) {
   const [rows, setRows] = useState(null);   // null = still loading
   const [ever, setEver] = useState(true);   // has LINE mail EVER arrived?
+
+  const load = async () => {
+    const since = new Date(Date.now() - windowMs).toISOString();
+    const like = OTP_SENDERS.flatMap((d) => [`sender.ilike.%${d}%`, `body.ilike.%${d}%`]).join(",");
+    const { data } = await supabase.from("platform_notifications")
+      .select("id, sender, subject, body, our_box, received_at")
+      .or(like).gte("received_at", since)
+      .order("received_at", { ascending: false }).limit(10);
+    setRows(data ?? []);
+    if (!data?.length) {
+      const { count } = await supabase.from("platform_notifications")
+        .select("id", { count: "exact", head: true }).or(like);
+      setEver(Boolean(count));
+    } else setEver(true);
+  };
+
+  useEffect(() => {
+    load().catch((e) => { console.warn("[CRM] LINE codes unavailable", e); setRows([]); });
+    const iv = setInterval(() => { load().catch(() => {}); }, 20000);
+    return () => clearInterval(iv);
+  }, [windowMs]);
+
+  return { rows, ever, reload: load };
+}
+
+/* Copying a code is the moment worth recording — that is when someone is about
+   to use it. Never store the code itself: the log must not become a second
+   place to read codes from. */
+async function copyLineCode(code, row, me, toast) {
+  try { await navigator.clipboard.writeText(code); } catch { /* clipboard blocked */ }
+  toast(t("otpCopied"));
+  try {
+    const { data: s } = await supabase.auth.getSession();
+    await supabase.from("line_code_views").insert({
+      notification_id: row?.id ?? null,
+      viewer_email: s?.session?.user?.email ?? (me?.email || null),
+      viewer_name: tv(me?.n) || null,
+      code_last2: String(code).slice(-2),
+    });
+  } catch (e) { console.warn("[CRM] could not record the code copy", e); }
+}
+
+/* Dashboard card, every role. Deliberately renders NOTHING unless a code
+   landed in the last 10 minutes: on a normal day it is invisible, and when
+   someone is mid-login it is right there without anyone hunting in Settings
+   (which agents cannot even open). */
+function LineCodeAlert({ me, toast }) {
+  const { rows } = useLineCodes(10 * 60 * 1000);
+  const live = (rows ?? []).map((r) => ({ r, code: pickCode(r.subject, r.body) })).filter((x) => x.code);
+  if (!live.length) return null;
+  return (
+    <div className="card p-4" style={{ borderLeft: "4px solid #06C755" }}>
+      <div className="flex items-center gap-2 mb-2">
+        <MessageSquare size={16} style={{ color: "#06C755" }} />
+        <b className="text-[13.5px]">{t("otpTitle")}</b>
+        <span className="text-[11px]" style={{ color: "var(--muted)" }}>{t("otpLiveHint")}</span>
+      </div>
+      {live.map(({ r, code }) => {
+        const mins = Math.max(0, Math.round((Date.now() - new Date(r.received_at)) / 60000));
+        return (
+          <div key={r.id} className="flex items-center gap-3 py-1.5">
+            <b className="text-[20px] tracking-[3px]" style={{ fontFamily: "ui-monospace,Menlo,monospace" }}>{code}</b>
+            <span className="text-[11px]" style={{ color: "var(--muted)" }}>{r.our_box || r.sender} · {t("otpMins", String(mins))}</span>
+            <button className="btn btn-g ml-auto" style={{ padding: "5px 11px", fontSize: 12 }}
+                    onClick={() => copyLineCode(code, r, me, toast)}>{t("otpCopy")}</button>
+          </div>
+        );
+      })}
+      <p className="text-[10.5px] mt-1" style={{ color: "var(--muted)" }}>{t("otpAudit")}</p>
+    </div>
+  );
+}
+
+function LineCodes({ me, toast }) {
+  const [rows, setRows] = useState(null);   // null = still loading
+  const [ever, setEver] = useState(true);   // has LINE mail EVER arrived?
+  const [log, setLog] = useState([]);
   const [tick, setTick] = useState(0);
 
   const load = async () => {
+    supabase.from("line_code_views").select("viewer_name, viewer_email, code_last2, copied_at")
+      .order("copied_at", { ascending: false }).limit(5)
+      .then(({ data }) => setLog(data ?? []));
     const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     /* Match the body as well as the sender. A mailbox rule that *forwards*
        rather than *redirects* rewrites the From to the person forwarding, so
@@ -5434,9 +5527,7 @@ function LineCodes({ toast }) {
     return () => clearInterval(iv);
   }, []);
 
-  const copy = (code) => {
-    navigator.clipboard?.writeText(code).then(() => toast(t("otpCopied")), () => {});
-  };
+  const copy = (code, row) => copyLineCode(code, row, me, toast);
 
   return (
     <div className="card p-6">
@@ -5466,11 +5557,21 @@ function LineCodes({ toast }) {
                 </p>
               </div>
               {code && !stale && (
-                <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12 }} onClick={() => copy(code)}>{t("otpCopy")}</button>
+                <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12 }} onClick={() => copy(code, r)}>{t("otpCopy")}</button>
               )}
             </div>
           );
         })}
+      {log.length > 0 && (
+        <div className="mt-3 pt-3" style={{ borderTop: "1px solid #E2E8F0" }}>
+          <p className="text-[11px] font-semibold mb-1" style={{ color: "var(--muted)" }}>{t("otpLogTitle")}</p>
+          {log.map((l, i) => (
+            <p key={i} className="text-[11px]" style={{ color: "var(--muted)" }}>
+              {l.viewer_name || l.viewer_email || "—"} · ••{l.code_last2} · {new Date(l.copied_at).toLocaleString()}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -5717,7 +5818,7 @@ function SettingsView({ chans, setChans, notif, setNotif, assign, setAssign, sip
       <div className="space-y-4">
         <SignatureSettings me={me} toast={toast} />
         {/* a live login code is a working key for a few minutes — admins only */}
-        {me.role === "admin" && <LineCodes toast={toast} />}
+        {me.role === "admin" && <LineCodes me={me} toast={toast} />}
         <TikTokAccounts toast={toast} />
         <TaxonomySettings toast={toast} />
 
@@ -6337,7 +6438,7 @@ export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav }) 
          {/* keyed by tab: a crash in one view no longer locks every other
              tab into the error screen — switching tabs gets a fresh boundary */}
          <CrmBoundary key={tab}>
-          {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} me={me} />}
+          {tab === "dash"      && <Dashboard tickets={tickets} trend={trend} scope={scope} go={setTab} open={openTicket} me={me} toast={toast} />}
           {tab === "inbox"     && <InboxView tickets={tickets} setTickets={setTickets} me={me} scope={scope} canned={canned} toast={toast} focus={focus} clearFocus={() => setFocus(null)} startCall={startCall} unread={unread} markRead={markRead} />}
           {tab === "tickets"   && <Tickets tickets={tickets} setTickets={setTickets} me={me} scope={scope} open={openTicket} toast={toast} openCustomer={openCustomer} />}
           {tab === "calls"     && <CallsView tickets={scope(tickets)} allTickets={tickets} calls={calls} queue={queue} callbacks={callbacks} setCallbacks={setCallbacks} presence={presence} setPresence={setPresence} me={me} sip={sip} routing={routing} startCall={startCall} pullCall={pullCall} onPlay={setPlayRec} toast={toast} simulateCall={simulateCall} sf={sf} />}
