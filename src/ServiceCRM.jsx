@@ -4,7 +4,7 @@ import {
   Bell, Search, Plus, Download, LogOut, Phone, X, Clock, CheckCircle2, AlertTriangle,
   Send, StickyNote, Star, ChevronRight, Save, UserPlus, Zap, Timer, Languages,
   MessageSquare, Mail, ShoppingBag, Smartphone, Tag, ArrowUpRight, Copy, Edit3,
-  ShieldCheck, Repeat, ThumbsUp, Paperclip, Globe,
+  ShieldCheck, Repeat, ThumbsUp, Paperclip, Globe, BookMarked,
   PhoneCall, PhoneOff, PhoneIncoming, PhoneOutgoing, PhoneMissed, Mic, MicOff,
   Pause, Play, Delete, Grid3x3, Radio, Server, Headphones, Link2,
 } from "lucide-react";
@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import { supabase } from "./supabase.js";
+import CrmManual from "./CrmManual.jsx";
 
 /* ── live-channel wiring (P1: email) ─────────────────────────────
    Real cases live in Supabase (tickets + messages, fed by the
@@ -551,6 +552,7 @@ const D = {
   navDash: ["Overview", "ภาพรวม"], navInbox: ["Inbox", "กล่องข้อความ"], navTickets: ["All cases", "เคสทั้งหมด"],
   navCustomers: ["Customers", "ลูกค้า"], navKb: ["Knowledge", "คลังความรู้"], navReports: ["Reports", "รายงาน"],
   navUsers: ["People", "ผู้ใช้งาน"], navSettings: ["Settings", "ตั้งค่า"],
+  navManual: ["Manual", "คู่มือ"],
 
   /* shell */
   chansConnected: ["%s channels connected", "%s ช่องทางเชื่อมต่อ"],
@@ -6068,6 +6070,7 @@ const NAV = [
   { k: "customers", key: "navCustomers", ic: Users,           roles: ["admin", "manager", "agent"] },
   { k: "esc",       key: "navEsc",       ic: ArrowUpRight,    roles: ["admin", "manager", "agent"] },
   { k: "kb",        key: "navKb",        ic: BookOpen,        roles: ["admin", "manager", "agent"] },
+  { k: "manual",    key: "navManual",    ic: BookMarked,      roles: ["admin", "manager", "agent"] },
   { k: "reports",   key: "navReports",   ic: BarChart3,       roles: ["admin", "manager"] },
   { k: "brands",    key: "navBrands",    ic: ShoppingBag,     roles: ["admin", "manager"] },
   { k: "users",     key: "navUsers",     ic: UserCog,         roles: ["admin"] },
@@ -6470,6 +6473,7 @@ export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav }) 
           {tab === "customers" && <Customers tickets={tickets} open={openTicket} toast={toast} focusKey={custFocus} clearFocus={() => setCustFocus(null)} />}
           {tab === "esc"       && <EscalationsView tickets={tickets} open={openTicket} toast={toast} />}
           {tab === "kb"        && <Knowledge kb={kb} setKb={setKb} canned={canned} setCanned={setCanned} me={me} toast={toast} />}
+          {tab === "manual"    && <CrmManual lang={lang} canEdit={me.role !== "agent"} me={me} toast={toast} />}
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
           {tab === "brands"    && <BrandsView />}
           {tab === "users"     && <UsersView users={users} setUsers={setUsers} me={me} toast={toast} />}
