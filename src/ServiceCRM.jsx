@@ -2913,7 +2913,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   /* reply-all: who else is on this email thread (To + Cc of the last inbound),
      minus the customer and our own support mailboxes — computed server-side */
   const [replyAll, setReplyAll] = useState(true);
-  const [rcpt, setRcpt] = useState({ to: "", cc: [], pinned: [] });
+  const [rcpt, setRcpt] = useState({ to: "", cc: [], pinned: [], senders: [] });
   const [dropCc, setDropCc] = useState([]);        // thread-Cc chips the agent removed
   const [dropPin, setDropPin] = useState([]);      // saved Cc skipped for THIS reply only
   const [dropForever, setDropForever] = useState([]); // saved Cc retired for future cases too
@@ -2925,11 +2925,11 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     setToList(null); setToDraft(null);
     setFromBox(null);
     const tkNow = tickets.find((x) => x.id === sel);
-    if (!tkNow?.dbId || tkNow.channel !== "email") { setRcpt({ to: "", cc: [], pinned: [] }); return; }
+    if (!tkNow?.dbId || tkNow.channel !== "email") { setRcpt({ to: "", cc: [], pinned: [], senders: [] }); return; }
     let dead = false;
     fetch(`${FN_BASE}/email/recipients?ticketId=${tkNow.dbId}`)
       .then((r) => r.json())
-      .then((d) => { if (!dead) setRcpt({ to: d.to || "", cc: d.cc || [], pinned: d.pinned || [] }); })
+      .then((d) => { if (!dead) setRcpt({ to: d.to || "", cc: d.cc || [], pinned: d.pinned || [], senders: d.senders || [] }); })
       .catch(() => {});
     return () => { dead = true; };
   }, [sel]);
@@ -3295,13 +3295,13 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                   {toActive.length === 0 && <span style={{ color: "var(--red)" }}>{t("toNone")}</span>}
                   {/* whoever actually wrote last — on a thread we opened, this is
                       the only place the real correspondent can be picked up */}
-                  {rcpt.suggestedTo && !toActive.includes(rcpt.suggestedTo) && (
-                    <button className="pill" onClick={() => setToList([...toActive, rcpt.suggestedTo])}
+                  {(rcpt.senders || []).filter((a) => !toActive.includes(a)).slice(0, 3).map((a) => (
+                    <button key={a} className="pill" onClick={() => setToList([...toActive, a])}
                             title={t("toSuggestHint")}
                             style={{ background: "var(--amber-bg)", color: "var(--amber)", cursor: "pointer", fontWeight: 600 }}>
-                      + {rcpt.suggestedTo}
+                      + {a}
                     </button>
-                  )}
+                  ))}
                   {toDraft === null ? (
                     <button onClick={() => setToDraft("")} title={t("toAddHint")}
                             style={{ color: "var(--muted)", fontWeight: 700, padding: "0 4px" }}>+</button>
