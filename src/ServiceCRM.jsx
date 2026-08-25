@@ -483,7 +483,13 @@ function mapDbTicket(t, msgs) {
    reading is cheap: tiktok-crm throttles itself to one real pull per account per
    45s, so ten agents refreshing at once still costs TikTok one call. It never
    blocks or breaks the inbox — if it fails, the existing cases still load. */
+let _ttSyncAt = 0;
 async function syncTikTok() {
+  /* The inbox reloads every 20s for every signed-in agent. The server already
+     throttles the real TikTok call, but the request itself still costs a
+     database round trip per agent per reload, so skip it here too. */
+  if (Date.now() - _ttSyncAt < 60000) return;
+  _ttSyncAt = Date.now();
   try {
     const r = await fetch(`${FN_BASE}/tiktok-crm/sync`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
@@ -5430,10 +5436,12 @@ function pickCode(subject, body) {
 /* Shared by the Settings panel (24-hour history, admins) and the Dashboard
    card (live codes only, everyone). One loader so the two can never disagree
    about what counts as a LINE code. */
-function useLineCodes(windowMs) {
+function useLineCodes(windowMs, { checkEver = false } = {}) {
   const [rows, setRows] = useState(null);   // null = still loading
   const [ever, setEver] = useState(true);   // has LINE mail EVER arrived?
 
+  /* The time-bounded read is cheap: it rides the received_at index and only
+     pattern-matches the handful of rows inside the window. */
   const load = async () => {
     const since = new Date(Date.now() - windowMs).toISOString();
     const like = OTP_SENDERS.flatMap((d) => [`sender.ilike.%${d}%`, `body.ilike.%${d}%`]).join(",");
@@ -5442,18 +5450,30 @@ function useLineCodes(windowMs) {
       .or(like).gte("received_at", since)
       .order("received_at", { ascending: false }).limit(10);
     setRows(data ?? []);
-    if (!data?.length) {
-      const { count } = await supabase.from("platform_notifications")
-        .select("id", { count: "exact", head: true }).or(like);
-      setEver(Boolean(count));
-    } else setEver(true);
   };
 
   useEffect(() => {
     load().catch((e) => { console.warn("[CRM] LINE codes unavailable", e); setRows([]); });
-    const iv = setInterval(() => { load().catch(() => {}); }, 20000);
+    /* Was 20s. Every agent with the dashboard open runs this, so the interval
+       is a per-agent multiplier on database load — and a login code is not
+       worth hammering the database that hosts the login itself. */
+    const iv = setInterval(() => { load().catch(() => {}); }, 60000);
     return () => clearInterval(iv);
   }, [windowMs]);
+
+  /* "Has LINE mail EVER arrived?" has no time bound, so it scans the whole
+     archive with six ILIKE patterns. It answers a one-off setup question, so
+     it runs ONCE, only where it is actually shown (Settings) — never on the
+     dashboard poll, which is what made it dangerous. */
+  useEffect(() => {
+    if (!checkEver) return;
+    let dead = false;
+    const like = OTP_SENDERS.flatMap((d) => [`sender.ilike.%${d}%`, `body.ilike.%${d}%`]).join(",");
+    supabase.from("platform_notifications").select("id", { count: "exact", head: true }).or(like)
+      .then(({ count }) => { if (!dead) setEver(Boolean(count)); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, [checkEver]);
 
   return { rows, ever, reload: load };
 }
@@ -5463,13 +5483,13 @@ function useLineCodes(windowMs) {
    place to read codes from. */
 async function copyLineCode(code, row, me, toast) {
   try { await navigator.clipboard.writeText(code); } catch { /* clipboard blocked */ }
-  toast(t("otpCopied"));
+  if (toast) toast(t("otpCopied"));
   try {
     const { data: s } = await supabase.auth.getSession();
     await supabase.from("line_code_views").insert({
       notification_id: row?.id ?? null,
       viewer_email: s?.session?.user?.email ?? (me?.email || null),
-      viewer_name: tv(me?.n) || null,
+      viewer_name: (me && tv(me.n)) || null,
       code_last2: String(code).slice(-2),
     });
   } catch (e) { console.warn("[CRM] could not record the code copy", e); }
@@ -5479,7 +5499,11 @@ async function copyLineCode(code, row, me, toast) {
    landed in the last 10 minutes: on a normal day it is invisible, and when
    someone is mid-login it is right there without anyone hunting in Settings
    (which agents cannot even open). */
-function LineCodeAlert({ me, toast }) {
+/* Exported: agents do not have Service CRM at all, so this also mounts in the
+   Roster shell where every role does land. Both mounts read the same rows;
+   whichever is on screen shows the same code. */
+export function LineCodeAlert({ me, toast }) {
+  const say = toast || (() => {});
   const { rows } = useLineCodes(10 * 60 * 1000);
   const live = (rows ?? []).map((r) => ({ r, code: pickCode(r.subject, r.body) })).filter((x) => x.code);
   /* The card stays put even with nothing to show. Agents asked for it: a box
@@ -5503,7 +5527,7 @@ function LineCodeAlert({ me, toast }) {
             <b className="text-[20px] tracking-[3px]" style={{ fontFamily: "ui-monospace,Menlo,monospace" }}>{code}</b>
             <span className="text-[11px]" style={{ color: "var(--muted)" }}>{r.our_box || r.sender} · {t("otpMins", String(mins))}</span>
             <button className="btn btn-g ml-auto" style={{ padding: "5px 11px", fontSize: 12 }}
-                    onClick={() => copyLineCode(code, r, me, toast)}>{t("otpCopy")}</button>
+                    onClick={() => copyLineCode(code, r, me, say)}>{t("otpCopy")}</button>
           </div>
         );
       })}
@@ -5515,39 +5539,20 @@ function LineCodeAlert({ me, toast }) {
 }
 
 function LineCodes({ me, toast }) {
-  const [rows, setRows] = useState(null);   // null = still loading
-  const [ever, setEver] = useState(true);   // has LINE mail EVER arrived?
+  /* Same loader as the dashboard card, just a 24-hour window instead of 10
+     minutes — one place decides what counts as a LINE code, so the two views
+     can never disagree. checkEver is asked for here and ONLY here: it is the
+     unbounded archive scan that answers "was this ever wired up at all", and
+     it runs once on open rather than on a timer. */
+  const { rows, ever } = useLineCodes(24 * 3600 * 1000, { checkEver: true });
   const [log, setLog] = useState([]);
-  const [tick, setTick] = useState(0);
-
-  const load = async () => {
-    supabase.from("line_code_views").select("viewer_name, viewer_email, code_last2, copied_at")
-      .order("copied_at", { ascending: false }).limit(5)
-      .then(({ data }) => setLog(data ?? []));
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-    /* Match the body as well as the sender. A mailbox rule that *forwards*
-       rather than *redirects* rewrites the From to the person forwarding, so
-       sender-only matching would quietly find nothing — the original LINE
-       address survives inside the forwarded body either way. */
-    const like = OTP_SENDERS.flatMap((d) => [`sender.ilike.%${d}%`, `body.ilike.%${d}%`]).join(",");
-    const { data } = await supabase.from("platform_notifications")
-      .select("id, sender, subject, body, our_box, received_at")
-      .or(like).gte("received_at", since)
-      .order("received_at", { ascending: false }).limit(10);
-    setRows(data ?? []);
-    if (!data?.length) {
-      // distinguish "quiet today" from "this has never been wired up" — very
-      // different problems, and only one of them is worth chasing IT about
-      const { count } = await supabase.from("platform_notifications")
-        .select("id", { count: "exact", head: true }).or(like);
-      setEver(Boolean(count));
-    } else setEver(true);
-  };
 
   useEffect(() => {
-    load().catch((e) => { console.warn("[CRM] LINE codes unavailable", e); setRows([]); });
-    const iv = setInterval(() => { setTick((n) => n + 1); load().catch(() => {}); }, 20000);
-    return () => clearInterval(iv);
+    let dead = false;
+    supabase.from("line_code_views").select("viewer_name, viewer_email, code_last2, copied_at")
+      .order("copied_at", { ascending: false }).limit(5)
+      .then(({ data }) => { if (!dead) setLog(data ?? []); });
+    return () => { dead = true; };
   }, []);
 
   const copy = (code, row) => copyLineCode(code, row, me, toast);
