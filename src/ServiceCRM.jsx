@@ -553,6 +553,15 @@ const D = {
   navCustomers: ["Customers", "ลูกค้า"], navKb: ["Knowledge", "คลังความรู้"], navReports: ["Reports", "รายงาน"],
   navUsers: ["People", "ผู้ใช้งาน"], navSettings: ["Settings", "ตั้งค่า"],
   navManual: ["Manual", "คู่มือ"],
+  toRemove: ["Remove this recipient", "นำผู้รับนี้ออก"],
+  toNone: ["no recipient — add one", "ไม่มีผู้รับ — กรุณาเพิ่ม"],
+  toAddHint: ["Add another recipient", "เพิ่มผู้รับ"],
+  toAddPh: ["name@company.com", "name@company.com"],
+  toSuggestHint: ["This is who wrote last on this case", "คนล่าสุดที่ติดต่อเข้ามาในเคสนี้"],
+  toReset: ["reset", "คืนค่าเดิม"],
+  replyFrom: ["From", "ส่งจาก"],
+  replyFromHint: ["Which mailbox this reply is sent from — the signature follows it",
+                  "กล่องจดหมายที่ใช้ส่ง — ลายเซ็นจะเปลี่ยนตามกล่องนี้"],
 
   /* shell */
   chansConnected: ["%s channels connected", "%s ช่องทางเชื่อมต่อ"],
@@ -2913,6 +2922,8 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const [ccOpen, setCcOpen] = useState(false);     // big Cc lists collapse to a count
   useEffect(() => {
     setDropCc([]); setDropPin([]); setDropForever([]); setAddCc([]); setCcDraft(null); setCcOpen(false);
+    setToList(null); setToDraft(null);
+    setFromBox(null);
     const tkNow = tickets.find((x) => x.id === sel);
     if (!tkNow?.dbId || tkNow.channel !== "email") { setRcpt({ to: "", cc: [], pinned: [] }); return; }
     let dead = false;
@@ -2922,6 +2933,34 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
       .catch(() => {});
     return () => { dead = true; };
   }, [sel]);
+  /* v31 outbox: which of our mailboxes this reply leaves from. Left on auto
+     it stays the box the case arrived at, which is right almost always — the
+     dropdown is for the cases that arrive on one desk and belong to another
+     (a Nestlé thread landing on cs.solution). Changing it re-resolves the
+     signature, because the sign-off belongs to the mailbox, not the agent. */
+  const [fromBox, setFromBox] = useState(null);
+  const fromAuto = (tk?.emailTo && !String(tk.emailTo).includes("@parse.") && OUTBOUND_MAILBOXES.includes(String(tk.emailTo).toLowerCase()))
+    ? String(tk.emailTo).toLowerCase() : EMAIL_FROM;
+  const fromActive = fromBox ?? fromAuto;
+
+  /* v30 To: the reply address is whatever opened the case, which on a thread
+     WE started is our own mailbox — so replies went back to us and the real
+     correspondent could not be reached without starting a new thread. toList
+     is null until an agent touches it; the server keeps the ticket's own
+     address untouched either way, so this is a per-message override. */
+  const [toList, setToList] = useState(null);
+  const [toDraft, setToDraft] = useState(null);
+  const toBase = (rcpt.to || tk?.email || "").toLowerCase();
+  const toActive = toList ?? (toBase ? [toBase] : []);
+  const toChanged = toList !== null;
+  const commitToDraft = () => {
+    const parts = String(toDraft || "").split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+    if (!parts.length) { setToDraft(null); return; }
+    const good = parts.filter((a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a));
+    if (good.length < parts.length) { toast("\u2709 " + t("ccBadAddr")); return; }
+    setToList([...new Set([...toActive, ...good])]);
+    setToDraft(null);
+  };
   const ccFinal = rcpt.cc.filter((a) => !dropCc.includes(a));
   const pinnedKept = rcpt.pinned.filter((a) => !dropForever.includes(a));    // still saved for the customer
   const pinnedActive = pinnedKept.filter((a) => !dropPin.includes(a));       // actually going out on this reply
@@ -2955,14 +2994,16 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     setNoSig(false); setShowSig(false);
     const tkNow = tickets.find((x) => x.id === sel);
     if (!tkNow?.dbId || tkNow.channel !== "email") { setSig(""); setSigHtmlPv(""); return; }
-    const box = (tkNow.emailTo && !tkNow.emailTo.includes("@parse.")) ? tkNow.emailTo : EMAIL_FROM;
+    /* v31: the mailbox the agent actually picked — the sign-off has to match
+       the address the customer will see in the From line. */
+    const box = fromActive;
     let dead = false;
     fetch(`${FN_BASE}/email/signature?mailbox=${encodeURIComponent(box)}&agent=${encodeURIComponent(tv(me.n))}&agentKey=${encodeURIComponent((me.email || me.id || "").toLowerCase())}`)
       .then((r) => r.json())
       .then((d) => { if (!dead) { setSig(d.signature || ""); setSigHtmlPv(d.html || ""); } })
       .catch(() => {});
     return () => { dead = true; };
-  }, [sel]);
+  }, [sel, fromActive]);
 
   const [preview, setPreview] = useState(null); // { url, name, kind: "img" | "pdf" }
   const openAtt = async (a) => {
@@ -3061,7 +3102,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             const r = await fetch(`${FN_BASE}/email/send`, {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${s?.session?.access_token ?? ""}` },
-              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: OUTBOUND_MAILBOXES.includes(String(tk.emailTo || "").toLowerCase()) ? tk.emailTo.toLowerCase() : EMAIL_FROM, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(), attachments: atts, replyAll: replyAll && !rcpt.to, cc: ccOutgoing, pinCc: ccPinList, noSignature: noSig }),
+              body: JSON.stringify({ ticketId: tk.dbId, body: msgText, fromAddress: fromActive, fromName: EMAIL_FROM_NAME, agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(), attachments: atts, replyAll: replyAll && !rcpt.to, cc: ccOutgoing, pinCc: ccPinList, noSignature: noSig, ...(toChanged ? { to: toActive } : {}) }),
             });
             /* FIX (silent lost emails): the reply box is cleared and "Message
                sent" toasted optimistically BEFORE this async send finishes.
@@ -3227,8 +3268,55 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                     <input type="checkbox" checked={replyAll} onChange={(e) => setReplyAll(e.target.checked)} style={{ accentColor: "var(--blue)" }} />
                     {t("replyAllOn")}
                   </label>
+                  <span style={{ color: "var(--muted)" }}>{t("replyFrom")}:</span>
+                  <select value={fromActive} onChange={(e) => setFromBox(e.target.value)}
+                          title={t("replyFromHint")}
+                          style={{ fontSize: 11.5, fontWeight: 600, color: "var(--blue)", background: "var(--sky)",
+                                   border: "1px solid transparent", borderRadius: 999, padding: "2px 8px", cursor: "pointer" }}>
+                    {[...new Set([fromActive, ...OUTBOUND_MAILBOXES])].map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                  {fromBox && fromBox !== fromAuto && (
+                    <button onClick={() => setFromBox(null)} style={{ color: "var(--muted)", textDecoration: "underline" }}>
+                      {t("toReset")}
+                    </button>
+                  )}
                   <span style={{ color: "var(--muted)" }}>{t("replyAllTo")}:</span>
-                  <span className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>{rcpt.to || tk.email}</span>
+                  {toActive.map((a) => (
+                    <span key={a} className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>
+                      {a}
+                      {toActive.length > 1 && (
+                        <button onClick={() => setToList(toActive.filter((x) => x !== a))}
+                                title={t("toRemove")} style={{ marginLeft: 5, opacity: .65 }}>&times;</button>
+                      )}
+                    </span>
+                  ))}
+                  {toActive.length === 0 && <span style={{ color: "var(--red)" }}>{t("toNone")}</span>}
+                  {/* whoever actually wrote last — on a thread we opened, this is
+                      the only place the real correspondent can be picked up */}
+                  {rcpt.suggestedTo && !toActive.includes(rcpt.suggestedTo) && (
+                    <button className="pill" onClick={() => setToList([...toActive, rcpt.suggestedTo])}
+                            title={t("toSuggestHint")}
+                            style={{ background: "var(--amber-bg)", color: "var(--amber)", cursor: "pointer", fontWeight: 600 }}>
+                      + {rcpt.suggestedTo}
+                    </button>
+                  )}
+                  {toDraft === null ? (
+                    <button onClick={() => setToDraft("")} title={t("toAddHint")}
+                            style={{ color: "var(--muted)", fontWeight: 700, padding: "0 4px" }}>+</button>
+                  ) : (
+                    <input autoFocus className="fld" style={{ width: 210, height: 26, fontSize: 11.5, padding: "0 8px" }}
+                           placeholder={t("toAddPh")} value={toDraft}
+                           onChange={(e) => setToDraft(e.target.value)}
+                           onBlur={commitToDraft}
+                           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); commitToDraft(); } if (e.key === "Escape") setToDraft(null); }} />
+                  )}
+                  {toChanged && (
+                    <button onClick={() => setToList(null)} style={{ color: "var(--muted)", textDecoration: "underline" }}>
+                      {t("toReset")}
+                    </button>
+                  )}
                   {replyAll && ccFinal.length === 0 && pinnedKept.length === 0 && addCc.length === 0 && (
                     <span style={{ color: "var(--muted)" }}>· {t("replyAllNone")}</span>
                   )}
