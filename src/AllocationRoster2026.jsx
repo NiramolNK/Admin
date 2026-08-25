@@ -4,6 +4,16 @@ import ServiceCRM, { crmTabsFor, LineCodeAlert } from "./ServiceCRM.jsx";
 import KnowledgeBase, { normalizeBrandName } from "./KnowledgeBase.jsx";
 import InvoiceApprovals, { InvoiceStatusBar, InvoiceBatchPanel, invoiceId, DEFAULT_FINANCE_RECIPIENTS } from "./InvoiceApprovals.jsx";
 import { supabase, onStateChange } from "./supabase.js";
+import DailyCount from "./DailyCount.jsx";
+import LiveNow from "./LiveNow.jsx";
+import { joinPresence, setPresenceTab, leavePresence } from "./livePresence.js";
+import { installFlushHooks as installTallyHooks, myAgentId as fetchMyTallyAgentId } from "./dailyTally.js";
+
+// Daily Count buffers taps in memory and flushes them on a timer and on
+// tab-hide. Installing at module load (not in an effect) keeps it out of
+// React's lifecycle entirely, which is what the old dead flush-on-hide got
+// wrong.
+installTallyHooks();
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const Ico = ({size=16,color="currentColor",style={},children}) => (
@@ -929,12 +939,12 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   // Role definitions
   const ROLES = {
-    t1:       { label:"T1",              color:"#0D9488", bg:"#F0FDFA", tabs:["roster","payment","kb"],                                                         canEdit:false },
-    return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation","payment","kb"],                                            canEdit:false },
+    t1:       { label:"T1",              color:"#0D9488", bg:"#F0FDFA", tabs:["roster","payment","daily","kb"],                                                 canEdit:false },
+    return:   { label:"RT&RF",           color:"#B91C1C", bg:"#FEE2E2", tabs:["roster","allocation","payment","daily","kb"],                                    canEdit:false },
     viewer:   { label:"Viewer",          color:"#0D9488", bg:"#F0FDFA", tabs:["roster","budget","kb"],                                                          canEdit:false },
-    fulltime: { label:"T2",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","payment","allocation","dates","volume","agents","crm","kb"],                canEdit:true  },
-    manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","dates","budget","analytics","crm","kb","invoices"], canEdit:true  },
-    cc:       { label:"CC",              color:"#7C3AED", bg:"#F3E8FF", tabs:["roster","payment","allocation","kb"],                                canEdit:false, groupScope:"shiseido" },
+    fulltime: { label:"T2",        color:"#065F46", bg:"#ECFDF5", tabs:["roster","payment","allocation","dates","volume","daily","agents","crm","kb"],        canEdit:true  },
+    manager:  { label:"Manager",         color:"#92400E", bg:"#FEF3C7", tabs:["roster","agents","allocation","volume","daily","dates","budget","analytics","crm","kb","invoices"], canEdit:true  },
+    cc:       { label:"CC",              color:"#7C3AED", bg:"#F3E8FF", tabs:["roster","payment","allocation","daily","kb"],                        canEdit:false, groupScope:"shiseido" },
   };
 
   // User accounts — stored in state, persisted to storage.
@@ -2457,6 +2467,85 @@ export default function AllocationPanel({ isAdmin = true }) {
     });
     return out;
   };
+
+  // ── Daily Count wiring ────────────────────────────────────────────────────
+  // The tally screens need three things the roster already knows: who I am as
+  // an agent, what shift someone is on, and which brands they hold that day.
+  //
+  // The agent id comes from the same my_agent_id() function the row-level
+  // security policies use, so what the screen shows and what the database will
+  // accept can never disagree. It falls back to the app's own email/name match
+  // for the 6 T2 agents who have no auth account.
+  const [tallyAgentId, setTallyAgentId] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetchMyTallyAgentId().then(id => { if (alive && id) setTallyAgentId(id); });
+    return () => { alive = false; };
+  }, [loggedIn]);
+  const myTallyAgentId = tallyAgentId || (() => {
+    const lu = (loginUser || "").toLowerCase().trim();
+    if (!lu) return null;
+    const hit = agents.find(a =>
+      (a.email && a.email.toLowerCase().trim() === lu) ||
+      (a.name  && a.name.toLowerCase().trim()  === lu));
+    return hit ? hit.id : null;
+  })();
+
+  // Presence. Joins once signed in, republishes when the tab changes, and
+  // leaves on unmount. The payload is deliberately thin — display name, role
+  // and tab label — because Realtime presence has no per-subscriber filtering,
+  // so anything published here is readable by any signed-in user on the socket.
+  const TAB_LABELS = {
+    roster:"Roster", payment:"My Invoice", invoices:"Invoice Approvals",
+    allocation:"Allocation", dates:"Dates", volume:"Performance",
+    daily:"Daily Count", agents:"Teams", budget:"Report",
+    analytics:"CS Analytics", crm:"Service Desk", kb:"Knowledge Base",
+  };
+  useEffect(() => {
+    if (!loggedIn) return;
+    const display = (agents.find(a => a.id === myTallyAgentId) || {}).name
+      || loginUser || "unknown";
+    joinPresence({ agentId: myTallyAgentId, name: display, role },
+      TAB_LABELS[allocTab] || allocTab);
+    return () => {};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedIn, myTallyAgentId, role, loginUser]);
+  useEffect(() => {
+    if (loggedIn) setPresenceTab(TAB_LABELS[allocTab] || allocTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allocTab, loggedIn]);
+  useEffect(() => () => leavePresence(), []);
+
+  // Roster code for any agent on any date. allAsgn is keyed by month, then
+  // `${agentId}_${YYYY-MM-DD}` — so this reads across month boundaries, which
+  // matters because a pay period and a shift board both straddle them.
+  const tallyShiftFor = (agentId, dateStr) => {
+    if (!agentId || !dateStr) return "";
+    const month = (allAsgn[dateStr.slice(0, 7)]) || {};
+    return month[`${agentId}_${dateStr}`] || "";
+  };
+
+  // Brand ids allocated to an agent on a date. Same matching as
+  // brandsForAgentOn (by agent NAME — that is how brandAsgn stores it today),
+  // but returns ids because the tally table keys on brand id.
+  const tallyBrandsFor = (agentId, dateStr) => {
+    const ag = agents.find(a => a.id === agentId);
+    if (!ag || !dateStr) return [];
+    const monthBrand = (allBrandAsgn[dateStr.slice(0, 7)]) || {};
+    const out = new Set();
+    brands.forEach(b => {
+      if (b.offboarded) return;
+      (b.platforms || []).forEach(plat => {
+        ["M", "ME", "E"].forEach(shift => {
+          const raw = monthBrand[`${b.id}_${dateStr}_${shift}_${plat}`];
+          const assigned = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+          if (assigned.includes(ag.name)) out.add(b.id);
+        });
+      });
+    });
+    return [...out];
+  };
+
   const myBrands = [];
   const myBrandsForDate = []; // brand assignments for the selectedRosterDate only
   if (myAgent) {
@@ -2609,7 +2698,7 @@ export default function AllocationPanel({ isAdmin = true }) {
 
         {/* Nav items */}
         <div style={{flex:1,padding:"12px 8px",display:"flex",flexDirection:"column",gap:2}}>
-          {[["roster","Roster"],["payment","My Invoice"],["invoices","Invoice Approvals"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"],["crm","Service CRM"],["kb","Knowledge Base"]].map(([t,l])=>{
+          {[["roster","Roster"],["payment","My Invoice"],["invoices","Invoice Approvals"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["daily","Daily Count"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"],["crm","Service CRM"],["kb","Knowledge Base"]].map(([t,l])=>{
             if(!allowedTabs.includes(t)) return null;
             const active2 = allocTab===t;
             const iconColor = active2?"#0D9488":"#94A3B8";
@@ -2628,6 +2717,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {t==="allocation"&&<IconGrid size={18} color={iconColor}/>}
                 {t==="dates"&&<CalendarIcon size={18} color={iconColor}/>}
                 {t==="volume"&&<IconBarChart size={18} color={iconColor}/>}
+                {t==="daily"&&<IconGrid size={18} color={iconColor}/>}
                 {t==="agents"&&<IconUsers size={18} color={iconColor}/>}
                 {t==="budget"&&<IconFileText size={18} color={iconColor}/>}
                 {t==="payment"&&<IconFileText size={18} color={iconColor}/>}
@@ -2747,7 +2837,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             <div>
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
-                {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="invoices"?"Invoice Approvals":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
+                {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="invoices"?"Invoice Approvals":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="daily"?"Daily Count":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
               </div>
               {/* Service Desk has no subtitle — the old "3 channels connected"
                   was a hardcoded demo string, not a real connection count. */}
@@ -2757,11 +2847,16 @@ export default function AllocationPanel({ isAdmin = true }) {
             </div>
           </div>
 
-          <MonthPicker
-            rosterYear={rosterYear} setRosterYear={setRosterYear}
-            rosterMonth={rosterMonth} setRosterMonth={setRosterMonth}
-            MONTHS={MONTHS}
-          />
+          <div style={{display:"flex",alignItems:"center",gap:12,marginLeft:"auto"}}>
+            {/* Who is in NiRM right now. Managers and T2 see names and the tab
+                each person is on; everyone else sees a count only. */}
+            <LiveNow canSeeNames={role==="manager" || role==="fulltime"} />
+            <MonthPicker
+              rosterYear={rosterYear} setRosterYear={setRosterYear}
+              rosterMonth={rosterMonth} setRosterMonth={setRosterMonth}
+              MONTHS={MONTHS}
+            />
+          </div>
         </div>
 
         {/* ── Content Area ── */}
@@ -2772,7 +2867,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             at all, and the whole point is that whoever is signing in to a
             LINE Official Account can read the code themselves instead of
             messaging a manager for it. Sitting above the content area, it
-            is on screen whichever tab they are on. Shows nothing but a
+            is on screen whichever tab they are on, and shows nothing but a
             one-line "no code right now" until one actually arrives. */}
         <div style={{marginBottom:16}}><LineCodeAlert /></div>
 
@@ -6745,6 +6840,22 @@ export default function AllocationPanel({ isAdmin = true }) {
               return out;
             })()}/>
           </div>
+        )}
+
+        {/* ══════════════════════════════════════════
+            DAILY COUNT TAB — tap counters for the platforms that are neither
+            in Duoke (Shopee/Lazada/Tiktok) nor in the Service Desk
+            (Email/Webchat): Amaze, Call CC, Line MyShop, Brand.com.
+        ══════════════════════════════════════════ */}
+        {allocTab==="daily" && (
+          <DailyCount
+            role={role}
+            myAgentId={myTallyAgentId}
+            agents={agents}
+            brands={brands}
+            getShift={tallyShiftFor}
+            getAgentBrands={tallyBrandsFor}
+          />
         )}
 
         {/* ══════════════════════════════════════════
