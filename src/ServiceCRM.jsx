@@ -2953,6 +2953,9 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const toBase = (rcpt.to || tk?.email || "").toLowerCase();
   const toActive = toList ?? (toBase ? [toBase] : []);
   const toChanged = toList !== null;
+  /* an email reply with an empty To would be refused by the server anyway —
+     stopping it here means the agent sees why instead of losing the draft. */
+  const noRecipient = tk?.channel === "email" && !!tk?.dbId && toActive.length === 0;
   const commitToDraft = () => {
     const parts = String(toDraft || "").split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
     if (!parts.length) { setToDraft(null); return; }
@@ -3286,10 +3289,11 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                   {toActive.map((a) => (
                     <span key={a} className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>
                       {a}
-                      {toActive.length > 1 && (
-                        <button onClick={() => setToList(toActive.filter((x) => x !== a))}
-                                title={t("toRemove")} style={{ marginLeft: 5, opacity: .65 }}>&times;</button>
-                      )}
+                      {/* removable down to none — clearing the wrong address before
+                          typing the right one is the whole point. Send is blocked
+                          while the list is empty, so an empty To cannot go out. */}
+                      <button onClick={() => setToList(toActive.filter((x) => x !== a))}
+                              title={t("toRemove")} style={{ marginLeft: 5, opacity: .65 }}>&times;</button>
                     </span>
                   ))}
                   {toActive.length === 0 && <span style={{ color: "var(--red)" }}>{t("toNone")}</span>}
@@ -3459,7 +3463,9 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                         style={{ background: isNote ? "#FFFBF2" : "#fff" }} />
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>{t("ctrlEnter")}</span>
-                <button className="btn btn-p ml-auto" disabled={!text.trim() && !files.length} onClick={send}>
+                <button className="btn btn-p ml-auto"
+                        title={noRecipient ? t("toNone") : undefined}
+                        disabled={(!text.trim() && !files.length) || noRecipient} onClick={send}>
                   {isNote ? <><StickyNote size={15} />{t("saveNote")}</> : <><Send size={15} />{t("sendBtn")}</>}
                 </button>
               </div>
