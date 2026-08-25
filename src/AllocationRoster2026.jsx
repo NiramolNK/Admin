@@ -2867,9 +2867,10 @@ export default function AllocationPanel({ isAdmin = true }) {
             at all, and the whole point is that whoever is signing in to a
             LINE Official Account can read the code themselves instead of
             messaging a manager for it. Sitting above the content area, it
-            is on screen whichever tab they are on, and shows nothing but a
-            one-line "no code right now" until one actually arrives. */}
-        <div style={{marginBottom:16}}><LineCodeAlert /></div>
+            Roster tab only: everyone passes through it, and pinning it to
+            one place keeps it out of the way on Knowledge Base, Report and
+            the rest. Shows a one-line "no code right now" until one lands. */}
+        {allocTab==="roster" && <div style={{marginBottom:16}}><LineCodeAlert /></div>}
 
         {/* ── KPI Bar — Report tab only — range-aware ── */}
         {allocTab==="budget" && role!=="viewer" && (() => {
