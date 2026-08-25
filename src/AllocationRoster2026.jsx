@@ -5,6 +5,7 @@ import KnowledgeBase, { normalizeBrandName } from "./KnowledgeBase.jsx";
 import InvoiceApprovals, { InvoiceStatusBar, InvoiceBatchPanel, invoiceId, DEFAULT_FINANCE_RECIPIENTS } from "./InvoiceApprovals.jsx";
 import { supabase, onStateChange } from "./supabase.js";
 import DailyCount from "./DailyCount.jsx";
+import CuteLoader from "./CuteLoader.jsx";
 import LiveNow from "./LiveNow.jsx";
 import { joinPresence, setPresenceTab, leavePresence } from "./livePresence.js";
 import { installFlushHooks as installTallyHooks, myAgentId as fetchMyTallyAgentId } from "./dailyTally.js";
@@ -2870,6 +2871,10 @@ export default function AllocationPanel({ isAdmin = true }) {
             Roster tab only: everyone passes through it, and pinning it to
             one place keeps it out of the way on Knowledge Base, Report and
             the rest. Shows a one-line "no code right now" until one lands. */}
+        {/* Saving overlay. Mounted once at the shell so it covers every tab
+            and Service CRM inside it; it hooks fetch, so no save button had
+            to change to get one. */}
+        <CuteLoader />
         {allocTab==="roster" && <div style={{marginBottom:16}}><LineCodeAlert /></div>}
 
         {/* ── KPI Bar — Report tab only — range-aware ── */}
