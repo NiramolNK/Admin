@@ -1021,6 +1021,7 @@ const D = {
   otpLiveHint: ["just arrived — expires in a few minutes", "เพิ่งเข้ามา หมดอายุในไม่กี่นาที"],
   otpAudit: ["Copying is recorded with your name.", "ระบบบันทึกชื่อผู้กดคัดลอก"],
   otpLogTitle: ["Recently copied", "ประวัติการคัดลอกล่าสุด"],
+  otpWaiting: ["No code right now — one appears here the moment someone signs in to LINE", "ยังไม่มีรหัส จะขึ้นทันทีที่มีการเข้าสู่ระบบ LINE"],
   chanOn: ["Connected · cases arrive automatically", "เชื่อมต่อแล้ว · รับเคสอัตโนมัติ"],
   chanOff: ["Not connected", "ยังไม่เปิดใช้งาน"],
   chanTurnedOn: ["Now receiving cases from %s", "เปิดรับเคสจาก %s"],
@@ -5405,11 +5406,25 @@ const OTP_SENDERS = ["linecorp.com", "line.me", "line-beta.me"];
 // Real LINE mail is mostly Thai/English with the code on its own line. Look
 // near a "code" word first so a random order number or year can't win, then
 // fall back to any standalone 4–8 digit run.
-const CODE_NEAR = /(?:code|verification|one[- ]time|otp|รหัส|ยืนยัน|認証|確認)[^0-9]{0,40}(\d{4,8})/i;
-const CODE_ANY = /(?<![0-9])(\d{4,8})(?![0-9])/;
+/* A code has to be ANCHORED to a code word. The first version fell back to
+   "any 4-8 digit run", which turned "\u00a9 2026 LY Corporation" into a code of
+   2026 and put a fake row on screen for every "Business ID login
+   notification" \u2014 mails that announce a sign-in and contain no code at all.
+   Two anchored shapes cover the real mail:
+     keyword then number   "Your login code is 965888", "\u0e23\u0e2b\u0e31\u0e2a\u0e22\u0e37\u0e19\u0e22\u0e31\u0e19\u2026\u0e04\u0e37\u0e2d 483920"
+     number then keyword   "965888: Your Business ID login code"
+   Thai phrasing puts a long clause between the word and the digits, hence the
+   wider gap. Nothing else counts, so an email with no code shows no row. */
+const CODE_NEAR = /(?:code|verification|one[- ]time|otp|passcode|รหัส|ยืนยัน|認証|確認)[^0-9]{0,60}(\d{4,8})/i;
+const CODE_BEFORE = /(?<![0-9])(\d{4,8})[^0-9]{0,30}(?:code|passcode|otp|รหัส)/i;
+const looksLikeYear = (n) => /^(19|20)\d{2}$/.test(n);
 function pickCode(subject, body) {
   const hay = `${subject || ""}\n${body || ""}`;
-  return (hay.match(CODE_NEAR)?.[1] ?? hay.match(CODE_ANY)?.[1]) || null;
+  const near = hay.match(CODE_NEAR)?.[1];
+  if (near && !looksLikeYear(near)) return near;
+  const before = hay.match(CODE_BEFORE)?.[1];
+  if (before && !looksLikeYear(before)) return before;
+  return null;
 }
 
 /* Shared by the Settings panel (24-hour history, admins) and the Dashboard
@@ -5467,14 +5482,20 @@ async function copyLineCode(code, row, me, toast) {
 function LineCodeAlert({ me, toast }) {
   const { rows } = useLineCodes(10 * 60 * 1000);
   const live = (rows ?? []).map((r) => ({ r, code: pickCode(r.subject, r.body) })).filter((x) => x.code);
-  if (!live.length) return null;
+  /* The card stays put even with nothing to show. Agents asked for it: a box
+     that only exists sometimes is a box nobody learns to look at, and the
+     first thought when a code is missing should be "none yet" rather than
+     "where did that panel go". */
   return (
     <div className="card p-4" style={{ borderLeft: "4px solid #06C755" }}>
       <div className="flex items-center gap-2 mb-2">
         <MessageSquare size={16} style={{ color: "#06C755" }} />
         <b className="text-[13.5px]">{t("otpTitle")}</b>
-        <span className="text-[11px]" style={{ color: "var(--muted)" }}>{t("otpLiveHint")}</span>
+        {live.length > 0 && <span className="text-[11px]" style={{ color: "var(--muted)" }}>{t("otpLiveHint")}</span>}
       </div>
+      {live.length === 0 && (
+        <p className="text-[12px]" style={{ color: "var(--muted)" }}>{t("otpWaiting")}</p>
+      )}
       {live.map(({ r, code }) => {
         const mins = Math.max(0, Math.round((Date.now() - new Date(r.received_at)) / 60000));
         return (
@@ -5486,7 +5507,9 @@ function LineCodeAlert({ me, toast }) {
           </div>
         );
       })}
-      <p className="text-[10.5px] mt-1" style={{ color: "var(--muted)" }}>{t("otpAudit")}</p>
+      {live.length > 0 && (
+        <p className="text-[10.5px] mt-1" style={{ color: "var(--muted)" }}>{t("otpAudit")}</p>
+      )}
     </div>
   );
 }
@@ -5528,6 +5551,8 @@ function LineCodes({ me, toast }) {
   }, []);
 
   const copy = (code, row) => copyLineCode(code, row, me, toast);
+  /* only mails that actually carry a code \u2014 a "login notification" has none */
+  const withCodes = (rows ?? []).map((r) => ({ r, code: pickCode(r.subject, r.body) })).filter((x) => x.code);
 
   return (
     <div className="card p-6">
@@ -5537,18 +5562,15 @@ function LineCodes({ me, toast }) {
           <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("otpSub")}</p></div>
       </div>
       {rows === null ? <p className="text-[12px]" style={{ color: "var(--muted)" }}>…</p>
-        : rows.length === 0 ? (
+        : withCodes.length === 0 ? (
           <p className="text-[12px]" style={{ color: "var(--muted)" }}>{ever ? t("otpNone") : t("otpNever")}</p>
-        ) : rows.map((r) => {
-          const code = pickCode(r.subject, r.body);
+        ) : withCodes.map(({ r, code }) => {
           const mins = Math.max(0, Math.round((Date.now() - new Date(r.received_at)) / 60000));
           const stale = mins > 10;
           return (
             <div key={r.id} className="flex items-center gap-3 py-2.5 border-b" style={{ borderColor: "#E2E8F0" }}>
               <div style={{ minWidth: 116 }}>
-                {code ? (
-                  <b className="text-[19px] tracking-[3px]" style={{ fontFamily: "ui-monospace,Menlo,monospace", color: stale ? "var(--muted)" : "var(--ink, #0F172A)" }}>{code}</b>
-                ) : <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>{t("otpNoCode")}</span>}
+                <b className="text-[19px] tracking-[3px]" style={{ fontFamily: "ui-monospace,Menlo,monospace", color: stale ? "var(--muted)" : "var(--ink, #0F172A)" }}>{code}</b>
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[12px] truncate">{r.subject || "—"}</p>
@@ -5556,7 +5578,7 @@ function LineCodes({ me, toast }) {
                   {r.our_box || r.sender} · {t("otpMins", String(mins))}{stale ? ` · ${t("otpStale")}` : ""}
                 </p>
               </div>
-              {code && !stale && (
+              {!stale && (
                 <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12 }} onClick={() => copy(code, r)}>{t("otpCopy")}</button>
               )}
             </div>
