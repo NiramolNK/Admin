@@ -2289,14 +2289,17 @@ export default function AllocationPanel({ isAdmin = true }) {
   // ── Export Allocation to Excel (CSV) ──────────────────────────────────────
   const exportAllocXLSX = () => {
     const allRows = [["Shift","Brand","Group","Platform","Chats/mo","Assigned Agent(s)","Date"]];
-    ["M","E"].forEach(shift => {
-      const shiftLabel = shift==="M" ? "Morning" : "Evening";
+    // Three sections, reading through allocCellNames so the file says exactly
+    // what the screen says: Morning and Evening are the shift's own people, Mid
+    // is the ME agents. Reading the raw slots here would have put every ME agent
+    // back into every Morning and Evening row, and left out Mid altogether.
+    [["M","Morning"],["ME","Mid"],["E","Evening"]].forEach(([shift, shiftLabel]) => {
       dates.forEach(d => {
         brands.forEach(b => {
           (b.platforms||[]).forEach(plat => {
-            const k = `${b.id}_${d.date}_${shift}_${plat}`;
-            const raw = brandAsgn[k];
-            const names = [...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+            if (ccBrandClosedOn(b, d.date)) return; // brand shut — no row at all
+            const names = allocCellNames(b.id, d.date, shift, plat);
+            if (shift === "ME" && !names.length) return; // no Mid cover that day
             allRows.push([shiftLabel, b.name, b.wh||"", plat, b.chats?.[plat]||0, names.join(", ")||"Unassigned", `${d.dd}/${d.mm}`]);
           });
         });
@@ -2311,17 +2314,33 @@ export default function AllocationPanel({ isAdmin = true }) {
     if (!selDate) return;
     const dateLabel = `${selDate.dd}/${selDate.mm} ${selDate.day}`;
     let html = `<h1>Allocation — ${dateLabel}</h1>`;
-    ["M","E"].forEach(shift => {
-      const shiftLabel = shift==="M" ? "AM" : "PM";
+    // Same three sections as the screen and the Excel export. MID is skipped
+    // entirely on a day nobody is on ME, rather than printing an empty table.
+    [["M","AM"],["ME","MID"],["E","PM"]].forEach(([shift, shiftLabel]) => {
+      const anyMid = shift !== "ME" || brands.some(b => (b.platforms||[]).some(p =>
+        allocCellNames(b.id, selDate.date, "ME", p).length));
+      if (!anyMid) return;
       html += `<h2>${shiftLabel} Shift</h2><table>`;
       html += `<thead><tr><th>#</th><th style="text-align:left;min-width:140px">Brand</th><th>Group</th><th>Platform</th><th>Chats/mo</th><th style="text-align:left;min-width:120px">Assigned Agent(s)</th><th>Status</th></tr></thead><tbody>`;
       let n = 0;
       brands.forEach(b => {
         (b.platforms||[]).forEach(plat => {
-          const k = `${b.id}_${selDate.date}_${shift}_${plat}`;
-          const raw = brandAsgn[k];
-          const names = [...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+          const closed = ccBrandClosedOn(b, selDate.date);
+          const names = closed ? [] : allocCellNames(b.id, selDate.date, shift, plat);
+          if (closed && shift !== "M") return;  // shut brand: one row, on the AM page only
           n++;
+          if (closed) {
+            html += `<tr>
+              <td>${n}</td>
+              <td style="text-align:left;font-weight:600">${b.name}</td>
+              <td>${b.wh||"—"}</td>
+              <td style="font-weight:700">${plat}</td>
+              <td style="text-align:right">${(b.chats?.[plat]||0).toLocaleString()}</td>
+              <td style="text-align:left">—</td>
+              <td style="color:#64748b;font-weight:700">Closed Sun</td>
+            </tr>`;
+            return;
+          }
           const pc = PLATFORM_C[plat];
           html += `<tr>
             <td>${n}</td>
@@ -2629,34 +2648,44 @@ export default function AllocationPanel({ isAdmin = true }) {
   // The MID tab used to read those non-existent ME keys, so its Assigned column
   // was permanently empty. It now reads the ME-rostered names back out of the M
   // and E slots, and an edit made there writes to both. One source of truth.
+  const allocMEToday = (n, dateStr) => agents.some(a =>
+    a.name === n && a.active !== false && allocShiftCodeOn(a.id, dateStr) === "ME");
   const allocCellNames = (brandId, dateStr, shift, plat, map) => {
     const src = map || brandAsgn;
-    if (shift !== "ME") return [...new Set(allocToArr(src[`${brandId}_${dateStr}_${shift}_${plat}`]))];
-    const isMEToday = (n) => agents.some(a =>
-      a.name === n && a.active !== false && allocShiftCodeOn(a.id, dateStr) === "ME");
-    return [...new Set([
-      ...allocToArr(src[`${brandId}_${dateStr}_M_${plat}`]),
-      ...allocToArr(src[`${brandId}_${dateStr}_E_${plat}`]),
-    ])].filter(isMEToday);
+    if (shift === "ME") {
+      return [...new Set([
+        ...allocToArr(src[`${brandId}_${dateStr}_M_${plat}`]),
+        ...allocToArr(src[`${brandId}_${dateStr}_E_${plat}`]),
+      ])].filter(n => allocMEToday(n, dateStr));
+    }
+    // AM and PM hide the ME people. They cover every brand, so leaving them in
+    // put the same two names on every single row and buried the person who
+    // actually owns the morning or the evening. MID is where they are read and
+    // edited; the three tabs now each answer one question. Note this hides ONLY
+    // people rostered ME — somebody in the wrong grid still shows (in red), or
+    // the drift banner would have nothing to point at.
+    return [...new Set(allocToArr(src[`${brandId}_${dateStr}_${shift}_${plat}`]))]
+      .filter(n => !allocMEToday(n, dateStr));
   };
-  // Writing through the lens. For M and E this is the plain write it always was.
-  // For MID the names go into both halves, and anyone who is NOT on ME that day
-  // is left exactly where they are — editing the MID view must never disturb the
-  // morning-only or evening-only people sharing those same cells.
+  // Writing through the lens, in both directions. Each tab may only change the
+  // people it can see; whoever it hides is carried through untouched. Without
+  // this, saving an AM cell would silently wipe the ME agents out of it — they
+  // live in that same slot and the AM view no longer lists them.
   const allocSetCell = (brandId, dateStr, shift, plat, names) => {
     safeSetBrandAsgn(p => {
       const next = { ...p };
-      const put = (s, list) => {
-        const key = `${brandId}_${dateStr}_${s}_${plat}`;
-        if (list.length) next[key] = list; else delete next[key];
-      };
-      if (shift !== "ME") { put(shift, [...new Set(names)]); return next; }
-      const isMEToday = (n) => agents.some(a =>
-        a.name === n && a.active !== false && allocShiftCodeOn(a.id, dateStr) === "ME");
-      ["M", "E"].forEach(s => {
-        const keep = allocToArr(next[`${brandId}_${dateStr}_${s}_${plat}`]).filter(n => !isMEToday(n));
-        put(s, [...new Set([...keep, ...names])]);
-      });
+      const key = (s) => `${brandId}_${dateStr}_${s}_${plat}`;
+      const put = (s, list) => { if (list.length) next[key(s)] = list; else delete next[key(s)]; };
+      const isME = (n) => allocMEToday(n, dateStr);
+      if (shift === "ME") {
+        // MID edits land in BOTH halves and leave the M-only / E-only people be.
+        ["M", "E"].forEach(s => put(s, [...new Set([
+          ...allocToArr(next[key(s)]).filter(n => !isME(n)), ...names])]));
+        return next;
+      }
+      // AM / PM edits keep the ME people already in this slot.
+      put(shift, [...new Set([
+        ...allocToArr(next[key(shift)]).filter(isME), ...names])]);
       return next;
     });
   };
@@ -5091,7 +5120,13 @@ export default function AllocationPanel({ isAdmin = true }) {
           const workingM = getWorkingAgents(selDate.date,"M");
           const workingME = getWorkingAgents(selDate.date,"ME");
           const workingE = getWorkingAgents(selDate.date,"E");
-          const pool = allocShiftF==="M" ? workingM : allocShiftF==="ME" ? workingME : workingE;
+          // getWorkingAgents puts ME people in the M and E pools too, which is
+          // right for coverage — but the AM and PM grids no longer list them, so
+          // leaving them here gave every ME agent a filter chip reading 0 brands.
+          // They stay in the Morning/Evening pills above (real coverage) and in
+          // the "+ Add" dropdown; the grid's own pool is the shift's own people.
+          const pool = allocShiftF==="ME" ? workingME
+            : (allocShiftF==="M" ? workingM : workingE).filter(a => !workingME.some(m => m.id === a.id));
 
           // Filter brands by search + agent filter
           const filteredBrands = brands.filter(b => {
