@@ -2593,7 +2593,11 @@ export default function AllocationPanel({ isAdmin = true }) {
     return agents.some(a => {
       if (a.name !== name || a.active === false) return false;
       const code = allocShiftCodeOn(a.id, dateStr, override);
-      if (code === "ME") return shift === "M" || shift === "E";
+      // ME (12:00–21:00) straddles both halves of the day, so an ME agent is
+      // valid in an M slot, an E slot AND an ME slot. Missing that last case
+      // would have flagged an ME agent sitting in the MID view as drift and
+      // quietly removed them.
+      if (code === "ME") return shift === "M" || shift === "E" || shift === "ME";
       return code === shift;
     });
   };
