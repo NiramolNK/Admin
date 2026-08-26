@@ -403,20 +403,21 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
     // RULE (ME period, 12:00–21:00): ME-shift agents are added as an EXTRA
     // covering agent on EVERY brand's M-slot AND E-slot — on top of, not
     // instead of, whoever the regular M-shift/E-shift assignment above
-    // already picked. Round-robins across the ME pool (if more than one
-    // person is on ME that day) so the full brand list is spread evenly
-    // across however many ME agents are working, rather than piling every
-    // brand onto a single person or every ME agent onto every brand.
+    // already picked.
+    //
+    // RULE (April, 2026-08-25): EVERY ME agent covers EVERY brand. The ME
+    // period spans the whole trading day, so an ME agent is not a half-share
+    // of the brand list — they carry all of it. This used to round-robin the
+    // brand list across the ME pool, which meant that with two people on ME
+    // each of them only appeared on half the brands.
     if (working.ME.length) {
-      let meIdx = 0;
       dateBrands.forEach(b => {
         (b.platforms||[]).forEach(plat => {
-          const meAgent = working.ME[meIdx % working.ME.length].name;
-          meIdx++;
           ["M","E"].forEach(shift => {
             const k = `${b.id}_${d.date}_${shift}_${plat}`;
             const existing = result[k] || [];
-            if (!existing.includes(meAgent)) result[k] = [...existing, meAgent];
+            const add = working.ME.map(a => a.name).filter(n => !existing.includes(n));
+            if (add.length) result[k] = [...existing, ...add];
           });
         });
       });
@@ -2599,6 +2600,44 @@ export default function AllocationPanel({ isAdmin = true }) {
       // quietly removed them.
       if (code === "ME") return shift === "M" || shift === "E" || shift === "ME";
       return code === shift;
+    });
+  };
+  // ── The MID (ME) view is a lens, not a store ──────────────────────────────
+  // Auto-Allocate writes an ME agent into the M slot AND the E slot, because
+  // 12:00–21:00 genuinely covers both halves of the day. Nothing has ever been
+  // written under an `_ME_` key — all 41,000 cells in the live data are M or E.
+  // The MID tab used to read those non-existent ME keys, so its Assigned column
+  // was permanently empty. It now reads the ME-rostered names back out of the M
+  // and E slots, and an edit made there writes to both. One source of truth.
+  const allocCellNames = (brandId, dateStr, shift, plat, map) => {
+    const src = map || brandAsgn;
+    if (shift !== "ME") return [...new Set(allocToArr(src[`${brandId}_${dateStr}_${shift}_${plat}`]))];
+    const isMEToday = (n) => agents.some(a =>
+      a.name === n && a.active !== false && allocShiftCodeOn(a.id, dateStr) === "ME");
+    return [...new Set([
+      ...allocToArr(src[`${brandId}_${dateStr}_M_${plat}`]),
+      ...allocToArr(src[`${brandId}_${dateStr}_E_${plat}`]),
+    ])].filter(isMEToday);
+  };
+  // Writing through the lens. For M and E this is the plain write it always was.
+  // For MID the names go into both halves, and anyone who is NOT on ME that day
+  // is left exactly where they are — editing the MID view must never disturb the
+  // morning-only or evening-only people sharing those same cells.
+  const allocSetCell = (brandId, dateStr, shift, plat, names) => {
+    safeSetBrandAsgn(p => {
+      const next = { ...p };
+      const put = (s, list) => {
+        const key = `${brandId}_${dateStr}_${s}_${plat}`;
+        if (list.length) next[key] = list; else delete next[key];
+      };
+      if (shift !== "ME") { put(shift, [...new Set(names)]); return next; }
+      const isMEToday = (n) => agents.some(a =>
+        a.name === n && a.active !== false && allocShiftCodeOn(a.id, dateStr) === "ME");
+      ["M", "E"].forEach(s => {
+        const keep = allocToArr(next[`${brandId}_${dateStr}_${s}_${plat}`]).filter(n => !isMEToday(n));
+        put(s, [...new Set([...keep, ...names])]);
+      });
+      return next;
     });
   };
   // Everyone named in ONE day's grid who is not actually on that shift.
@@ -5018,16 +5057,7 @@ export default function AllocationPanel({ isAdmin = true }) {
           const workingE = getWorkingAgents(selDate.date,"E");
           const pool = allocShiftF==="M" ? workingM : allocShiftF==="ME" ? workingME : workingE;
 
-          // For ME view: only show high-volume brands (top 30%)
-          const brandVolSorted = [...brands].sort((a,b) => {
-            const va = (a.platforms||[]).reduce((s,p)=>s+(a.chats?.[p]||0),0);
-            const vb = (b.platforms||[]).reduce((s,p)=>s+(b.chats?.[p]||0),0);
-            return vb - va;
-          });
-          const highVolCount = Math.max(3, Math.ceil(brands.length * 0.3));
-          const highVolIds = new Set(brandVolSorted.slice(0, highVolCount).map(b=>b.id));
-
-          // Filter brands by search + agent filter + ME high-vol filter
+          // Filter brands by search + agent filter
           const filteredBrands = brands.filter(b => {
             // FIX (Offboarded brands): hide offboarded brands from the
             // allocation grid so agents can't be assigned to them and the
@@ -5048,17 +5078,14 @@ export default function AllocationPanel({ isAdmin = true }) {
             // a "Starts…" badge, and auto-allocate still skips them (it checks
             // startDate per-day itself).
             if (b.startDate && selDate?.date && b.startDate.slice(0,7) > selDate.date.slice(0,7)) return false;
-            // ME shift: only show high-volume brands
-            if (allocShiftF==="ME" && !highVolIds.has(b.id)) return false;
+            // MID used to list only the top-30% busiest brands. An ME agent
+            // covers the WHOLE brand list, so hiding two thirds of it made the
+            // tab lie about their day. Every shift now shows every brand.
             const matchesSearch = brandSearch==="" || b.name.toLowerCase().includes(brandSearch.toLowerCase());
             if (!matchesSearch) return false;
             if (!allocAgentFilter) return true;
-            return (b.platforms||[]).some(plat => {
-              const k = `${b.id}_${selDate.date}_${allocShiftF}_${plat}`;
-              const raw = brandAsgn[k];
-              const names = [...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
-              return names.includes(allocAgentFilter);
-            });
+            return (b.platforms||[]).some(plat =>
+              allocCellNames(b.id, selDate.date, allocShiftF, plat).includes(allocAgentFilter));
           });
 
           return (
@@ -5232,9 +5259,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     const assignedBrands = new Set();
                     brands.forEach(b => {
                       (b.platforms||[]).forEach(plat => {
-                        const k=`${b.id}_${selDate.date}_${allocShiftF}_${plat}`;
-                        const raw=brandAsgn[k];
-                        const names=[...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+                        const names = allocCellNames(b.id, selDate.date, allocShiftF, plat);
                         if(names.includes(ag.name)) {
                           assignedBrands.add(b.id);
                           // FIX (round-7 review LOW): use per-month chats from monthlyVol
@@ -5271,9 +5296,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     let agentChats = 0;
                     brands.forEach(b => {
                       (b.platforms||[]).forEach(plat => {
-                        const k=`${b.id}_${selDate.date}_${allocShiftF}_${plat}`;
-                        const raw=brandAsgn[k];
-                        const names=[...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
+                        const names = allocCellNames(b.id, selDate.date, allocShiftF, plat);
                         if(names.includes(allocAgentFilter)) {
                           const monthChats = getBrandChats(b, plat, monthlyVol, selMk || currentMK);
                           agentChats += Math.round(monthChats / 30 / 2 / Math.max(names.length,1));
@@ -5336,18 +5359,12 @@ export default function AllocationPanel({ isAdmin = true }) {
                         const allPlats = b.platforms && b.platforms.length > 0 ? b.platforms : ["—"];
                         // When filtering by agent, only show platforms assigned to that agent
                         const visPlats = allocAgentFilter
-                          ? allPlats.filter(plat => {
-                              if(plat==="—") return false;
-                              const k = `${b.id}_${selDate.date}_${allocShiftF}_${plat}`;
-                              const raw = brandAsgn[k];
-                              const names = [...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))];
-                              return names.includes(allocAgentFilter);
-                            })
+                          ? allPlats.filter(plat => plat !== "—" &&
+                              allocCellNames(b.id, selDate.date, allocShiftF, plat).includes(allocAgentFilter))
                           : allPlats;
                         if(visPlats.length===0) return null;
                         return visPlats.map((plat, pi) => {
                           const isRealPlat = plat !== "—";
-                          const k = isRealPlat ? `${b.id}_${selDate.date}_${allocShiftF}_${plat}` : null;
                           const pc = isRealPlat ? PLATFORM_C[plat] : null;
                           const rowBg = bi%2===0 ? "#FAFBFC" : "transparent";
                           return (
@@ -5408,8 +5425,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                               <td style={{padding:"6px 12px",borderRight:"1px solid #F1F5F9",textAlign:"right"}}>
                                 {isRealPlat ? (() => {
                                   const monthly = b.chats?.[plat] || 0;
-                                  const raw = brandAsgn[k];
-                                  const agentCount = Math.max([...new Set(Array.isArray(raw)?raw:(raw?[raw]:[]))].length, 1);
+                                  const agentCount = Math.max(allocCellNames(b.id, selDate.date, allocShiftF, plat).length, 1);
                                   const avgTotal = Math.round(monthly / 30 / 2);
                                   const avgPerAgent = Math.round(avgTotal / agentCount);
                                   return (
@@ -5429,8 +5445,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                               {/* Assigned agents — chips + add dropdown */}
                               <td style={{padding:"5px 10px",borderRight:"1px solid #F1F5F9",minWidth:180}}>
                                 {isRealPlat ? (() => {
-                                  const raw = brandAsgn[k];
-                                  const assigned = [...new Set(Array.isArray(raw) ? raw : (raw ? [raw] : []))];
+                                  const assigned = allocCellNames(b.id, selDate.date, allocShiftF, plat);
                                   const allOnShift = pool.map(a=>a.name);
                                   /* FIX (CC brands could not be manually assigned): the manual
                                      dropdown only offered T1 agents, but auto-allocate is
@@ -5443,8 +5458,11 @@ export default function AllocationPanel({ isAdmin = true }) {
                                   const offShift = agents.filter(a=>a.active && !pool.some(p=>p.id===a.id));
                                   const available = [...pool, ...offShift];
                                   const unassigned = available.filter(a=>!assigned.includes(a.name));
-                                  const removeAgent = (name) => { if(isLocked) return; safeSetBrandAsgn(p=>({...p,[k]:assigned.filter(n=>n!==name)})); };
-                                  const addAgent = (name) => { if(isLocked) return; if(name && !assigned.includes(name)) safeSetBrandAsgn(p=>({...p,[k]:[...assigned,name]})); };
+                                  // allocSetCell, not a raw write: in the MID view the names
+                                  // belong in both the M and the E slot, and the M-only and
+                                  // E-only people in those cells must be left untouched.
+                                  const removeAgent = (name) => { if(isLocked) return; allocSetCell(b.id, selDate.date, allocShiftF, plat, assigned.filter(n=>n!==name)); };
+                                  const addAgent = (name) => { if(isLocked) return; if(name && !assigned.includes(name)) allocSetCell(b.id, selDate.date, allocShiftF, plat, [...assigned, name]); };
                                   return (
                                     <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
                                       {assigned.map(name => {
@@ -5476,8 +5494,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                               {/* Status */}
                               <td style={{padding:"6px 12px",borderRight:"1px solid #F1F5F9"}}>
                                 {isRealPlat && (() => {
-                                  const raw = brandAsgn[k];
-                                  const assigned = [...new Set(Array.isArray(raw) ? raw : (raw ? [raw] : []))];
+                                  const assigned = allocCellNames(b.id, selDate.date, allocShiftF, plat);
                                   const count = assigned.length;
                                   const allOnShift = assigned.every(n => pool.some(a=>a.name===n));
                                   return (
