@@ -3,7 +3,7 @@ import CSAnalyticsTab from "./CSAnalyticsTab.jsx";
 import ServiceCRM, { crmTabsFor, LineCodeAlert } from "./ServiceCRM.jsx";
 import KnowledgeBase, { normalizeBrandName } from "./KnowledgeBase.jsx";
 import InvoiceApprovals, { InvoiceStatusBar, InvoiceBatchPanel, invoiceId, DEFAULT_FINANCE_RECIPIENTS } from "./InvoiceApprovals.jsx";
-import { supabase, onStateChange } from "./supabase.js";
+import { supabase, onStateChange, docSignedUrl, docSignedUrls } from "./supabase.js";
 import DailyCount from "./DailyCount.jsx";
 import CuteLoader from "./CuteLoader.jsx";
 import LiveNow from "./LiveNow.jsx";
@@ -68,6 +68,45 @@ const ALLOC_SHIFT_C = {M:{bg:"#DBEAFE",color:"#1D4ED8",label:"M"},ME:{bg:"#F0FDF
    counted as worked, not paid, and auto-fill treats it as fixed. The separate
    code only records where the day off came from. */
 const isOffCode = (v) => v === "Off" || v === "RO";
+/* ── Showing a payroll document ─────────────────────────────────────────────
+   payroll-docs is a private bucket, so an ID card or bookbank cannot be put in
+   an <img src> directly any more - the src has to be signed first, and signing
+   is asynchronous. These three wrappers are the only way a payroll document
+   should ever be rendered; a raw src on a stored URL will simply show nothing
+   once the bucket is closed.
+
+   The stored value is never modified. docSignedUrl() translates it and caches
+   the result, so a table of twenty agents signs each object once, not once per
+   render. */
+function useDocSrc(stored) {
+  const [state, setState] = useState({ src: null, status: stored ? "loading" : "empty" });
+  useEffect(() => {
+    let alive = true;
+    if (!stored) { setState({ src: null, status: "empty" }); return; }
+    setState({ src: null, status: "loading" });
+    docSignedUrl(stored)
+      .then(u => { if (alive) setState({ src: u, status: u ? "ready" : "error" }); })
+      .catch(() => { if (alive) setState({ src: null, status: "error" }); });
+    return () => { alive = false; };
+  }, [stored]);
+  return state;
+}
+function DocImg({ stored, alt = "", style, fallback = null }) {
+  const { src, status } = useDocSrc(stored);
+  if (status === "empty") return fallback;
+  if (status === "error") return <span style={{ fontSize: 10, color: "#B91C1C" }}>could not load</span>;
+  // Hold the layout while signing so the row does not jump.
+  if (status === "loading") return <div style={{ ...style, background: "#F1F5F9" }} />;
+  return <img src={src} alt={alt} style={style} />;
+}
+function DocLink({ stored, children, style }) {
+  const { src, status } = useDocSrc(stored);
+  const dead = { ...style, opacity: 0.5, pointerEvents: "none" };
+  if (status !== "ready") {
+    return <span style={dead}>{status === "error" ? "unavailable" : children}</span>;
+  }
+  return <a href={src} target="_blank" rel="noreferrer" style={style}>{children}</a>;
+}
 /* RULE (April, 2026-08-25): a brand with a Call CC channel NEVER operates on a
    Sunday. The CC team works Mon–Sat, and this is a fact about the brand's
    service, not about who happens to be on duty — so it holds even if somebody
@@ -3222,7 +3261,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {/* Personal header — full name (preferred), profile photo, agent ID badge */}
                 <div style={{background:"#fff",borderRadius:14,border:"1px solid #E2E8F0",padding:"20px 24px",marginBottom:16,display:"flex",alignItems:"center",gap:16}}>
                   {myAgent.profilePhotoUrl
-                    ? <img src={myAgent.profilePhotoUrl} alt="" style={{width:48,height:48,borderRadius:12,objectFit:"cover"}}/>
+                    ? <DocImg stored={myAgent.profilePhotoUrl} style={{width:48,height:48,borderRadius:12,objectFit:"cover"}}/>
                     : <div style={{width:48,height:48,borderRadius:12,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,fontWeight:700,color:"#0D9488"}}>{(myAgent.fullName || myAgent.name).charAt(0)}</div>}
                   <div style={{flex:1}}>
                     <div style={{fontSize:18,fontWeight:700,color:"#0F172A"}}>
@@ -4365,8 +4404,15 @@ export default function AllocationPanel({ isAdmin = true }) {
             }, 50);
           };
 
-          const printInvoice = () => {
+          // Async now: payroll-docs is private, so the ID card and bookbank
+          // srcs have to be signed BEFORE this HTML string is built. The window
+          // is opened first regardless - popup blockers only allow window.open
+          // inside the click, not after an await.
+          const printInvoice = async () => {
             const w = window.open("", "_blank", "width=900,height=1200");
+            const [idCardSrc, bookbankSrc] = await docSignedUrls([
+              myPayrollAgent.idCardPhotoUrl, myPayrollAgent.bookbankPhotoUrl,
+            ]);
             if (!w) { alert("Allow pop-ups to print"); return; }
             const fmtBaht = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             w.document.write(`<!DOCTYPE html><html><head><title>Invoice ${invoiceNumber}</title>
@@ -4424,16 +4470,16 @@ export default function AllocationPanel({ isAdmin = true }) {
                   ${signature ? `<div style="font-size:9px;color:#0D9488;margin-top:3px">✓ ลงนามอิเล็กทรอนิกส์ผ่านระบบ NiRM</div>` : `<div style="font-size:9px;color:#aaa;margin-top:3px">(ยังไม่ได้ลงนาม)</div>`}
                 </div>
               </div>
-              ${myPayrollAgent.idCardPhotoUrl ? `
+              ${idCardSrc ? `
                 <div style="page-break-before:always;padding-top:40px">
                   <h2 style="font-size:14px;font-weight:700;margin-bottom:10px;text-align:center">สำเนาบัตรประชาชน / ID Card</h2>
-                  <div style="text-align:center"><img src="${myPayrollAgent.idCardPhotoUrl}" style="max-width:100%;max-height:600px;border:1px solid #ccc" crossorigin="anonymous"/></div>
+                  <div style="text-align:center"><img src="${idCardSrc}" style="max-width:100%;max-height:600px;border:1px solid #ccc" crossorigin="anonymous"/></div>
                 </div>
               ` : ""}
-              ${myPayrollAgent.bookbankPhotoUrl ? `
+              ${bookbankSrc ? `
                 <div style="page-break-before:always;padding-top:40px">
                   <h2 style="font-size:14px;font-weight:700;margin-bottom:10px;text-align:center">สำเนาสมุดบัญชี / Bookbank</h2>
-                  <div style="text-align:center"><img src="${myPayrollAgent.bookbankPhotoUrl}" style="max-width:100%;max-height:600px;border:1px solid #ccc" crossorigin="anonymous"/></div>
+                  <div style="text-align:center"><img src="${bookbankSrc}" style="max-width:100%;max-height:600px;border:1px solid #ccc" crossorigin="anonymous"/></div>
                 </div>
               ` : ""}
               <script>
@@ -4853,7 +4899,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         </div>
                         <div style={{display:"flex",gap:14,marginBottom:10}}>
                           {editAgent.profilePhotoUrl && (
-                            <img src={editAgent.profilePhotoUrl} alt="" style={{width:72,height:72,borderRadius:12,objectFit:"cover",border:"1px solid #BBF7D0"}}/>
+                            <DocImg stored={editAgent.profilePhotoUrl} style={{width:72,height:72,borderRadius:12,objectFit:"cover",border:"1px solid #BBF7D0"}}/>
                           )}
                           <div style={{flex:1,fontSize:11,color:"#475569",display:"grid",gridTemplateColumns:"1fr",gap:3}}>
                             {(editAgent.thaiName || editAgent.fullName) && <div><span style={{color:"#94A3B8"}}>Name: </span>{editAgent.thaiName || editAgent.fullName}</div>}
@@ -4880,10 +4926,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                         {(editAgent.idCardPhotoUrl || editAgent.bookbankPhotoUrl) && (
                           <div style={{display:"flex",gap:10,marginTop:10,paddingTop:8,borderTop:"1px solid #BBF7D0"}}>
                             {editAgent.idCardPhotoUrl && (
-                              <a href={editAgent.idCardPhotoUrl} target="_blank" rel="noreferrer" style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>View ID Card</a>
+                              <DocLink stored={editAgent.idCardPhotoUrl} style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>View ID Card</DocLink>
                             )}
                             {editAgent.bookbankPhotoUrl && (
-                              <a href={editAgent.bookbankPhotoUrl} target="_blank" rel="noreferrer" style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>View Bookbank</a>
+                              <DocLink stored={editAgent.bookbankPhotoUrl} style={{flex:1,textAlign:"center",padding:"6px",borderRadius:6,border:"1px solid #BBF7D0",background:"#fff",color:"#065F46",fontSize:10,fontWeight:600,textDecoration:"none"}}>View Bookbank</DocLink>
                             )}
                           </div>
                         )}
@@ -4989,7 +5035,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <label style={{cursor:"pointer",textAlign:"center"}}>
                         <div style={{width:100,height:100,borderRadius:"50%",background:inviteFormData.profilePhotoUrl?"transparent":"#F0FDFA",border:"2px solid #0D9488",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",margin:"0 auto"}}>
                           {inviteFormData.profilePhotoUrl
-                            ? <img src={inviteFormData.profilePhotoUrl} alt="Profile" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                            ? <DocImg stored={inviteFormData.profilePhotoUrl} alt="Profile" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                             : <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#0D9488" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg>}
                         </div>
                         <div style={{fontSize:11,color:"#0D9488",marginTop:8,fontWeight:600}}>
@@ -6287,7 +6333,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                 dlXLSX(rows, `Payment_${MONTHS[payMonth-1]}${payYear}.xlsx`);
               };
 
-              const exportPayPDF = () => {
+              // Async: the ID card and bookbank srcs are signed before the HTML
+              // is built. window.open stays first — popup blockers only permit
+              // it synchronously inside the click, never after an await.
+              const exportPayPDF = async () => {
                 const win = window.open("","_blank","width=900,height=700");
                 if(!win){alert("Allow pop-ups to export PDF");return;}
                 let pGross=0,pWht=0,pNet=0;
@@ -6303,22 +6352,28 @@ export default function AllocationPanel({ isAdmin = true }) {
                   <td style="text-align:right;font-family:monospace">฿${gross.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
                   <td style="text-align:right;font-family:monospace;color:#B91C1C">-฿${wht.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
                   <td style="text-align:right;font-weight:800;font-family:monospace">฿${net.toLocaleString(undefined,{minimumFractionDigits:2})}</td></tr>`;}).join("");
-                // Per-agent ID card + bookbank photo pages (only for agents with uploads)
-                const photosHtml = payRows.map(({ag}) => {
-                  if (!ag.idCardPhotoUrl && !ag.bookbankPhotoUrl) return "";
+                // Per-agent ID card + bookbank photo pages (only for agents with uploads).
+                // Every src is signed FIRST - payroll-docs is private, so a stored
+                // public URL in an <img> would print a broken image. Signing is
+                // cached per object, so agents sharing a document cost one request.
+                const photoSrcs = await docSignedUrls(
+                  payRows.flatMap(({ag}) => [ag.idCardPhotoUrl, ag.bookbankPhotoUrl]));
+                const photosHtml = payRows.map(({ag}, i) => {
+                  const idSrc = photoSrcs[i * 2], bankSrc = photoSrcs[i * 2 + 1];
+                  if (!idSrc && !bankSrc) return "";
                   let html = "";
-                  if (ag.idCardPhotoUrl) {
+                  if (idSrc) {
                     html += `
                       <div style="page-break-before:always;padding-top:20px">
                         <h2 style="font-size:14px;font-weight:700;margin-bottom:8px">${ag.name} (${ag.id}) — สำเนาบัตรประชาชน / ID Card</h2>
-                        <div style="text-align:center"><img src="${ag.idCardPhotoUrl}" style="max-width:100%;max-height:650px;border:1px solid #ccc" crossorigin="anonymous"/></div>
+                        <div style="text-align:center"><img src="${idSrc}" style="max-width:100%;max-height:650px;border:1px solid #ccc" crossorigin="anonymous"/></div>
                       </div>`;
                   }
-                  if (ag.bookbankPhotoUrl) {
+                  if (bankSrc) {
                     html += `
                       <div style="page-break-before:always;padding-top:20px">
                         <h2 style="font-size:14px;font-weight:700;margin-bottom:8px">${ag.name} (${ag.id}) — สำเนาสมุดบัญชี / Bookbank</h2>
-                        <div style="text-align:center"><img src="${ag.bookbankPhotoUrl}" style="max-width:100%;max-height:650px;border:1px solid #ccc" crossorigin="anonymous"/></div>
+                        <div style="text-align:center"><img src="${bankSrc}" style="max-width:100%;max-height:650px;border:1px solid #ccc" crossorigin="anonymous"/></div>
                       </div>`;
                   }
                   return html;
@@ -6385,7 +6440,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         <div style={{padding:"20px 24px"}}>
                           <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:20}}>
                             {myRow.ag.profilePhotoUrl
-                              ? <img src={myRow.ag.profilePhotoUrl} alt="" style={{width:44,height:44,borderRadius:10,objectFit:"cover"}}/>
+                              ? <DocImg stored={myRow.ag.profilePhotoUrl} style={{width:44,height:44,borderRadius:10,objectFit:"cover"}}/>
                               : <div style={{width:44,height:44,borderRadius:10,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0D9488"}}>{myRow.ag.name.charAt(0)}</div>}
                             <div>
                               <div style={{fontSize:16,fontWeight:700,color:"#0F172A"}}>{myRow.ag.name}</div>
@@ -7235,7 +7290,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               <div style={{padding:"24px 24px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div style={{display:"flex",alignItems:"center",gap:12}}>
                   {linkedAgent && linkedAgent.profilePhotoUrl
-                    ? <img src={linkedAgent.profilePhotoUrl} alt="" style={{width:44,height:44,borderRadius:11,objectFit:"cover"}}/>
+                    ? <DocImg stored={linkedAgent.profilePhotoUrl} style={{width:44,height:44,borderRadius:11,objectFit:"cover"}}/>
                     : <div style={{width:44,height:44,borderRadius:11,background:"#F0FDFA",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18,fontWeight:700,color:"#0D9488"}}>{(loginUser||"U").charAt(0).toUpperCase()}</div>}
                   <div>
                     <div style={{fontSize:16,fontWeight:700,color:"#0F172A"}}>My Profile</div>
