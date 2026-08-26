@@ -1332,6 +1332,20 @@ export default function AllocationPanel({ isAdmin = true }) {
     const mk = String(dateStr).slice(0,7);
     setAllAsgn(prev => ({...prev, [mk]: {...(prev[mk]||{}), [`${agentId}_${dateStr}`]: shift}}));
   };
+  // A shift change has to move the brand grid with it, or the day carries on
+  // naming the person in the shift they just left. reallocateDay does the work;
+  // the override carries the brand-new shift code, because the setAllAsgn above
+  // has not landed yet when this runs.
+  const approveShiftChange = (agentId, dateStr, shift) => {
+    applyShiftForDate(agentId, dateStr, shift);
+    const mk = String(dateStr).slice(0, 7);
+    if (lockedMonths && lockedMonths[mk]) {
+      alert(`Shift changed.\n\n${mk} is locked, so the brand allocation was left alone — unlock the month and press "Fix this day" on the Allocation tab.`);
+      return;
+    }
+    const override = { [`${agentId}_${dateStr}`]: shift };
+    setAllBrandAsgn(prev => ({ ...prev, [mk]: reallocateDay(prev[mk] || {}, dateStr, override) }));
+  };
   // Extra hours: set/clear {h, x} for an agent+date (month-keyed like allAsgn)
   const setExtraForDate = (agentId, dateStr, entry) => {
     const mk = String(dateStr).slice(0,7);
@@ -2547,6 +2561,111 @@ export default function AllocationPanel({ isAdmin = true }) {
     return [...out];
   };
 
+  // ── Keeping the brand grid honest against the roster ──────────────────────
+  // brandAsgn stores agent NAMES under `${brandId}_${date}_${shift}_${platform}`
+  // and knows nothing at all about the roster. So when somebody's shift changes
+  // — a change request approved, a manual roster edit, an agent deactivated —
+  // their name simply stays where it was, and the team reads a Morning grid
+  // naming people who are on Evenings, Off, or gone entirely.
+  //
+  // ME is not a third shift here. An ME agent (12:00–21:00) genuinely covers
+  // both the M and the E slot, which is exactly how getWorkingAgents and
+  // myBrandsForDate already treat it. Anything that is not M / ME / E — Off,
+  // RO, TOIL, OT, or no code at all — is not coverage.
+  const ALLOC_KEY_RE = new RegExp("_([0-9]{4}-[0-9]{2}-[0-9]{2})_(M|ME|E)_");
+  const allocToArr = (raw) => (Array.isArray(raw) ? raw : (raw ? [raw] : []));
+  // `override` lets a caller say "pretend this roster cell already holds this
+  // code". Approving a change request needs it: setAllAsgn has not landed by the
+  // time the grid is rebuilt, so the new shift is handed in explicitly instead
+  // of being read back out of stale state.
+  const allocShiftCodeOn = (agentId, dateStr, override) => {
+    const k = `${agentId}_${dateStr}`;
+    if (override && Object.prototype.hasOwnProperty.call(override, k)) return override[k] || "";
+    return ((allAsgn[dateStr.slice(0, 7)]) || {})[k] || "";
+  };
+  // Deliberately `.some()` and not `.find()`: two agent records can share a
+  // display name (there are two Veers) and the grid only ever stores the name.
+  // If ANY agent by that name is working that shift, the name stays. This helper
+  // is allowed to be wrong in the direction of leaving work alone — never in the
+  // direction of deleting somebody's day.
+  const allocNameWorks = (name, dateStr, shift, override) => {
+    if (!name) return false;
+    return agents.some(a => {
+      if (a.name !== name || a.active === false) return false;
+      const code = allocShiftCodeOn(a.id, dateStr, override);
+      if (code === "ME") return shift === "M" || shift === "E";
+      return code === shift;
+    });
+  };
+  // Everyone named in ONE day's grid who is not actually on that shift.
+  const allocDriftOn = (dateStr, map, override) => {
+    const source = map || (allBrandAsgn[dateStr.slice(0, 7)] || {});
+    const out = new Map();
+    Object.entries(source).forEach(([k, raw]) => {
+      const m = k.match(ALLOC_KEY_RE);
+      if (!m || m[1] !== dateStr) return;
+      const shift = m[2];
+      allocToArr(raw).forEach(n => {
+        if (allocNameWorks(n, dateStr, shift, override)) return;
+        const kk = `${n}|${shift}`;
+        const hit = out.get(kk) || { name: n, shift, cells: 0, code: "" };
+        hit.cells++;
+        if (!hit.code) {
+          const ag = agents.find(a => a.name === n);
+          hit.code = !ag ? "not an agent"
+            : ag.active === false ? "deactivated"
+            : (allocShiftCodeOn(ag.id, dateStr, override) || "no shift");
+        }
+        out.set(kk, hit);
+      });
+    });
+    return [...out.values()].sort((a, b) => b.cells - a.cells);
+  };
+  // One pass over a whole month -> Set of dates that have drifted. This runs on
+  // every render of the allocation tab, so it walks the month map once rather
+  // than calling allocDriftOn thirty times.
+  const allocDriftDays = (map) => {
+    const out = new Set();
+    Object.entries(map || {}).forEach(([k, raw]) => {
+      const m = k.match(ALLOC_KEY_RE);
+      if (!m || out.has(m[1])) return;
+      if (allocToArr(raw).some(n => !allocNameWorks(n, m[1], m[2]))) out.add(m[1]);
+    });
+    return out;
+  };
+  // Re-derive ONE day from the roster. Two modes, on purpose:
+  //   future       — rebuild the day, exactly as Auto-Allocate All does for a
+  //                  day it is allowed to touch.
+  //   today / past — repair only. A day the team is already working is never
+  //                  reshuffled: names of people who are not there come out, and
+  //                  only the slots that go empty as a result get refilled.
+  const reallocateDay = (prev, dateStr, override) => {
+    const mk = dateStr.slice(0, 7);
+    const monthAsgn = { ...((allAsgn[mk]) || {}), ...(override || {}) };
+    const fresh = autoAllocateBrands(brands, agents, monthAsgn, [{ date: dateStr }], prev, monthlyVol, mk);
+    const rebuild = dateStr > allocLocalStr(new Date());
+    // T1 is the only pool autoAllocateBrands can regenerate. A manually added
+    // CC / Return / T2 name is never reproducible, so it survives whenever that
+    // person is genuinely working — the same rule Auto-Allocate All uses.
+    const t1Names = new Set(agents.filter(a => a.active && a.team === "T1").map(a => a.name));
+    const keys = new Set();
+    [prev, fresh].forEach(srcMap => Object.keys(srcMap || {}).forEach(k => {
+      const m = k.match(ALLOC_KEY_RE);
+      if (m && m[1] === dateStr) keys.add(k);
+    }));
+    const next = { ...(prev || {}) };
+    keys.forEach(k => {
+      const shift = k.match(ALLOC_KEY_RE)[2];
+      const ok = (n) => allocNameWorks(n, dateStr, shift, override);
+      const surviving = allocToArr(next[k]).filter(ok);
+      const merged = rebuild
+        ? [...new Set([...allocToArr(fresh[k]).filter(ok), ...surviving.filter(n => !t1Names.has(n))])]
+        : (surviving.length ? surviving : allocToArr(fresh[k]).filter(ok));
+      if (merged.length) next[k] = merged; else delete next[k];
+    });
+    return next;
+  };
+
   const myBrands = [];
   const myBrandsForDate = []; // brand assignments for the selectedRosterDate only
   if (myAgent) {
@@ -3028,7 +3147,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                                 const rv = violatesRest(r.agentId, r.date, r.requestedShift);
                                 // FLEXIBLE burnout rule: notify + allow conscious accept.
                                 if (rv && !window.confirm("⚠ Rest-rule warning: this change creates Evening and Morning back-to-back (only 6 hours rest).\n\nAccept anyway?")) return;
-                                applyShiftForDate(r.agentId, r.date, r.requestedShift);
+                                approveShiftChange(r.agentId, r.date, r.requestedShift);
                                 setChangeRequests(prev=>prev.map(x=>x.id===r.id?{...x,status:"approved",acceptedAt:new Date().toISOString()}:x));
                               }} style={{padding:"6px 16px",borderRadius:8,border:"none",background:"#D1FAE5",color:"#059669",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Accept</button>
                               <button onClick={()=>{
@@ -3407,7 +3526,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                         <td style={{padding:"8px 12px",fontSize:10,color:"#94A3B8"}}>{new Date(r.timestamp).toLocaleString()}</td>
                         <td style={{padding:"8px 12px",display:"flex",gap:6}}>
                           <button onClick={()=>{
-                            applyShiftForDate(r.agentId, r.date, r.requestedShift);
+                            approveShiftChange(r.agentId, r.date, r.requestedShift);
                             setChangeRequests(prev=>prev.map(x=>x.id===r.id?{...x,status:"approved"}:x));
                           }} style={{padding:"4px 10px",borderRadius:6,border:"none",background:"#D1FAE5",color:"#059669",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Approve</button>
                           <button onClick={()=>{
@@ -5031,6 +5150,69 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </button>
               </div>
 
+              {/* ── Roster drift ────────────────────────────────────────────
+                  The red chips further down already show that somebody is not
+                  on this shift. What was missing was any way to act on it. */}
+              {(() => {
+                const todayStr = allocLocalStr(new Date());
+                const drift = allocDriftOn(selDate.date, brandAsgn);
+                const otherDays = [...allocDriftDays(brandAsgn)]
+                  .filter(d => d !== selDate.date && d >= todayStr).sort();
+                if (!drift.length && !otherDays.length) return null;
+                const unlocked = () => {
+                  if (isLocked) { alert("This month is locked. Unlock it first."); return false; }
+                  return true;
+                };
+                return (
+                  <div style={{background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:12,padding:"10px 14px",marginBottom:12,display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap"}}>
+                    <div style={{flex:1,minWidth:280}}>
+                      <div style={{fontSize:12,fontWeight:700,color:"#92400E",marginBottom:drift.length?5:0}}>
+                        {drift.length
+                          ? `${drift.length} ${drift.length===1?"person is":"people are"} allocated on ${selDate.dd}/${selDate.mm} but not on that shift`
+                          : `This day is fine — ${otherDays.length} other day${otherDays.length===1?"":"s"} this month ${otherDays.length===1?"has":"have"} drifted`}
+                      </div>
+                      {drift.map(d => (
+                        <div key={`${d.name}|${d.shift}`} style={{fontSize:11,color:"#B45309",lineHeight:1.6}}>
+                          <strong>{d.name}</strong> sits in the {d.shift} grid ({d.cells} slot{d.cells===1?"":"s"}) — roster says <strong>{d.code}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      {drift.length > 0 && (
+                        <button onClick={()=>{
+                          if(!unlocked()) return;
+                          const future = selDate.date > allocLocalStr(new Date());
+                          if(!window.confirm(
+                            `Redo the brand allocation for ${selDate.date}?\n\n`
+                            + drift.map(d=>`• ${d.name} comes out of the ${d.shift} grid (roster: ${d.code})`).join("\n")
+                            + `\n\n${future
+                                ? "This day is in the future, so it is rebuilt from the roster — other people on this day may move too."
+                                : "This day is today or already past, so nobody who IS working gets moved; only the slots left empty are refilled."}`
+                            + `\n\nManual CC / Return / T2 assignments are kept wherever that person is actually working.`
+                          )) return;
+                          safeSetBrandAsgn(prev => reallocateDay(prev, selDate.date));
+                        }} style={{padding:"7px 14px",borderRadius:9,border:"none",background:"#D97706",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                          Fix this day
+                        </button>
+                      )}
+                      {otherDays.length > 0 && (
+                        <button onClick={()=>{
+                          if(!unlocked()) return;
+                          if(!window.confirm(
+                            `Fix ${otherDays.length} other day${otherDays.length===1?"":"s"} this month, from today onward?\n\n`
+                            + otherDays.join(", ")
+                            + `\n\nFuture days are rebuilt from the roster; today is only repaired.`
+                          )) return;
+                          safeSetBrandAsgn(prev => otherDays.reduce((acc, d) => reallocateDay(acc, d), prev));
+                        }} style={{padding:"7px 14px",borderRadius:9,border:"1px solid #D97706",background:"transparent",color:"#B45309",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                          Fix {otherDays.length} other day{otherDays.length===1?"":"s"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Agent filter chips */}
               {pool.length > 0 && (
                 <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
@@ -5264,7 +5446,9 @@ export default function AllocationPanel({ isAdmin = true }) {
                                       {assigned.map(name => {
                                         const onShift = allOnShift.includes(name);
                                         return (
-                                          <span key={name} style={{display:"inline-flex",alignItems:"center",gap:3,padding:"2px 6px 2px 8px",borderRadius:6,fontSize:11,fontWeight:700,
+                                          <span key={name}
+                                          title={onShift ? name : `${name} is not on the ${allocShiftF} shift on this day — use "Fix this day" above`}
+                                          style={{display:"inline-flex",alignItems:"center",gap:3,padding:"2px 6px 2px 8px",borderRadius:6,fontSize:11,fontWeight:700,
                                             background:onShift?"#F0FDFA":"#FEE2E2",
                                             border:`1px solid ${onShift?"#5EEAD455":"#F8717155"}`,
                                             color:onShift?"#5EEAD4":"#F87171"}}>
