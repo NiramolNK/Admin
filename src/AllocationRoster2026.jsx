@@ -68,6 +68,15 @@ const ALLOC_SHIFT_C = {M:{bg:"#DBEAFE",color:"#1D4ED8",label:"M"},ME:{bg:"#F0FDF
    counted as worked, not paid, and auto-fill treats it as fixed. The separate
    code only records where the day off came from. */
 const isOffCode = (v) => v === "Off" || v === "RO";
+/* RULE (April, 2026-08-25): a brand with a Call CC channel NEVER operates on a
+   Sunday. The CC team works Mon–Sat, and this is a fact about the brand's
+   service, not about who happens to be on duty — so it holds even if somebody
+   were rostered. It applies to ALL of that brand's platforms (Shiseido's
+   Brand.com closes with its phone line), not just the Call CC one.
+   Parsed as UTC so the weekday cannot shift with the browser's timezone. */
+const allocIsSunday = (dateStr) => new Date(`${dateStr}T00:00:00Z`).getUTCDay() === 0;
+const brandHasCallCC = (b) => (b?.platforms || []).includes("Call CC");
+const ccBrandClosedOn = (b, dateStr) => brandHasCallCC(b) && allocIsSunday(dateStr);
 /* ── duplicate-accounts guard ──
    User accounts must be email-based (Supabase auth). Legacy name-only
    accounts ("Boo", "Mint", …) from the old login created duplicate rows in
@@ -334,14 +343,15 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
     // No active CC agents → slots stay empty for manual assignment; T1 is
     // NEVER used as a fallback here.
     //
-    // RULE (April, 2026-08-25): the CC team works Mon–Sat. A CC brand has NO
-    // OPERATION on a Sunday, so its slots are left empty that day rather than
-    // handed to somebody who is not there. This used to skip the roster check
-    // entirely ("CC agents keep their own fixed schedules"), which put Marker
-    // on every Sunday through November — days he is rostered Off. The rule is
-    // expressed as "whoever is actually rostered", not "not Sunday", so it
-    // also covers public holidays and leave without another special case.
-    const ccWorking = ccAgents.filter(a => {
+    // RULE (April, 2026-08-25), two parts:
+    //   • A CC brand NEVER operates on a Sunday — see ccBrandClosedOn. Hard
+    //     rule about the brand, so no Sunday slot is created at all.
+    //   • On the other six days, only CC agents actually rostered to work get
+    //     the slots. This used to skip the roster check entirely ("CC agents
+    //     keep their own fixed schedules"), which is what put Marker on 178
+    //     Sunday slots between July and November, and would also have put him
+    //     on public holidays and days of leave.
+    const ccWorking = allocIsSunday(d.date) ? [] : ccAgents.filter(a => {
       const v = asgn[`${a.id}_${d.date}`];
       return v && !isOffCode(v) && v !== "TOIL";
     });
@@ -2650,6 +2660,13 @@ export default function AllocationPanel({ isAdmin = true }) {
       return next;
     });
   };
+  // The brand a grid key belongs to. The key is `${brandId}_${date}_${shift}_${plat}`
+  // and a brand id may itself contain an underscore, so the split is made at the
+  // date — which is the one part of the key with a fixed shape.
+  const allocBrandOfKey = (k, dateStr) => {
+    const at = k.indexOf(`_${dateStr}_`);
+    return at < 0 ? null : brands.find(b => b.id === k.slice(0, at)) || null;
+  };
   // Everyone named in ONE day's grid who is not actually on that shift.
   const allocDriftOn = (dateStr, map, override) => {
     const source = map || (allBrandAsgn[dateStr.slice(0, 7)] || {});
@@ -2658,14 +2675,18 @@ export default function AllocationPanel({ isAdmin = true }) {
       const m = k.match(ALLOC_KEY_RE);
       if (!m || m[1] !== dateStr) return;
       const shift = m[2];
+      // A Call CC brand is shut on a Sunday, so ANY name in one of its cells is
+      // wrong that day — even somebody the roster says is working.
+      const closed = ccBrandClosedOn(allocBrandOfKey(k, dateStr), dateStr);
       allocToArr(raw).forEach(n => {
-        if (allocNameWorks(n, dateStr, shift, override)) return;
+        if (!closed && allocNameWorks(n, dateStr, shift, override)) return;
         const kk = `${n}|${shift}`;
         const hit = out.get(kk) || { name: n, shift, cells: 0, code: "" };
         hit.cells++;
         if (!hit.code) {
           const ag = agents.find(a => a.name === n);
-          hit.code = !ag ? "not an agent"
+          hit.code = closed ? "brand shut on Sunday"
+            : !ag ? "not an agent"
             : ag.active === false ? "deactivated"
             : (allocShiftCodeOn(ag.id, dateStr, override) || "no shift");
         }
@@ -2682,6 +2703,8 @@ export default function AllocationPanel({ isAdmin = true }) {
     Object.entries(map || {}).forEach(([k, raw]) => {
       const m = k.match(ALLOC_KEY_RE);
       if (!m || out.has(m[1])) return;
+      if (!allocToArr(raw).length) return;
+      if (ccBrandClosedOn(allocBrandOfKey(k, m[1]), m[1])) { out.add(m[1]); return; }
       if (allocToArr(raw).some(n => !allocNameWorks(n, m[1], m[2]))) out.add(m[1]);
     });
     return out;
@@ -2709,6 +2732,9 @@ export default function AllocationPanel({ isAdmin = true }) {
     const next = { ...(prev || {}) };
     keys.forEach(k => {
       const shift = k.match(ALLOC_KEY_RE)[2];
+      // A Call CC brand is shut on Sunday: the cell is emptied outright, in
+      // repair mode as well as rebuild. Nobody is covering a closed service.
+      if (ccBrandClosedOn(allocBrandOfKey(k, dateStr), dateStr)) { delete next[k]; return; }
       const ok = (n) => allocNameWorks(n, dateStr, shift, override);
       const surviving = allocToArr(next[k]).filter(ok);
       const merged = rebuild
@@ -5508,6 +5534,15 @@ export default function AllocationPanel({ isAdmin = true }) {
                               {/* Status */}
                               <td style={{padding:"6px 12px",borderRight:"1px solid #F1F5F9"}}>
                                 {isRealPlat && (() => {
+                                  // A shut brand reads "Closed Sun", not "Pending" —
+                                  // an empty row otherwise looks like work nobody
+                                  // has got round to staffing.
+                                  if (ccBrandClosedOn(b, selDate.date)) return (
+                                    <span title="Brands with a Call CC channel do not operate on Sundays"
+                                      style={{fontSize:10,padding:"2px 7px",borderRadius:6,fontWeight:700,background:"#F1F5F9",color:"#64748B"}}>
+                                      Closed Sun
+                                    </span>
+                                  );
                                   const assigned = allocCellNames(b.id, selDate.date, allocShiftF, plat);
                                   const count = assigned.length;
                                   const allOnShift = assigned.every(n => pool.some(a=>a.name===n));
