@@ -560,3 +560,60 @@ export async function deleteProfile(id) {
   const { error } = await supabase.from("profiles").delete().eq("id", id);
   return { error };
 }
+
+// ── payroll-docs is a PRIVATE bucket ────────────────────────────────────────
+// It holds ~65 Thai national ID cards and 63 bank books. While the bucket was
+// public, every one of them was downloadable by anyone who had or guessed a
+// link, and the links are stored in plain text on the agent records.
+//
+// Records still hold the ORIGINAL permanent public URL and always will: the
+// frozen invoice snapshots must not be edited, and rewriting live records to
+// match would be a migration that could go wrong. Instead the stored value is
+// translated to an object name here and signed on demand, so nothing in the
+// database changes and old and new values both work.
+//
+// The word "payroll-docs" appears TWICE in a stored URL - once as the bucket,
+// once because objects were uploaded under the name "payroll-docs/<file>". The
+// bucket prefix is only stripped when parsing a URL, where its position is
+// unambiguous; a bare string is already an object name and is left alone.
+// This mirrors docPath() in the share-batch edge function exactly - if you
+// change one, change both.
+const DOC_BUCKET = "payroll-docs";
+export function docPath(v) {
+  if (!v) return null;
+  const s = String(v).trim();
+  if (!/^https?:/i.test(s)) return s.replace(/^\/+/, "") || null;
+  const m = s.match(/\/storage\/v1\/object\/(?:public\/|sign\/|authenticated\/)?([^?]+)/i);
+  if (!m) return null;
+  let p = decodeURIComponent(m[1]).replace(/^\/+/, "");
+  if (p.startsWith(DOC_BUCKET + "/")) p = p.slice(DOC_BUCKET.length + 1);
+  return p || null;
+}
+
+// Signed URLs are cached per object until shortly before they expire, so a
+// table of twenty agents does not fire twenty sign requests on every render,
+// and a print view can ask for the same document twice for free.
+const DOC_TTL = 60 * 60;              // seconds the signed link is valid
+const _docCache = new Map();          // path -> { url, expires }
+export async function docSignedUrl(stored) {
+  const path = docPath(stored);
+  // Not one of ours (an external URL, a data: URI, empty) - hand it straight
+  // back rather than breaking a link this code does not own.
+  if (!path) return stored || null;
+  const hit = _docCache.get(path);
+  if (hit && hit.expires > Date.now()) return hit.url;
+  const { data, error } = await supabase.storage.from(DOC_BUCKET).createSignedUrl(path, DOC_TTL);
+  if (error || !data?.signedUrl) {
+    console.error("[docSignedUrl]", path, error?.message || "no url");
+    return null;                      // callers show a "could not load" state
+  }
+  // Re-sign a minute early so a link never expires mid-print.
+  _docCache.set(path, { url: data.signedUrl, expires: Date.now() + (DOC_TTL - 60) * 1000 });
+  return data.signedUrl;
+}
+
+// Sign several at once, preserving order. Used by the print views, which build
+// one HTML string and must have every src resolved BEFORE the window opens.
+export async function docSignedUrls(list) {
+  return Promise.all((list || []).map(v => (v ? docSignedUrl(v) : Promise.resolve(null))));
+}
