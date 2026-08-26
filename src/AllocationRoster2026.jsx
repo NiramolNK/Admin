@@ -3674,7 +3674,24 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {isLocked && (
                   <span style={{fontSize:10,color:"#D97706",fontWeight:600,padding:"4px 10px",background:"#FEF3C7",borderRadius:6}}>Month is locked</span>
                 )}
-                <button onClick={()=>{if(isLocked){alert("This month is locked. Unlock it first to make changes.");return;}safeSetAsgn({});}} style={{padding:"6px 14px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
+                {/* This wipes the WHOLE month's roster and had no confirmation at
+                    all — one stray click next to Auto-Fill and every shift for
+                    every agent was gone. The Allocation tab's Clear buttons have
+                    always asked; this one now does too, and it says how much is
+                    about to go so the number itself is the warning. */}
+                <button onClick={()=>{
+                  if(isLocked){alert("This month is locked. Unlock it first to make changes.");return;}
+                  const filled = Object.values(asgn||{}).filter(Boolean).length;
+                  if(!filled){alert(`Nothing to clear — the roster for ${dateLabel} is already empty.`);return;}
+                  const people = new Set(Object.keys(asgn||{}).filter(k=>asgn[k]).map(k=>k.split("_")[0])).size;
+                  if(!window.confirm(
+                    `Clear the ENTIRE roster for ${dateLabel}?\n\n`
+                    + `${filled} shift${filled===1?"":"s"} across ${people} agent${people===1?"":"s"} will be deleted — every day of the month, not just the ones on screen.\n\n`
+                    + `Brand allocation and invoices are not touched, but anything already allocated will then name people with no shift.\n\n`
+                    + `This cannot be undone. Press OK to clear, or Cancel to keep the roster.`
+                  ))return;
+                  safeSetAsgn({});
+                }} style={{padding:"6px 14px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
                 <button onClick={()=>{if(isLocked){alert("This month is locked. Unlock it first to make changes.");return;}setFillMode("all");setFillModal(true);}}
                   style={{padding:"6px 14px",borderRadius:8,border:"none",background:isLocked?"#CBD5E1":"#0D9488",color:"#fff",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:700}}>Auto-Fill</button>
                 <div style={{width:1,background:"#E2E8F0",margin:"0 2px"}}/>
@@ -5228,14 +5245,22 @@ export default function AllocationPanel({ isAdmin = true }) {
                   style={{padding:"8px 14px",borderRadius:9,border:"none",background:isLocked?"#CBD5E1":"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit"}}>
                   Auto-Allocate All
                 </button>
-                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}if(!window.confirm(`Clear all brand allocations for ${selDate.date}?\n\nEvery agent assignment on this day (including manual ones like Marker's) will be removed — all other days this month are untouched.\n\nThis cannot be undone.`))return;
+                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}
+                  const dayCells = Object.keys(brandAsgn||{}).filter(k=>k.includes(`_${selDate.date}_`)).length;
+                  if(!dayCells){alert(`Nothing to clear — ${selDate.date} has no brand allocations.`);return;}
+                  if(!window.confirm(`Clear all brand allocations for ${selDate.date}?\n\n${dayCells} slot${dayCells===1?"":"s"} will be removed, including manual ones like Marker's. All other days this month are untouched.\n\nThis cannot be undone. Press OK to clear, or Cancel to keep them.`))return;
                   safeSetBrandAsgn(prev => {
                     const next = {};
                     Object.entries(prev||{}).forEach(([k, v]) => { if (!k.includes(`_${selDate.date}_`)) next[k] = v; });
                     return next;
                   });
                 }} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #E2E8F0",background:"transparent",color:isLocked?"#CBD5E1":"#6B7280",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>
-                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}if(!window.confirm(`Clear ALL brand allocations for the ENTIRE month of ${currentMK}?\n\nEvery agent assignment on every day this month (including manual ones like Marker's) will be removed — not just ${selDate.date}.\n\nThis cannot be undone.`))return;safeSetBrandAsgn({});}} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #FCA5A5",background:"transparent",color:isLocked?"#CBD5E1":"#DC2626",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear Month</button>
+                <button onClick={()=>{if(isLocked){alert("This month is locked.");return;}
+                  const monthCells = Object.keys(brandAsgn||{}).length;
+                  if(!monthCells){alert(`Nothing to clear — ${currentMK} has no brand allocations.`);return;}
+                  const days = new Set(Object.keys(brandAsgn||{}).map(k=>(k.match(ALLOC_KEY_RE)||[])[1]).filter(Boolean)).size;
+                  if(!window.confirm(`Clear ALL brand allocations for the ENTIRE month of ${currentMK}?\n\n${monthCells} slot${monthCells===1?"":"s"} across ${days} day${days===1?"":"s"} will be removed — every day this month, not just ${selDate.date}, and including manual ones like Marker's.\n\nThis cannot be undone. Press OK to clear, or Cancel to keep them.`))return;
+                  safeSetBrandAsgn({});}} style={{padding:"8px 14px",borderRadius:9,border:"1px solid #FCA5A5",background:"transparent",color:isLocked?"#CBD5E1":"#DC2626",fontSize:12,cursor:isLocked?"not-allowed":"pointer",fontFamily:"inherit",fontWeight:600}}>Clear Month</button>
                 {role==="manager" && (
                   <button onClick={toggleLock} style={{padding:"8px 12px",borderRadius:9,border:`1px solid ${isLocked?"#F59E0B":"#E2E8F0"}`,background:isLocked?"#FEF3C7":"transparent",color:isLocked?"#D97706":"#94A3B8",fontSize:11,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
                     {isLocked?"Unlock":"Lock"}
@@ -5268,16 +5293,29 @@ export default function AllocationPanel({ isAdmin = true }) {
                 return (
                   <div style={{background:"#FFFBEB",border:"1px solid #FCD34D",borderRadius:12,padding:"10px 14px",marginBottom:12,display:"flex",gap:12,alignItems:"flex-start",flexWrap:"wrap"}}>
                     <div style={{flex:1,minWidth:280}}>
+                      {/* The wording matters. "…but not on that shift" read as a
+                          complaint about the ROSTER, which is already correct —
+                          the leftover is in the brand grid, and pressing Fix is
+                          what clears it. Say that plainly. */}
                       <div style={{fontSize:12,fontWeight:700,color:"#92400E",marginBottom:drift.length?5:0}}>
                         {drift.length
-                          ? `${drift.length} ${drift.length===1?"person is":"people are"} allocated on ${selDate.dd}/${selDate.mm} but not on that shift`
-                          : `This day is fine — ${otherDays.length} other day${otherDays.length===1?"":"s"} this month ${otherDays.length===1?"has":"have"} drifted`}
+                          ? `The brand grid on ${selDate.dd}/${selDate.mm} still names ${drift.length} ${drift.length===1?"person who is":"people who are"} not working ${drift.length===1?"it":"them"}`
+                          : `This day is fine — ${otherDays.length} other day${otherDays.length===1?"":"s"} this month still ${otherDays.length===1?"needs":"need"} clearing`}
                       </div>
                       {drift.map(d => (
                         <div key={`${d.name}|${d.shift}`} style={{fontSize:11,color:"#B45309",lineHeight:1.6}}>
-                          <strong>{d.name}</strong> sits in the {d.shift} grid ({d.cells} slot{d.cells===1?"":"s"}) — roster says <strong>{d.code}</strong>
+                          <strong>{d.name}</strong> — still in {d.cells} {d.shift==="M"?"Morning":d.shift==="E"?"Evening":"Mid"} slot{d.cells===1?"":"s"}, but {d.code==="deactivated" ? "the agent is deactivated"
+                            : d.code==="brand shut on Sunday" ? "this brand does not operate on Sundays"
+                            : d.code==="not an agent" ? "there is no agent by that name"
+                            : d.code==="no shift" ? "the roster gives no shift that day"
+                            : <>the roster says <strong>{d.code}</strong></>}
                         </div>
                       ))}
+                      {drift.length > 0 && (
+                        <div style={{fontSize:11,color:"#92400E",marginTop:6,opacity:0.85}}>
+                          Fix removes {drift.length===1?"the name":"these names"} from the brand allocation. Your roster is already right — it is not touched.
+                        </div>
+                      )}
                     </div>
                     <div style={{display:"flex",gap:6,alignItems:"center"}}>
                       {drift.length > 0 && (
