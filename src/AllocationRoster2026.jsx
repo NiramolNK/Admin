@@ -331,17 +331,27 @@ function autoAllocateBrands(brands, agents, asgn, dates, brandAsgn, monthlyVol, 
     // CC brands: staff every platform slot with CC-team agents, round-robin.
     // M SHIFT ONLY — CC brands have no night coverage (call center / brand.com
     // operate business hours), so E-shift slots are intentionally left empty.
-    // CC agents keep their own fixed schedules, so no roster check — this
-    // mirrors how CC assignment was done manually (e.g. Marker on Shiseido).
     // No active CC agents → slots stay empty for manual assignment; T1 is
     // NEVER used as a fallback here.
-    if (ccAgents.length) {
+    //
+    // RULE (April, 2026-08-25): the CC team works Mon–Sat. A CC brand has NO
+    // OPERATION on a Sunday, so its slots are left empty that day rather than
+    // handed to somebody who is not there. This used to skip the roster check
+    // entirely ("CC agents keep their own fixed schedules"), which put Marker
+    // on every Sunday through November — days he is rostered Off. The rule is
+    // expressed as "whoever is actually rostered", not "not Sunday", so it
+    // also covers public holidays and leave without another special case.
+    const ccWorking = ccAgents.filter(a => {
+      const v = asgn[`${a.id}_${d.date}`];
+      return v && !isOffCode(v) && v !== "TOIL";
+    });
+    if (ccWorking.length) {
       let ccIdx = 0;
       ccBrands
         .filter(b => !b.startDate || b.startDate <= d.date)
         .forEach(b => {
           (b.platforms||[]).forEach(plat => {
-            result[`${b.id}_${d.date}_M_${plat}`] = [ccAgents[ccIdx % ccAgents.length].name];
+            result[`${b.id}_${d.date}_M_${plat}`] = [ccWorking[ccIdx % ccWorking.length].name];
             ccIdx++;
           });
         });
@@ -5322,7 +5332,11 @@ export default function AllocationPanel({ isAdmin = true }) {
                 <button onClick={()=>setAllocDateIdx(Math.min(dates.length-1,allocDateIdx+1))} style={{width:26,height:26,borderRadius:6,border:"1px solid #E2E8F0",background:"transparent",color:"#0D9488",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>›</button>
                 {/* Working agents indicator */}
                 <div style={{marginLeft:8,display:"flex",gap:6,flexWrap:"wrap"}}>
-                  {[["M","Morning",workingM],["E","Evening",workingE]].map(([s,label,p])=>(
+                  {/* An ME agent shows up in Morning AND Evening, which is true —
+                      they cover both — but it left no way to see who is actually
+                      on Mid. The Mid pill only appears on days somebody is. */}
+                  {[["M","Morning",workingM],["ME","Mid",workingME],["E","Evening",workingE]]
+                    .filter(([s,,p])=>s!=="ME"||p.length>0).map(([s,label,p])=>(
                     <div key={s} onClick={()=>{setAllocShiftF(s);setAllocAgentFilter("");}} title="Click to show this shift in the table below" style={{display:"flex",alignItems:"center",gap:5,background:ALLOC_SHIFT_C[s].bg,borderRadius:8,padding:"4px 10px",cursor:"pointer",border:`1px solid ${allocShiftF===s?ALLOC_SHIFT_C[s].color:`${ALLOC_SHIFT_C[s].color}33`}`,boxShadow:allocShiftF===s?`0 0 0 1.5px ${ALLOC_SHIFT_C[s].color}`:"none"}}>
                       <span style={{fontSize:10,fontWeight:700,color:ALLOC_SHIFT_C[s].color}}>{label}: {p.length}</span>
                       <span style={{fontSize:10,color:"#94A3B8"}}>{p.map(a=>a.name).join(", ")||"—"}</span>
@@ -5335,7 +5349,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               <div style={{background:"#FFFFFF",borderRadius:14,border:"1px solid #F1F5F9",overflow:"hidden",marginBottom:16}}>
                 <div style={{padding:"10px 16px",background:"#F1F5F9",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                   <div style={{fontSize:12,fontWeight:700,color:"#1A1D2E"}}>
-                    Brand × Platform → Agent  <span style={{color:"#94A3B8",fontWeight:400,fontSize:11}}>({allocShiftF==="M"?"Morning":"Evening"} shift)</span>
+                    Brand × Platform → Agent  <span style={{color:"#94A3B8",fontWeight:400,fontSize:11}}>({allocShiftF==="M"?"Morning (07:00–16:00)":allocShiftF==="ME"?"Mid (12:00–21:00)":"Evening (16:00–01:00)"} shift)</span>
                   </div>
                   <div style={{fontSize:11,color:"#94A3B8"}}>{filteredBrands.length} brands · {pool.length} agents on shift</div>
                 </div>
