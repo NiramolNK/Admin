@@ -714,6 +714,15 @@ const D = {
   escalated: ["Escalated to another team", "ส่งต่อทีมอื่นแล้ว"],
   pendingSet: ["Marked as waiting on customer", "ตั้งเป็นรอลูกค้าตอบ"],
   resolvedMsg: ["Case resolved. Satisfaction survey sent.", "ปิดเคสเรียบร้อย ส่งแบบสอบถาม CSAT แล้ว"],
+  /* Shown when Resolve is pressed on a case the database has no outbound
+     message for. See the note on the Resolve button — the reply box reports
+     success optimistically, so an agent can believe a reply went out when the
+     server never received one. This is the last check before the case is
+     filed as answered. */
+  resolveNoReply: [
+    "No reply has been sent to the customer on this case.\n\nThe database has no outbound message for it, so if you did reply, the send never reached the server — check the reply box before closing.\n\nResolve anyway?",
+    "เคสนี้ยังไม่มีการส่งข้อความตอบกลับลูกค้า\n\nระบบไม่พบข้อความขาออกในฐานข้อมูล หากคุณตอบไปแล้ว แสดงว่าการส่งไม่ถึงเซิร์ฟเวอร์ กรุณาตรวจสอบกล่องตอบกลับก่อนปิดเคส\n\nต้องการปิดเคสหรือไม่?",
+  ],
 
   /* customers */
   searchCust: ["Search by name or phone number", "ค้นหาชื่อลูกค้าหรือเบอร์โทร"],
@@ -929,6 +938,18 @@ const D = {
   taxPauses: ["Pauses SLA", "หยุดนับ SLA"],
   taxOpen: ["Counts as open", "นับเป็นงานค้าง"],
   taxNeedName: ["Enter a name", "กรอกชื่อ"],
+  taxDelete: ["Delete", "ลบ"],
+  taxDeleted: ["Deleted", "ลบแล้ว"],
+  taxInUse: ["%s in use", "ใช้อยู่ %s เคส"],
+  taxDeleteConfirm: ["Delete \"%s\" permanently?\n\nNo case is using it, so nothing will be affected. This cannot be undone.", "ลบ \"%s\" ถาวรหรือไม่?\n\nยังไม่มีเคสใดใช้รายการนี้ จึงไม่กระทบข้อมูลเดิม การลบไม่สามารถย้อนกลับได้"],
+  taxDeleteWhy: [
+    "Delete only appears on entries you added that no case is using yet. Anything with cases on it, and every standard entry, can be retired instead — retiring keeps old cases readable.",
+    "ปุ่มลบจะแสดงเฉพาะรายการที่คุณเพิ่มเองและยังไม่มีเคสใดใช้งาน ส่วนรายการที่มีเคสใช้อยู่และรายการมาตรฐานจะเลิกใช้ได้เท่านั้น การเลิกใช้จะยังคงแสดงผลในเคสเก่าได้ตามปกติ",
+  ],
+  taxStatusNote: [
+    "New statuses appear at the end of the list. \"Counts as open\" keeps the case in the Open filter and on the team's workload; \"Pauses SLA\" stops the response clock while the case sits there — use it only when you are waiting on someone outside the team.",
+    "สถานะที่เพิ่มใหม่จะอยู่ท้ายรายการ \"นับเป็นงานค้าง\" หมายถึงเคสยังอยู่ในตัวกรองงานค้างและนับเป็นภาระงานของทีม ส่วน \"หยุดนับ SLA\" จะหยุดเวลาตอบกลับระหว่างที่เคสอยู่ในสถานะนี้ ควรใช้เฉพาะกรณีที่ต้องรอบุคคลภายนอกทีมเท่านั้น",
+  ],
   /* Twilio softphone */
   sfTitle: ["Softphone", "โทรศัพท์ในระบบ"],
   sfReady: ["Ready for calls", "พร้อมรับสาย"],
@@ -1036,7 +1057,6 @@ const D = {
   otpStale: ["probably expired", "น่าจะหมดอายุแล้ว"],
   otpNoCode: ["no code found in this email", "ไม่พบรหัสในอีเมลนี้"],
   otpLiveHint: ["just arrived — expires in a few minutes", "เพิ่งเข้ามา หมดอายุในไม่กี่นาที"],
-  otpAudit: ["Copying is recorded with your name.", "ระบบบันทึกชื่อผู้กดคัดลอก"],
   otpLogTitle: ["Recently copied", "ประวัติการคัดลอกล่าสุด"],
   otpWaiting: ["No code right now — one appears here the moment someone signs in to LINE", "ยังไม่มีรหัส จะขึ้นทันทีที่มีการเข้าสู่ระบบ LINE"],
   chanOn: ["Connected · cases arrive automatically", "เชื่อมต่อแล้ว · รับเคสอัตโนมัติ"],
@@ -1341,7 +1361,7 @@ const P1_CHANNELS = ["email", "webchat", "phone"]; // Phase 1 scope
 
    Colours stay in code — they're presentation, not taxonomy, and picking one
    per row in a settings screen is a worse job than choosing a sensible palette
-   once. Any status without an entry in ST_COLORS falls back to slate. */
+   once. A status added in Settings has no entry here — see stColor below. */
 const ST_COLORS = {
   new:              { c: "var(--blue)",   bg: "var(--sky)" },
   open:             { c: "var(--cyan)",   bg: "var(--cyan-bg)" },
@@ -1352,6 +1372,18 @@ const ST_COLORS = {
   resolved:         { c: "var(--green)",  bg: "var(--green-bg)" },
   closed:           { c: "var(--muted)",  bg: "var(--slate-bg)" },
 };
+/* A status added in Settings has no entry above. Rendering all of them the same
+   grey would defeat the point of a coloured chip, so pick one from the key
+   instead — deterministic, so a status keeps its colour across reloads and
+   between agents, and no one has to choose a colour in a settings form. */
+const ST_EXTRA_COLORS = [
+  { c: "var(--cyan)",   bg: "var(--cyan-bg)" },
+  { c: "var(--violet)", bg: "var(--violet-bg)" },
+  { c: "var(--amber)",  bg: "var(--amber-bg)" },
+  { c: "var(--blue)",   bg: "var(--sky)" },
+];
+const stColor = (key) => ST_COLORS[key] ?? ST_EXTRA_COLORS[
+  [...String(key)].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % ST_EXTRA_COLORS.length];
 
 let ST = {
   new:       { n: { en: "New", th: "งานใหม่" },                 c: "var(--blue)",   bg: "var(--sky)" },
@@ -1427,7 +1459,7 @@ async function loadTaxonomy() {
     if (Array.isArray(sts.data) && sts.data.length) {
       const nextSt = {};
       for (const r of sts.data) {
-        const col = ST_COLORS[r.key] ?? { c: "var(--muted)", bg: "var(--slate-bg)" };
+        const col = stColor(r.key);
         nextSt[r.key] = { n: { en: r.label_en, th: r.label_th || r.label_en }, ...col, active: r.active !== false };
       }
       ST = nextSt;
@@ -3040,6 +3072,21 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     if ((!text.trim() && !files.length) || !tk) return;
     // someone else is mid-reply on this same case — make the agent confirm
     if (!force && !isNote && otherTyping) { setCollide({ name: otherTyping.agent_name || "—" }); return; }
+    /* FIX (TK-E10515 Nestlé, TK-E10478 Mars — two cases in two days, Aug 2026):
+       everything below is optimistic. The reply is pushed into the thread and
+       "Reply sent" is toasted synchronously, and only then does a fire-and-
+       forget branch try to deliver it. Each of those branches reports its own
+       failure, but a case whose channel matches NO branch fell through the
+       whole chain in silence: the agent saw their reply in the thread, saw the
+       success toast, and closed the case — while nothing had been sent.
+
+       Checked here, before the optimistic write, so there is nothing to undo.
+       Notes never leave the building, and a seeded demo case (no dbId) is
+       expected to go nowhere; both are legitimately exempt. */
+    if (tk.dbId && !isNote && !["webchat", "tiktok_biz", "email"].includes(tk.channel)) {
+      toast(`REPLY NOT SENT — this case came in on "${tk.channel || "unknown"}", which the app has no way to send to · your draft was kept`, "error");
+      return;
+    }
     const msgText = text.trim() || "(attachment)";
     const at = Date.now();
     const canAttach = tk.dbId && tk.channel === "email" && !isNote;
@@ -3576,7 +3623,28 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
               <div className="space-y-1.5">
                 <button className="btn btn-g w-full justify-start" onClick={() => setEscOpen(true)}><ArrowUpRight size={14} />{t("escalate")}</button>
                 <button className="btn btn-g w-full justify-start" onClick={() => patch({ status: "pending" }, t("pendingSet"))}><Clock size={14} />{t("waitCust")}</button>
-                <button className="btn btn-d w-full justify-start" onClick={() => patch({ status: "resolved", resolveMin: Math.round((Date.now() - tk.createdAt) / MIN) }, t("resolvedMsg"))}><CheckCircle2 size={14} />{t("resolveClose")}</button>
+                {/* FIX (TK-E10515 Nestlé, TK-E10478 Mars — two cases in two days,
+                    Aug 2026): both were resolved by an agent who believed a reply
+                    had gone out, and in both the server never received a send
+                    request at all. `send()` drops the reply into the thread and
+                    toasts "Reply sent" synchronously, before — and regardless of
+                    whether — delivery is attempted, so neither the thread nor the
+                    toast is evidence that anything left the building.
+
+                    So ask the database, not the screen. One outbound row is all
+                    it takes; finding none means nothing was ever delivered on
+                    this case and closing it as answered would bury that. A
+                    failed lookup deliberately does NOT block the agent — only a
+                    confirmed zero raises the question, and even then it is a
+                    question, not a wall. */}
+                <button className="btn btn-d w-full justify-start" onClick={async () => {
+                  if (tk.dbId) {
+                    const { data: outRows, error } = await supabase
+                      .from("messages").select("id").eq("ticket_id", tk.dbId).eq("direction", "out").limit(1);
+                    if (!error && !(outRows || []).length && !window.confirm(t("resolveNoReply"))) return;
+                  }
+                  patch({ status: "resolved", resolveMin: Math.round((Date.now() - tk.createdAt) / MIN) }, t("resolvedMsg"));
+                }}><CheckCircle2 size={14} />{t("resolveClose")}</button>
                 {me.role === "admin" && (
                   <button className="btn btn-g w-full justify-start" style={{ color: "var(--red)" }}
                     onClick={async () => {
@@ -5617,17 +5685,21 @@ export function LineCodeAlert({ me, toast }) {
       {live.map(({ r, code }) => {
         const mins = Math.max(0, Math.round((Date.now() - new Date(r.received_at)) / 60000));
         return (
-          <div key={r.id} className="flex items-center gap-3 py-1.5">
+          /* Copy sits beside the code, not pushed to the far edge with ml-auto.
+             This card spans the full width of the dashboard column, so the
+             button used to end up a screen away from the number it copies. */
+          <div key={r.id} className="flex items-center gap-2.5 py-1.5 flex-wrap">
             <b className="text-[20px] tracking-[3px]" style={{ fontFamily: "ui-monospace,Menlo,monospace" }}>{code}</b>
-            <span className="text-[11px]" style={{ color: "var(--muted)" }}>{r.our_box || r.sender} · {t("otpMins", String(mins))}</span>
-            <button className="btn btn-g ml-auto" style={{ padding: "5px 11px", fontSize: 12 }}
+            <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12 }}
                     onClick={() => copyLineCode(code, r, me, say)}>{t("otpCopy")}</button>
+            <span className="text-[11px]" style={{ color: "var(--muted)" }}>{r.our_box || r.sender} · {t("otpMins", String(mins))}</span>
           </div>
         );
       })}
-      {live.length > 0 && (
-        <p className="text-[10.5px] mt-1" style={{ color: "var(--muted)" }}>{t("otpAudit")}</p>
-      )}
+      {/* The "copying is recorded with your name" line used to sit here.
+          Removed on request — copying IS still recorded, and the record is
+          still visible under Recently copied in Settings; only the standing
+          notice is gone. */}
     </div>
   );
 }
@@ -5828,12 +5900,29 @@ function TaxonomySettings({ toast }) {
   const [cats, setCats] = useState([]);
   const [sts, setSts] = useState([]);
   const [newCat, setNewCat] = useState({ en: "", th: "" });
+  // open/pause default to "a normal working status": the case is still live,
+  // and the SLA clock keeps running. Waiting-on-someone-else is the exception.
+  const [newSt, setNewSt] = useState({ en: "", th: "", open: true, pause: false });
   const [busy, setBusy] = useState(false);
+  /* How many cases actually carry each key, per table. This is what separates
+     "remove" from "retire": an entry nothing points at can be deleted outright,
+     while one with history can only be retired, or every case wearing it would
+     render blank. Counted here rather than guessed. */
+  const [used, setUsed] = useState({ case_statuses: {}, case_categories: {} });
 
   const reload = () => Promise.all([
     supabase.from("case_categories").select("*").order("sort_order"),
     supabase.from("case_statuses").select("*").order("sort_order"),
-  ]).then(([c, s]) => { setCats(c.data ?? []); setSts(s.data ?? []); });
+    supabase.from("tickets").select("status,category"),
+  ]).then(([c, s, tk]) => {
+    setCats(c.data ?? []); setSts(s.data ?? []);
+    const st = {}, ct = {};
+    for (const r of tk.data ?? []) {
+      if (r.status) st[r.status] = (st[r.status] || 0) + 1;
+      if (r.category) ct[r.category] = (ct[r.category] || 0) + 1;
+    }
+    setUsed({ case_statuses: st, case_categories: ct });
+  });
 
   useEffect(() => { reload().catch(() => {}); }, []);
 
@@ -5847,6 +5936,19 @@ function TaxonomySettings({ toast }) {
     setBusy(false);
     if (error) return toast(error.message, "error");
     await after();
+  };
+
+  /* Delete, as opposed to retire. Offered only for an entry that is not one of
+     the standard ones AND that no case carries — so there is nothing to orphan
+     and nothing to explain later. Anything with history keeps only Retire,
+     which leaves old cases readable. */
+  const remove = async (table, key, label) => {
+    if (!window.confirm(t("taxDeleteConfirm", label))) return;
+    setBusy(true);
+    const { error } = await supabase.from(table).delete().eq("key", key);
+    setBusy(false);
+    if (error) return toast(error.message, "error");
+    await after(t("taxDeleted"));
   };
 
   const rename = async (table, key, patch) => {
@@ -5873,7 +5975,41 @@ function TaxonomySettings({ toast }) {
     await after();
   };
 
-  const Row = ({ r, table }) => (
+  /* Statuses could be renamed and retired but never added — a new one meant
+     someone writing an INSERT by hand against the database. Same shape as
+     addCat, plus the two flags that decide how a status BEHAVES rather than how
+     it reads: whether a case parked in it still counts as open work, and
+     whether it stops the SLA clock. Neither can be guessed from the name, so
+     both are asked here.
+
+     New rows land at the end of the list. There is no reordering UI yet, so a
+     status added after Resolved will sit after Resolved in the dropdown. */
+  const addSt = async () => {
+    const en = newSt.en.trim();
+    if (!en) return toast(t("taxNeedName"), "error");
+    // slug from the English name; suffix on collision rather than overwriting.
+    // The key is what lands in tickets.status and is never shown to an agent,
+    // so it only has to be stable and unique.
+    let key = en.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "status";
+    if (sts.some((s) => s.key === key)) key = `${key}_${Date.now().toString(36).slice(-4)}`;
+    setBusy(true);
+    const { error } = await supabase.from("case_statuses").insert({
+      key, label_en: en, label_th: newSt.th.trim() || en,
+      sort_order: (sts.reduce((m, s) => Math.max(m, s.sort_order || 0), 0) || 0) + 1,
+      // is_system marks the statuses cross-brand reporting is built on. One
+      // added here is not one of those, so it can be retired without a warning.
+      is_system: false, is_open: newSt.open, pauses_sla: newSt.pause,
+    });
+    setBusy(false);
+    if (error) return toast(error.message, "error");
+    setNewSt({ en: "", th: "", open: true, pause: false });
+    await after();
+  };
+
+  const Row = ({ r, table }) => {
+    const n = used[table]?.[r.key] || 0;
+    const canDelete = !r.is_system && n === 0;
+    return (
     <tr style={{ opacity: r.active === false ? 0.5 : 1 }}>
       <td>
         <input className="fld" style={{ padding: "4px 8px", fontSize: 12.5 }} defaultValue={r.label_en}
@@ -5888,15 +6024,23 @@ function TaxonomySettings({ toast }) {
         {r.is_system && <span className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>{t("taxSystem")}</span>}
         {r.active === false && <span className="pill ml-1" style={{ background: "var(--slate-bg)", color: "var(--muted)" }}>{t("taxRetired")}</span>}
         {table === "case_statuses" && r.pauses_sla && <span className="pill ml-1" style={{ background: "var(--amber-bg)", color: "var(--amber)" }}>{t("taxPauses")}</span>}
+        {/* the number is the reason Delete is or isn't offered — show it rather
+            than leaving a missing button unexplained */}
+        {n > 0 && <span className="pill ml-1" style={{ background: "var(--slate-bg)", color: "var(--muted)" }}>{t("taxInUse", n)}</span>}
       </td>
-      <td className="text-right">
+      <td className="text-right whitespace-nowrap">
         <button className="btn btn-g" style={{ padding: "4px 10px" }} disabled={busy}
                 onClick={() => setActive(table, r.key, r.active === false, r.is_system)}>
           {r.active === false ? t("taxRestore") : t("taxRetire")}
         </button>
+        {canDelete && (
+          <button className="btn btn-g ml-1" style={{ padding: "4px 10px", color: "var(--red)" }} disabled={busy}
+                  onClick={() => remove(table, r.key, r.label_en)}>{t("taxDelete")}</button>
+        )}
       </td>
     </tr>
-  );
+    );
+  };
 
   return (
     <div className="card p-6">
@@ -5927,6 +6071,23 @@ function TaxonomySettings({ toast }) {
           <tbody>{sts.map((s) => <Row key={s.key} r={s} table="case_statuses" />)}</tbody>
         </table>
       </div>
+      <div className="flex gap-2 mb-1 mt-2 flex-wrap items-center">
+        <input className="fld" style={{ flex: "1 1 180px" }} placeholder={t("taxLabelEn")} value={newSt.en}
+               onChange={(e) => setNewSt((p) => ({ ...p, en: e.target.value }))} />
+        <input className="fld" style={{ flex: "1 1 180px" }} placeholder={t("taxLabelTh")} value={newSt.th}
+               onChange={(e) => setNewSt((p) => ({ ...p, th: e.target.value }))} />
+        <label className="flex items-center gap-1.5 text-[12.5px]" style={{ whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={newSt.open} onChange={(e) => setNewSt((p) => ({ ...p, open: e.target.checked }))} />
+          {t("taxOpen")}
+        </label>
+        <label className="flex items-center gap-1.5 text-[12.5px]" style={{ whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={newSt.pause} onChange={(e) => setNewSt((p) => ({ ...p, pause: e.target.checked }))} />
+          {t("taxPauses")}
+        </label>
+        <button className="btn btn-p" disabled={busy} onClick={addSt}><Plus size={15} />{t("taxAdd")}</button>
+      </div>
+      <p className="text-[11.5px]" style={{ color: "var(--muted)" }}>{t("taxStatusNote")}</p>
+      <p className="text-[11.5px] mt-2" style={{ color: "var(--muted)" }}>{t("taxDeleteWhy")}</p>
     </div>
   );
 }
