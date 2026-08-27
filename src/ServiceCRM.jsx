@@ -707,6 +707,9 @@ const D = {
   waitCust: ["Waiting on customer", "รอลูกค้าตอบกลับ"],
   resolveClose: ["Resolve and close", "แก้ไขเสร็จ ปิดเคส"],
   msgSent: ["Reply sent to the customer", "ส่งข้อความถึงลูกค้าแล้ว"],
+  /* Amaze is manual-logging — see the CH entry. The wording has to make the
+     difference obvious, or an agent reads "sent" and never opens Amaze. */
+  amazeLogged: ["Reply recorded — now send it in Amaze yourself", "บันทึกข้อความแล้ว กรุณาส่งข้อความนี้ในระบบ Amaze ด้วยตนเอง"],
   noteSaved: ["Internal note saved", "บันทึกโน้ตภายในแล้ว"],
   statusTo: ["Status changed to \"%s\"", "เปลี่ยนสถานะเป็น \"%s\""],
   priSaved: ["Priority updated", "ปรับความเร่งด่วนแล้ว"],
@@ -1349,8 +1352,15 @@ const CH = {
   lazada: { n: { en: "Lazada", th: "Lazada" },        c: "#7C4DBF", bg: "#F1EAFB", ic: ShoppingBag },
   email:  { n: { en: "Email", th: "อีเมล" },           c: "#0891B2", bg: "#E0F4F8", ic: Mail },
   phone:  { n: { en: "Phone", th: "โทรศัพท์" },        c: "#0F172A", bg: "#F1F5F9", ic: Phone },
+  /* Amaze — Ascend Commerce's seller platform (CP Group, Thailand). No API
+     yet, so this is a MANUAL-LOGGING channel: the agent answers in the Amaze
+     console and records what they said here, the way TikTok Shop already
+     works. Having the key at all is the point — until now an Amaze case could
+     not even be tagged as one, so it landed under some other channel and
+     vanished from every per-channel count. */
+  amaze:  { n: { en: "Amaze", th: "Amaze" },          c: "#9F1239", bg: "#FFE4E6", ic: ShoppingBag },
 };
-const CH_KEYS = ["email", "webchat", "phone", "line", "fb", "tiktok_biz", "tiktok", "shopee", "lazada"];
+const CH_KEYS = ["email", "webchat", "phone", "line", "fb", "tiktok_biz", "tiktok", "shopee", "lazada", "amaze"];
 const P1_CHANNELS = ["email", "webchat", "phone"]; // Phase 1 scope
 
 /* ── taxonomy ──────────────────────────────────────────────────────────────
@@ -3083,7 +3093,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
        Checked here, before the optimistic write, so there is nothing to undo.
        Notes never leave the building, and a seeded demo case (no dbId) is
        expected to go nowhere; both are legitimately exempt. */
-    if (tk.dbId && !isNote && !["webchat", "tiktok_biz", "email"].includes(tk.channel)) {
+    if (tk.dbId && !isNote && !["webchat", "tiktok_biz", "email", "amaze"].includes(tk.channel)) {
       toast(`REPLY NOT SENT — this case came in on "${tk.channel || "unknown"}", which the app has no way to send to · your draft was kept`, "error");
       return;
     }
@@ -3115,6 +3125,25 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
           const { error } = await supabase.from("messages").insert({ ticket_id: tk.dbId, direction: "out", channel: "webchat", author: tv(me.n), body: msgText });
           if (error) toast("💬 chat send failed — " + error.message);
           else supabase.from("tickets").update({ status: "pending" }).eq("id", tk.dbId).then(() => {});
+        })();
+      } else if (tk.channel === "amaze") {
+        /* Amaze has no API, so nothing is delivered from here — this RECORDS
+           what the agent said after they said it in the Amaze console. The row
+           is a real outbound message because that is what it represents: a
+           reply that reached the customer. It therefore also satisfies the
+           no-reply check on Resolve, which is correct, and does rest on the
+           agent having actually sent it — the one thing code cannot verify.
+           The toast says so plainly rather than claiming "Reply sent". */
+        (async () => {
+          const { error } = await supabase.from("messages").insert({
+            ticket_id: tk.dbId, direction: "out", channel: "amaze", author: tv(me.n), body: msgText,
+          });
+          if (error) {
+            setText((cur) => cur ? cur : msgText);
+            toast("AMAZE — could not record your reply: " + error.message + " · your draft was restored", "error");
+          } else {
+            supabase.from("tickets").update({ status: "pending" }).eq("id", tk.dbId).then(() => {});
+          }
         })();
       } else if (tk.channel === "tiktok_biz") {
         /* One reply box, two TikTok surfaces. The server knows from the case
@@ -3184,7 +3213,11 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
       }
     }
     setText(""); setIsNote(false); setFiles([]);
-    toast(isNote ? t("noteSaved") : t("msgSent"));
+    // "Reply sent to the customer" would be a lie on a manual-logging channel:
+    // nothing left the building, the reply was written down.
+    toast(isNote ? t("noteSaved")
+      : (tk.dbId && tk.channel === "amaze") ? t("amazeLogged")
+      : t("msgSent"));
   };
   const patch = (p, msg) => {
     setTickets((q2) => q2.map((x) => x.id === tk.id ? { ...x, ...p } : x)); toast(msg);
