@@ -1590,11 +1590,21 @@ export default function AllocationPanel({ isAdmin = true }) {
                   if (prof?.role && ROLES[prof.role]) effectiveRole = prof.role;
                 } catch (_) { /* non-fatal */ }
               }
+              // Whether the role below is KNOWN (from userAccounts or the
+              // profiles table) or merely GUESSED. A guess is fine to run the
+              // current page with; it is not fine to write into this browser's
+              // durable session cache, because the loader trusts that cache on
+              // every later load and nothing ever re-checks it. That is exactly
+              // how one slow load left an agent stuck on "viewer" — and so
+              // without a Daily Count tab — for days. See the repair effect
+              // near the "bounce to roster" one.
+              let roleGuessed = false;
               if (!effectiveRole) {
                 // Last-resort fallback: first user in an empty list becomes a
                 // manager (typical fresh-install path); otherwise default to
                 // viewer to be safe.
                 effectiveRole = ua.length === 0 ? "manager" : "viewer";
+                roleGuessed = true;
               }
               // Heal the userAccounts list so future loads don't need this fallback.
               setUserAccounts(prev => {
@@ -1612,7 +1622,11 @@ export default function AllocationPanel({ isAdmin = true }) {
               });
               setRole(effectiveRole);
               setLoggedIn(true);
-              try { window.localStorage.setItem("nirm-local-session", JSON.stringify({ u: supaEmail, r: effectiveRole })); } catch (_) {}
+              // Only cache a role we actually established. Caching a guess is
+              // what makes a one-off bad load permanent.
+              if (!roleGuessed) {
+                try { window.localStorage.setItem("nirm-local-session", JSON.stringify({ u: supaEmail, r: effectiveRole })); } catch (_) {}
+              }
             }
           } catch(authErr) { /* non-fatal */ }
         }
@@ -1847,6 +1861,47 @@ export default function AllocationPanel({ isAdmin = true }) {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, [storageLoaded]);
+
+  /* FIX (Noon / agent 18, 2026-08-27 — "Daily Count tab is missing").
+     The role is cached in THIS browser's nirm-local-session, and the loader
+     restores it on every load without ever asking whether it is still right.
+     Combined with the loader's last-resort guess a few hundred lines up —
+     `ua.length === 0 ? "manager" : "viewer"`, which fires when the shared
+     userAccounts list or the profiles read is slow or blocked — a single bad
+     load can pin someone to "viewer" permanently. "viewer" is the ONLY role
+     whose tabs omit "daily", so Daily Count and My Invoice quietly disappear
+     while profiles.role still says t1 and nobody can see why.
+
+     profiles.role is the source of truth. Ask it once the session is up and
+     repair the cache when it disagrees. The cache keeps its job — restoring
+     instantly so there is no login-screen flash — it just no longer gets the
+     last word over the database. */
+  useEffect(() => {
+    if (!loggedIn || !storageLoaded) return;
+    let dead = false;
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (dead || !user?.id) return;
+        const { data: prof } = await supabase
+          .from("profiles").select("role").eq("id", user.id).maybeSingle();
+        const real = prof?.role;
+        // No answer, or a role this build doesn't know, means "no better
+        // information" — never downgrade someone on a failed lookup.
+        if (dead || !real || !ROLES[real] || real === role) return;
+        setRole(real);
+        const mail = (user.email || "").toLowerCase();
+        setUserAccounts(prev => (Array.isArray(prev) ? prev : []).map(u =>
+          u?.username?.toLowerCase() === mail ? { ...u, role: real } : u));
+        try {
+          const ls = JSON.parse(window.localStorage.getItem("nirm-local-session") || "null");
+          if (ls?.u) window.localStorage.setItem("nirm-local-session", JSON.stringify({ ...ls, r: real }));
+        } catch (_) { /* private mode — the in-memory fix still applies */ }
+      } catch (_) { /* offline or signed out — keep what we have */ }
+    })();
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedIn, storageLoaded]);
 
   // If current tab not allowed for this role, bounce to roster
   useEffect(() => {
