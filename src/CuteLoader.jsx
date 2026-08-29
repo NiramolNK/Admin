@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import catUrl from "./assets/cat-idle.png";
-import catWaitUrl from "./assets/cat-wait.png";
+// cat-idle.png is retired — the file is still in assets/ if it is ever wanted
+// back, but nothing imports it, so Vite leaves it out of the bundle.
+import catUrl from "./assets/cat-wait.png";
 
 /* ═══════════════════════ CUTE LOADER ═══════════════════════
    A chibi mascot that appears while anything is being saved.
@@ -24,21 +25,39 @@ import catWaitUrl from "./assets/cat-wait.png";
    the browser composites it on the GPU.                                      */
 
 /* ── the store: a counter of in-flight writes ──────────────────────────────── */
-/* `turn` rotates which of Aries' acts opens the next appearance — see SPRITES.
-   `kind` is kept on the store rather than in component state so that every
-   mounted loader agrees on the same cat. */
-const store = { n: 0, shown: false, timer: null, subs: new Set(), turn: 0, kind: "idle" };
+/* Once she is on screen she stays for at least MIN_SHOW_MS, even if the save
+   finished in 200 ms. Without it Aries appears and vanishes inside a single
+   frame of her own animation and nobody ever sees her — which is exactly what
+   happened to the first version of this.
+
+   Holding a loader open past its work usually makes an app feel slower, and
+   that would matter here if the veil blocked anything. It does not:
+   pointer-events is none, so the desk stays fully clickable underneath for the
+   whole time. */
+const MIN_SHOW_MS = 4500;
+
+const store = { n: 0, shown: false, timer: null, subs: new Set(), shownAt: 0, hold: null };
 const emit = () => store.subs.forEach((fn) => fn(store.shown));
 
 const show = () => {
   if (store.shown) return;
   store.shown = true;
-  const acts = Object.keys(SPRITES);
-  store.kind = acts[store.turn++ % acts.length];
+  store.shownAt = Date.now();
   emit();
 };
 const hide = () => {
   if (!store.shown) return;
+  const left = MIN_SHOW_MS - (Date.now() - store.shownAt);
+  if (left > 0) {
+    // already counting down — a second save finishing does not restart it
+    if (store.hold) return;
+    store.hold = setTimeout(() => {
+      store.hold = null;
+      // if new work arrived during the hold, stay up for that instead
+      if (store.n === 0) { store.shown = false; emit(); }
+    }, left);
+    return;
+  }
   store.shown = false;
   emit();
 };
@@ -88,61 +107,38 @@ if (typeof window !== "undefined" && !window.__nirmLoaderHooked) {
 }
 
 /* ── the mascot ───────────────────────────────────────────────────────────
-   FW/FH come straight from tools_sprite.py, which built the strips. Every
-   strip must be cut to the same frame size; only the frame COUNT differs, and
-   that lives per-sprite in SPRITES below. Replace a sheet, re-run the script,
-   update the count — nothing else here needs to change. */
-const FW = 207, FH = 300;               // source frame size — both strips share it
+   FW/FH come straight from tools_sprite.py, which built the strip. Replace the
+   sheet, re-run the script, update FRAMES below — nothing else changes. */
+const FW = 207, FH = 300;               // source frame size
 const SCALE = 0.6;                      // drawn at 60%, so the art is 2x on a retina screen
 const DW = Math.round(FW * SCALE), DH = Math.round(FH * SCALE);
 
-/* Aries has two acts. Both strips are cut to the SAME 207x300 frame and
-   bottom-aligned on her feet, so swapping between them moves the cat and
-   nothing else — no jump in the card, no reflow.
+/* One act: the reading cat. FRAMES is the only thing that changes if the strip
+   is ever replaced — cut the new one to the same 207x300 frame, bottom-aligned
+   on her feet, and update the count. */
+const FRAMES = 6;
+const CAT_DUR = ".9s";
 
-   They ALTERNATE, one per appearance of the loader. The first attempt tied the
-   second act to a 4.5-second timer, which was wrong: the loader itself only
-   appears after 250 ms, and a Supabase write usually finishes in a few hundred
-   more — so the threshold was almost never reached and the second cat may as
-   well not have existed. Rotating means both acts are genuinely seen.
+/* Fetch it at startup rather than at first save, so her first appearance is
+   not the moment the browser goes looking for a 97 KB image. */
+if (typeof window !== "undefined") { const pre = new Image(); pre.src = catUrl; }
 
-   Add a third strip here and it joins the rotation with no other change. */
-const SPRITES = {
-  idle: { url: catUrl,     frames: 4, dur: "1s"   },
-  wait: { url: catWaitUrl, frames: 6, dur: ".9s"  },
-};
-
-/* The "this is taking a while" signal moved off the sprite and onto the
-   caption, where a long wait belongs — the cat is now decoration, the words
-   are the information. */
-const SLOW_MS = 4500;
-
-/* Fetch the second strip once at startup. Without this the swap would be the
-   one moment the browser goes looking for a 97 KB image, and the cat would
-   blink out of existence exactly when someone is already waiting. */
-if (typeof window !== "undefined") { const pre = new Image(); pre.src = catWaitUrl; }
-
-function Mascot({ kind = "idle" }) {
-  const s = SPRITES[kind] ?? SPRITES.idle;
+function Mascot() {
   return (
-    <div className={`nirm-cat nirm-cat-${kind}`} aria-hidden="true"
+    <div className="nirm-cat" aria-hidden="true"
          style={{ width: DW, height: DH, margin: "0 auto",
-                  backgroundImage: `url(${s.url})`,
-                  backgroundSize: `${DW * s.frames}px ${DH}px`,
+                  backgroundImage: `url(${catUrl})`,
+                  backgroundSize: `${DW * FRAMES}px ${DH}px`,
                   backgroundRepeat: "no-repeat",
                   filter: "drop-shadow(0 8px 12px rgba(15,23,42,.22))" }} />
   );
 }
 
-/* One keyframe pair per strip: the travel distance is the frame count, so a
-   4-frame and a 6-frame cat cannot share an animation. Generated rather than
-   written out, so adding a third act later is one line in SPRITES. */
-const spriteCSS = Object.entries(SPRITES).map(([k, s]) => `
-@keyframes nirm-play-${k} { from { background-position: 0 0 } to { background-position: -${DW * s.frames}px 0 } }
-.nirm-cat-${k} { animation: nirm-play-${k} ${s.dur} steps(${s.frames}) infinite; }`).join("");
-
 const CSS = `
-/* the sprite: one strip, stepped one frame at a time */${spriteCSS}
+/* the sprite: one strip, stepped one frame at a time. The travel distance is
+   the frame count, so this and FRAMES must always agree. */
+@keyframes nirm-play { from { background-position: 0 0 } to { background-position: -${DW * FRAMES}px 0 } }
+.nirm-cat { animation: nirm-play ${CAT_DUR} steps(${FRAMES}) infinite; }
 @keyframes nirm-in   { from { opacity:0; transform: translateY(10px) scale(.94) } to { opacity:1; transform:none } }
 @keyframes nirm-dots { 0%,20% { content:"" } 40% { content:"." } 60% { content:".." } 80%,100% { content:"..." } }
 
@@ -160,21 +156,19 @@ const CSS = `
 /* ── the overlay ──────────────────────────────────────────────────────────── */
 export default function CuteLoader({ label = "Loading" }) {
   const [on, setOn] = useState(store.shown);
-  const [kind, setKind] = useState(store.kind);
   useEffect(() => {
-    // read the act off the store at the moment it changes, so two loaders on
-    // screen never show different cats
-    const fn = (v) => { setOn(v); setKind(store.kind); };
+    const fn = (v) => setOn(v);
     store.subs.add(fn);
     return () => { store.subs.delete(fn); };
   }, []);
 
-  /* Has this one been going a while? Reset on every appearance, so the caption
-     is about THIS save rather than a flag left set by an earlier slow one. */
+  /* "Still going" must mean the WORK is still going, not that the card is
+     still on screen — otherwise the minimum display time would trigger it on
+     every save and the words would stop meaning anything. Hence store.n. */
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     if (!on) { setSlow(false); return; }
-    const t = setTimeout(() => setSlow(true), SLOW_MS);
+    const t = setTimeout(() => setSlow(store.n > 0), MIN_SHOW_MS);
     return () => clearTimeout(t);
   }, [on]);
 
@@ -192,7 +186,7 @@ export default function CuteLoader({ label = "Loading" }) {
            style={{ background: "#fff", borderRadius: 22, padding: "22px 30px 18px",
                     boxShadow: "0 18px 50px rgba(15,23,42,.28)", textAlign: "center",
                     border: "1px solid rgba(13,148,136,.18)" }}>
-        <Mascot kind={kind} />
+        <Mascot />
         <div className="nirm-say"
              style={{ marginTop: 4, fontSize: 14, fontWeight: 700, color: "#0F172A",
                       fontFamily: "inherit", letterSpacing: .2 }}>
