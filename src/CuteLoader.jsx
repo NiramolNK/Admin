@@ -24,12 +24,17 @@ import catWaitUrl from "./assets/cat-wait.png";
    the browser composites it on the GPU.                                      */
 
 /* ── the store: a counter of in-flight writes ──────────────────────────────── */
-const store = { n: 0, shown: false, timer: null, subs: new Set() };
+/* `turn` rotates which of Aries' acts opens the next appearance — see SPRITES.
+   `kind` is kept on the store rather than in component state so that every
+   mounted loader agrees on the same cat. */
+const store = { n: 0, shown: false, timer: null, subs: new Set(), turn: 0, kind: "idle" };
 const emit = () => store.subs.forEach((fn) => fn(store.shown));
 
 const show = () => {
   if (store.shown) return;
   store.shown = true;
+  const acts = Object.keys(SPRITES);
+  store.kind = acts[store.turn++ % acts.length];
   emit();
 };
 const hide = () => {
@@ -95,15 +100,22 @@ const DW = Math.round(FW * SCALE), DH = Math.round(FH * SCALE);
    bottom-aligned on her feet, so swapping between them moves the cat and
    nothing else — no jump in the card, no reflow.
 
-   `idle` plays for every save. `wait` takes over once a save has been running
-   long enough to be worth remarking on: she stops waiting patiently and starts
-   reading, which is both nicer to look at and a quiet signal that something is
-   slower than it should be. */
+   They ALTERNATE, one per appearance of the loader. The first attempt tied the
+   second act to a 4.5-second timer, which was wrong: the loader itself only
+   appears after 250 ms, and a Supabase write usually finishes in a few hundred
+   more — so the threshold was almost never reached and the second cat may as
+   well not have existed. Rotating means both acts are genuinely seen.
+
+   Add a third strip here and it joins the rotation with no other change. */
 const SPRITES = {
   idle: { url: catUrl,     frames: 4, dur: "1s"   },
   wait: { url: catWaitUrl, frames: 6, dur: ".9s"  },
 };
-const SLOW_MS = 4500;                   // when a save stops feeling instant
+
+/* The "this is taking a while" signal moved off the sprite and onto the
+   caption, where a long wait belongs — the cat is now decoration, the words
+   are the information. */
+const SLOW_MS = 4500;
 
 /* Fetch the second strip once at startup. Without this the swap would be the
    one moment the browser goes looking for a 97 KB image, and the cat would
@@ -148,14 +160,17 @@ const CSS = `
 /* ── the overlay ──────────────────────────────────────────────────────────── */
 export default function CuteLoader({ label = "Loading" }) {
   const [on, setOn] = useState(store.shown);
+  const [kind, setKind] = useState(store.kind);
   useEffect(() => {
-    const fn = (v) => setOn(v);
+    // read the act off the store at the moment it changes, so two loaders on
+    // screen never show different cats
+    const fn = (v) => { setOn(v); setKind(store.kind); };
     store.subs.add(fn);
     return () => { store.subs.delete(fn); };
   }, []);
 
-  /* Has this one been going a while? Reset on every appearance, so the second
-     act is about THIS save rather than a flag left set by an earlier slow one. */
+  /* Has this one been going a while? Reset on every appearance, so the caption
+     is about THIS save rather than a flag left set by an earlier slow one. */
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     if (!on) { setSlow(false); return; }
@@ -177,7 +192,7 @@ export default function CuteLoader({ label = "Loading" }) {
            style={{ background: "#fff", borderRadius: 22, padding: "22px 30px 18px",
                     boxShadow: "0 18px 50px rgba(15,23,42,.28)", textAlign: "center",
                     border: "1px solid rgba(13,148,136,.18)" }}>
-        <Mascot kind={slow ? "wait" : "idle"} />
+        <Mascot kind={kind} />
         <div className="nirm-say"
              style={{ marginTop: 4, fontSize: 14, fontWeight: 700, color: "#0F172A",
                       fontFamily: "inherit", letterSpacing: .2 }}>
