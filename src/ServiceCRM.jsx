@@ -941,6 +941,11 @@ const D = {
   taxPauses: ["Pauses SLA", "หยุดนับ SLA"],
   taxOpen: ["Counts as open", "นับเป็นงานค้าง"],
   taxNeedName: ["Enter a name", "กรอกชื่อ"],
+  /* Shown when a manually-logged case cannot be written to the database.
+     Saying it plainly matters: the old behaviour was to keep the case in this
+     browser only and say nothing, which is how a logged call could quietly
+     never exist. */
+  errSaveCase: ["Could not save the case — check your connection and try again. Nothing was created.", "ไม่สามารถบันทึกเคสได้ กรุณาตรวจสอบการเชื่อมต่อแล้วลองใหม่ ระบบยังไม่ได้สร้างเคสนี้"],
   taxDelete: ["Delete", "ลบ"],
   taxDeleted: ["Deleted", "ลบแล้ว"],
   taxInUse: ["%s in use", "ใช้อยู่ %s เคส"],
@@ -1551,10 +1556,34 @@ const PERM_OF = { manager: "admin" };
 
 async function loadOrgPeople() {
   try {
-    const { data } = await supabase.from("kv_state").select("key,value")
-      .in("key", ["nirm-agents", "nirm-userAccounts"]);
-    const byKey = Object.fromEntries((data ?? []).map((r) => [r.key, r.value]));
-    const roster = Array.isArray(byKey["nirm-agents"]) ? byKey["nirm-agents"] : [];
+    /* FIX (April, 2026-08-27 — "Service Desk › People is missing T2").
+       The roster was read from kv_state's `nirm-agents` array. That array is a
+       LEGACY copy: agents moved to kv_records (one row per agent, retirement
+       via a deleted_at tombstone) and the old blob stopped being written. It
+       has been frozen at 23 people while kv_records carries 27, so five agents
+       were invisible here — Apple, Markhom, Veer, Aorr and Cream T2 — and
+       four of those five are T2, which is why a whole team looked missing.
+
+       kv_records is the live store, so read that. `deleted_at is null` is what
+       keeps the retired duplicates (A06, A08–A15) out; they are tombstones,
+       not people. kv_state is still the right home for nirm-userAccounts, so
+       that one is unchanged, and the old array stays as a fallback in case the
+       records read is empty or refused. */
+    const [recRes, stateRes] = await Promise.all([
+      supabase.from("kv_records").select("id,value")
+        .eq("domain", "nirm-agents").is("deleted_at", null),
+      supabase.from("kv_state").select("key,value")
+        .in("key", ["nirm-agents", "nirm-userAccounts"]),
+    ]);
+    const byKey = Object.fromEntries((stateRes.data ?? []).map((r) => [r.key, r.value]));
+    const fromRecords = (recRes.data ?? [])
+      // the row's primary key is the agent id — it wins over anything stale
+      // that may still be sitting inside the stored value
+      .map((r) => (r.value && typeof r.value === "object" ? { ...r.value, id: r.id } : null))
+      .filter(Boolean);
+    const roster = fromRecords.length
+      ? fromRecords
+      : (Array.isArray(byKey["nirm-agents"]) ? byKey["nirm-agents"] : []);
     const accounts = Array.isArray(byKey["nirm-userAccounts"]) ? byKey["nirm-userAccounts"] : [];
     if (!roster.length) return false;
 
@@ -2866,9 +2895,58 @@ function NewTicket({ me, onClose, onSave }) {
       } catch (e) { undo(); setBusy(false); return setErr("✉ network error"); }
       return;
     }
+    /* FIX (April, 2026-08-27 — logging an Amaze chat). A case opened on any
+       channel EXCEPT email was never written to the database. It was handed a
+       "TK-<timestamp>" id, lived in one browser's memory, and was gone on
+       refresh: no colleague ever saw it, no report counted it, and replying to
+       it did nothing, because the reply path needs a dbId to deliver anything.
+
+       Three weeks of real use says so plainly — 75 email cases, 1 webchat, and
+       not a single phone, LINE, Shopee, Lazada or TikTok case, on a desk that
+       demonstrably handles all of them. Amaze was about to become the next
+       entry on that list of nothing.
+
+       So a manually-logged case is now a real row, exactly like an emailed
+       one, and everything downstream — replies, the SLA clock, per-channel
+       counts, the no-reply check on Resolve — finally has something to act
+       on. */
     const sub = f.subject.trim();
+    setBusy(true);
+    let newId = null;
+    try {
+      const { data: tkRow, error } = await supabase.from("tickets").insert({
+        brand: "CREA", channel: f.channel,
+        customer_name: f.customer.trim(),
+        customer_phone: f.phone.trim() || null,
+        subject: sub || null,
+        category: f.catKey || null,
+        priority: f.priority,
+        status: "new",
+        ...(f.order.trim() ? { order_ref: f.order.trim() } : {}),
+        ...(me.role === "agent" ? { owner: me.id } : {}),
+      }).select("id").single();
+      if (error || !tkRow) { setBusy(false); return setErr(error?.message || t("errSaveCase")); }
+      newId = tkRow.id;
+      /* What the agent typed in Detail is what the CUSTOMER said, so it is an
+         inbound message. A case with no messages breaks every list that
+         previews the first one, so if this insert fails the case row goes with
+         it rather than being left behind as a shell. */
+      const { error: mErr } = await supabase.from("messages").insert({
+        ticket_id: newId, direction: "in", channel: f.channel, body: f.detail.trim(),
+      });
+      if (mErr) {
+        await supabase.from("tickets").delete().eq("id", newId);
+        setBusy(false);
+        return setErr(mErr.message);
+      }
+    } catch (e) {
+      if (newId) supabase.from("tickets").delete().eq("id", newId).then(() => {});
+      setBusy(false);
+      return setErr(t("errSaveCase"));
+    }
+    setBusy(false);
     onSave({
-      id: "TK-" + Date.now().toString().slice(-4),
+      id: "TK-E" + newId, dbId: newId,
       subject: sub ? { en: sub, th: sub } : null,
       catKey: f.catKey, product: { en: t("viaChannel", tv(CH[f.channel].n)), th: t("viaChannel", tv(CH[f.channel].n)) },
       customer: { en: f.customer, th: f.customer }, phone: f.phone || "-", email: "-", order: f.order || null,
