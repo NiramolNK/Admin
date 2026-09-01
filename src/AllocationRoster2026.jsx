@@ -1744,11 +1744,40 @@ export default function AllocationPanel({ isAdmin = true }) {
       if (changedStateKeys.size === 0) return; // server matches our last-seen state — no setters needed
       try {
         suspendDepth.current++;
-        for (const { stateKey } of DOMAIN_KEYS) {
+        for (const { storageKey, stateKey } of DOMAIN_KEYS) {
           if (!changedStateKeys.has(stateKey)) continue;
           const setter = setterMap[stateKey];
           if (!setter) continue; // session-scoped key, skip
-          if (d[stateKey] != null) setter(d[stateKey]);
+          if (d[stateKey] != null) {
+            setter(d[stateKey]);
+            // FIX (2026-09-01 write-storm outage): record the value we have
+            // just ACCEPTED from another client as this tab's save baseline.
+            //
+            // Without this line flushSave compared the incoming value against
+            // what THIS tab last saved, found it different, and wrote it
+            // straight back to the server. The other tab received that write,
+            // applied it, reached the same conclusion, and wrote it back too.
+            // Neither tab was wrong and neither ever stopped: two clients
+            // pushing the same value at each other for as long as both stayed
+            // open. That loop issued 1,792 kv_state writes in one hour, drove
+            // the average response time to 23 seconds, and restarted Postgres
+            // at 03:26 UTC on 2026-09-01. It is also the explanation for
+            // nirm-prefs sitting at version 20,332 and nirm-role at 12,373 —
+            // those are ping-pong laps, not edits anybody made.
+            //
+            // Accepting someone else's change is not a local change, so there
+            // is nothing here to save. Only keys we actually applied are
+            // rebased; session-scoped keys skipped above keep their own
+            // baseline, and keys the remote payload did not touch keep theirs,
+            // so a genuine unsaved local edit still saves normally.
+            try {
+              lastSavedJson.current[storageKey] = JSON.stringify(d[stateKey] ?? null);
+            } catch (_) {
+              // Unserialisable value — drop the baseline so the key is treated
+              // as dirty, exactly as it was before this fix.
+              delete lastSavedJson.current[storageKey];
+            }
+          }
         }
         // FIX (round-7 senior review): only refresh the load snapshot when the
         // incoming payload is at least as large as the prior snapshot. Otherwise
