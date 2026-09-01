@@ -1,5 +1,8 @@
 // ════════════════════════════════════════════════════════════════════════
-// NiRM Roster — safeStorage.js  (v3 — per-record store for agents/invoices)
+// NiRM Roster — safeStorage.js  (v3.4 — per-record store + CAS backoff)
+//
+// v3.4 (2026-09-01, after the write-storm outage): CAS retries now back off
+// with jitter instead of firing back-to-back. See `backoff` below.
 //
 // v2 FIX: v1 had a design flaw — the realtime handler advanced the CAS
 // version, so a tab whose REACT STATE was stale could still pass the CAS
@@ -32,6 +35,28 @@ import { supabase } from "./supabase.js";
 const TABLE = "kv_state";
 const RECORDS_TABLE = "kv_records";
 const MAX_RETRIES = 6;
+
+// ─── CAS retry backoff ────────────────────────────────────────────────────
+// INCIDENT 2026-09-01 03:00-03:39: the retry loops below used to fire
+// back-to-back with no delay at all. Two clients that collided once collided
+// again immediately, and again, for all six attempts — one set() became six
+// PATCHes and six GETs in the time the network took to answer, and the
+// database saw 1,792 kv_state writes in an hour, a 23-second average response
+// time, and a Postgres restart at 03:26.
+//
+// The exponential part spaces the attempts out. The JITTER is the part that
+// actually matters: without it two clients back off by the same amount and
+// re-collide on every single pass, in lockstep, forever. Randomising the wait
+// is what lets one of them win.
+//
+// Worst case adds roughly 2.4s to a save that is losing every race, which is
+// the correct trade — that save was never going to land quickly anyway, and
+// hammering made it slower for everybody including itself.
+const backoff = (attempt) => {
+  const base = Math.min(50 * 2 ** (attempt - 1), 800);  // 50,100,200,400,800,800
+  const wait = base * (0.5 + Math.random());            // ±50% jitter
+  return new Promise((r) => setTimeout(r, wait));
+};
 
 // Per-tab id stamped on every write, so this tab can recognise the realtime
 // echo of its OWN write and ignore it.
@@ -242,6 +267,8 @@ async function casWrite(key, storedValue) {
   }
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    // Space out every attempt after the first — see `backoff` above.
+    if (attempt > 0) await backoff(attempt);
     if (!anc) {
       const { data, error } = await supabase
         .from(TABLE)
@@ -354,6 +381,8 @@ async function casWriteRecord(domain, id, newValue) {
   let anc = domainMap(recShadow, domain).get(id) || null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    // Space out every attempt after the first — see `backoff` above.
+    if (attempt > 0) await backoff(attempt);
     if (!anc) {
       const { data, error } = await supabase
         .from(RECORDS_TABLE)
@@ -740,5 +769,5 @@ export async function installSafeStorage() {
   // no writes, no realtime application, no reconnect reloads. Two live
   // storage layers caused the 2026-07-08 brand-allocation wipe.
   window.__nirmKvActive = true;
-  console.info("[safeStorage] v3.3 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
+  console.info("[safeStorage] v3.4 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
 }
