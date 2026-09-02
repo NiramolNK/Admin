@@ -1,5 +1,9 @@
 // ════════════════════════════════════════════════════════════════════════
-// NiRM Roster — safeStorage.js  (v3.4 — per-record store + CAS backoff)
+// NiRM Roster — safeStorage.js  (v3.5 — per-record store, CAS backoff,
+//                                 lazy keys)
+//
+// v3.5 (2026-09-02): fetchAll no longer downloads 3.4 MB on every app load.
+// The big screen-specific and dead keys are fetched on demand. See LAZY_KEYS.
 //
 // v3.4 (2026-09-01, after the write-storm outage): CAS retries now back off
 // with jitter instead of firing back-to-back. See `backoff` below.
@@ -86,6 +90,38 @@ const CLIENT_ID =
 // the deletions are refused, and the domain is re-read from the server so the
 // tab stops believing its short list.
 const MAX_BULK_DELETE = 3;
+
+// ─── Keys NOT loaded at startup ───────────────────────────────────────────
+// fetchAll() used to pull every row in kv_state on every app load: 3.4 MB of
+// JSON, in one unfiltered query that averages 1.7s (max 7s) even on an idle
+// database. That is the "why is it always slow at 10am" complaint — 10am is
+// shift start, ~300 people open NiRM inside one hour, and each one paid the
+// full 3.4 MB.
+//
+// These keys are screen-specific or dead, so nobody needs them at login:
+//
+//   cs-analytics-monday             754 KB  CSAnalyticsTab only
+//   nirm-all                        262 KB  dead — pre-split blob, last
+//                                           written 2026-07-06, now only a
+//                                           first-run fallback in the roster
+//   nirm-agents                     107 KB  dead — the live roster lives in
+//                                           kv_records since v3; this is the
+//                                           stale legacy copy
+//   kb-brand-pics-backup-2026-08-21  31 KB  a backup; no code reads it
+//   cs-analytics-cusp                17 KB  CSAnalyticsTab only
+//
+// That is 1.17 MB — a third of the payload — off every single app load.
+//
+// Nothing else changes: get() and peek() already fall through to fetchOne()
+// for a key that isn't cached, so the first screen that asks for one of these
+// fetches it then, and only that screen pays.
+const LAZY_KEYS = new Set([
+  "cs-analytics-monday",
+  "cs-analytics-cusp",
+  "nirm-all",
+  "nirm-agents",
+  "kb-brand-pics-backup-2026-08-21",
+]);
 
 // Keys stored per-record in kv_records instead of as one kv_state blob.
 // Every element of these arrays MUST carry a unique `id` (they do: agents
@@ -232,12 +268,21 @@ const remergeable = (orig, merged) =>
 // ─── kv_state server ops — these touch `latest` ONLY, never `shadow` ──────
 
 async function fetchAll() {
-  const { data, error } = await supabase.from(TABLE).select("key,value,version");
+  // Skip the big screen-specific and dead keys — see LAZY_KEYS above.
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("key,value,version")
+    .not("key", "in", `(${[...LAZY_KEYS].join(",")})`);
   if (error) throw error;
+  // Keep any lazy key this session has ALREADY paid for. fetchAll runs again
+  // on every realtime reconnect (laptop wake, wifi change), and clearing them
+  // would make the next screen re-download what it just fetched.
+  const keptLazy = [...latest].filter(([k]) => LAZY_KEYS.has(k));
   latest.clear();
   for (const row of data || []) {
     latest.set(row.key, { value: row.value, version: row.version });
   }
+  for (const [k, v] of keptLazy) latest.set(k, v);
 }
 
 async function fetchOne(key) {
@@ -570,6 +615,11 @@ function broadcastSync() {
 async function seedRecordsIfNeeded(domain) {
   const m = await fetchDomain(domain);
   if (m.size > 0) return;
+  // nirm-agents is a LAZY key now, so fetchAll no longer pre-loads its legacy
+  // blob. Fetch it here instead. This runs only when kv_records is genuinely
+  // empty — a fresh environment — so the 107 KB is paid once, by nobody in
+  // normal operation, rather than by all 27 people at every login.
+  if (!latest.has(domain)) await fetchOne(domain);
   const legacy = latest.get(domain);
   const arr = legacy ? mergeable(legacy.value) : null;
   if (!Array.isArray(arr) || arr.length === 0 || !isKeyedArray(arr)) return;
@@ -759,7 +809,9 @@ export async function installSafeStorage() {
     },
 
     async list(prefix = "") {
-      const keys = new Set([...latest.keys(), ...RECORD_DOMAINS]);
+      // LAZY_KEYS exist on the server whether or not this session has fetched
+      // them, so list() must still report them.
+      const keys = new Set([...latest.keys(), ...RECORD_DOMAINS, ...LAZY_KEYS]);
       return { keys: [...keys].filter((k) => k.startsWith(prefix)), prefix, shared: true };
     },
   };
@@ -769,5 +821,6 @@ export async function installSafeStorage() {
   // no writes, no realtime application, no reconnect reloads. Two live
   // storage layers caused the 2026-07-08 brand-allocation wipe.
   window.__nirmKvActive = true;
-  console.info("[safeStorage] v3.4 installed — per-record store active for", [...RECORD_DOMAINS].join(", "));
+  console.info("[safeStorage] v3.5 installed — per-record store active for", [...RECORD_DOMAINS].join(", "),
+    "· lazy keys:", [...LAZY_KEYS].join(", "));
 }
