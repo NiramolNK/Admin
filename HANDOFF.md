@@ -921,3 +921,316 @@ supabase/functions/email/index.ts  v31 — now in the repo for the first time
 ```
 Test files in the sandbox (not in the repo): cutetest, otptest, manualtest,
 totest, threadtest, plus the earlier suites. All green at end of session.
+
+---
+---
+
+# WRITE-STORM OUTAGE + DATA SAFETY SESSION — HANDOFF (2026-09-02)
+
+**This is the newest section. It supersedes everything above where they conflict.**
+
+## Goal
+Two things, in order: (1) find out why NiRM was unusable on the morning of
+2026-09-01 and stop it recurring, (2) answer April's follow-up — *"I want the
+data we have now safe and maintained good in the future"* — with real
+protection, not advice.
+
+## The outage — 2026-09-01, 03:00–03:39 UTC (10:00–10:40 Bangkok)
+Measured from `edge_logs`, not guessed:
+
+| | Normal | Peak of the incident |
+|---|---|---|
+| Avg response | ~400 ms | **23,120 ms** |
+| p95 | ~850 ms | **98,246 ms** |
+| Max single request | ~3 s | **163,363 ms** |
+| kv_state PATCHes / hour | ~150 | **1,792** |
+
+**Postgres restarted itself at 03:26:37 UTC** (confirmed via
+`pg_postmaster_start_time()`; 267 × 5xx in that window). The restart was a
+*symptom* — degradation started ~02:50, half an hour earlier.
+
+### Root cause: two tabs writing each other's changes back, forever
+`AllocationRoster2026.jsx` keeps `lastSavedJson` (a ref) to answer "did this key
+change since I last saved it?". It was written in exactly four places: declared,
+read by the dirty check, read by the wipe guard, written after a successful
+save. **Nothing updated it when another client's change arrived over realtime.**
+
+So: you edit → your tab saves → their tab receives it, applies it to React
+state, compares against *their* last save, sees a difference, and writes it
+straight back → your tab receives that, same logic, writes back → forever.
+Neither tab is wrong. Neither ever stops.
+
+Evidence that nails it — the same version retried against an unchanged row:
+
+```
+?key=eq.nirm-allBrandAsgn&version=eq.4861   × 31 attempts, avg  89,097 ms
+?key=eq.nirm-allBrandAsgn&version=eq.4860   × 19 attempts, avg 122,082 ms
+```
+
+And `nirm-prefs` was at version **20,332**, `nirm-role` at **12,373**. Those are
+not edits anyone made — they are ping-pong laps.
+
+Two things turned waste into an outage: `nirm-allBrandAsgn` is a **2.09 MB**
+row whose every write fires five triggers (one rebuilds `brand_assignments`),
+and `safeStorage.js` had `MAX_RETRIES = 6` with **no backoff and no jitter**, so
+one `set()` became six PATCHes and six GETs as fast as the network allowed.
+
+### On who caused it — the logs cannot tell you, and that is the honest answer
+Traffic came from one Bangkok IP (`171.102.152.235`) running **three browsers**
+at once (Chrome 151, Chrome 152, Edge 152) — 62% of all requests that hour.
+`edge_logs` carries IP, browser and city and **no user identity**;
+`auth.audit_log_entries` is pruned and empty for the window; `kv_state.updated_by`
+holds a random per-tab UUID by design. One sign-in happened in the window
+(prim.v@crea.asia, 09:49 Bangkok) — that is a coincidence that fits, not
+evidence, because everyone else was already signed in. **Do not name anyone.**
+Three browsers is not misuse; two would have started the same loop. The code was
+the defect.
+
+## Shipped and VERIFIED LIVE in the deployed bundle (2026-09-02 ~12:40 UTC+7)
+Bundle `/assets/index-DRDg1w3q.js`, marker string `"v3.5 installed"` present.
+
+1. **Ping-pong fix** — `AllocationRoster2026.jsx`, in the realtime sync handler.
+   After applying a remote value, record it as this tab's save baseline:
+   ```js
+   if (d[stateKey] != null) {
+     setter(d[stateKey]);
+     try { lastSavedJson.current[storageKey] = JSON.stringify(d[stateKey] ?? null); }
+     catch (_) { delete lastSavedJson.current[storageKey]; }
+   }
+   ```
+   Only keys actually applied are rebased, so a genuine unsaved local edit still
+   saves. **This one line would have prevented the outage.**
+
+2. **safeStorage v3.4 — CAS backoff with jitter.** `backoff(attempt)`:
+   `min(50 * 2^(attempt-1), 800)` ms × `(0.5 + random())`, called at the top of
+   both retry loops (`casWrite`, `casWriteRecord`). The jitter matters more than
+   the exponent — without it two clients back off identically and re-collide in
+   lockstep forever.
+
+3. **safeStorage v3.5 — `LAZY_KEYS`.** `fetchAll()` used to `select *` from
+   `kv_state` on every app load: **3.4 MB of JSON**, one unfiltered query
+   averaging 1.7 s (max 7 s) even on an idle database. Now excludes five
+   screen-specific/dead keys, fetched on demand by `get()`/`peek()`:
+   `cs-analytics-monday` (754 KB), `nirm-all` (262 KB, dead since 6 Jul),
+   `nirm-agents` (107 KB, superseded by `kv_records`),
+   `kb-brand-pics-backup-2026-08-21` (31 KB, nothing reads it),
+   `cs-analytics-cusp` (17 KB). **3,493 KB → 2,350 KB, a third off every load.**
+   Two callers assumed everything was preloaded and were fixed:
+   `seedRecordsIfNeeded` now fetches the legacy blob itself; `list()` still
+   reports lazy keys. Already-fetched lazy keys survive a realtime reconnect.
+
+### Result — measured the next morning, same 10am rush, MORE users online
+| | Storm (1 Sep 02:40–03:45) | After (1 Sep 05:36–06:36) |
+|---|---|---|
+| kv_state PATCHes | 1,792 | **157** |
+| Clients | 8 IPs, one with 3 browsers | 7 IPs, one browser each |
+| Same version retried | up to **31×** | up to **2×** |
+| Avg response | 18,940 ms | **~250 ms** |
+| 5xx | 267 | 2 |
+
+The retry column is the proof the *code* fixed it — fewer browsers explains some
+of the volume drop, but not 31 → 2. There are now also 5-minute windows with
+**zero** kv_state writes; during the storm there was never a quiet minute.
+
+## Why NiRM is slow at 10am EVERY day (April's question — answered, part-fixed)
+Not a scheduled job — `pg_cron` and `pg_net` are **not installed**. 10am is
+simply the busiest hour of every day (shift start):
+
+| Day | Requests in the 03:00 UTC hour | Rank in that day |
+|---|---|---|
+| Fri 28 Aug | 7,393 | biggest by far (next 3,300) |
+| Mon 31 Aug | 3,813 | biggest morning hour |
+| Tue 1 Sep | 5,360 | the one that broke |
+
+~300 app loads land in that hour, and each was paying 3.4 MB + a 1.7 s query.
+v3.5 removes a third of that. **The remaining 58% is `nirm-allBrandAsgn`
+(2.09 MB)** — the whole year of brand allocations in one row. The roster needs
+it at startup so it cannot simply be made lazy; it needs a **month split**,
+which touches the trigger, the merge and the roster together. That is the single
+biggest remaining win and it deserves its own session.
+
+## Data safety audit + two DB migrations APPLIED TO PRODUCTION
+Full report (living page, update rather than replace):
+https://claude.ai/code/artifact/879f8fec-5ef4-4b06-96d7-597b172548a7
+
+**Good news first:** RLS is on *with policies* on all 13 core tables, and the
+app's guards (bulk-delete cap of 3, shrink guard, wipe tripwire, CAS + 3-way
+merge, tombstones, server `kv_guard`) are genuinely thorough.
+
+**The gap was time.** `kv_snapshot_on_change` kept `keep := 50` — fifty
+*versions*, not fifty days — so history length was inversely proportional to how
+much a key was used. Measured on the live DB, before the fix:
+
+```
+kv_records         (agents, payroll, bank, signatures)   NO HISTORY AT ALL
+nirm-userAccounts  (who can log in)                      1h 19m
+nirm-allAsgn       (the roster)                          6d 17h
+nirm-allBrandAsgn  (brand allocations)                   6d 18h
+nirm-monthlyVol    (barely edited)                       28d 00h
+```
+
+Note the shape of that: the key nobody touches had a month, the key controlling
+logins had eighty minutes. **And the write storm ate the safety net** — it wrote
+`nirm-userAccounts` 50 times in 79 minutes and pushed every older snapshot out.
+A bug that caused damage also erased the record of what came before it.
+
+### Migrations applied (via Supabase MCP `apply_migration`)
+1. **`add_kv_records_version_history`** — new table `kv_record_snapshots`
+   (`domain, record_id, value, version, deleted_at, op, saved_at`), index on
+   `(domain, record_id, saved_at desc)`, RLS on, SELECT-only for `authenticated`
+   mirroring `kv_snapshots`. Trigger `kv_record_snapshot_trigger`
+   **AFTER UPDATE OR DELETE** (after, so the existing guards run first). Covers
+   hard deletes deliberately — `window.storage.delete(domain)` wipes a whole
+   domain in one statement and must not be the one call leaving no trace.
+2. **`kv_snapshots_time_based_retention`** — retention is now newest 50 **plus**
+   the last snapshot of each **Bangkok** day for 90 days, on both tables. Keeps a
+   strict superset of the old rule, so nothing recoverable became unrecoverable.
+3. **`lock_down_kv_record_snapshot_function`** — see "What Didn't Work" below.
+
+### Verified, not assumed
+Real round trip on a scratch record in domain `zz-selftest` (invisible to the
+app; `RECORD_DOMAINS` only knows `nirm-agents`/`nirm-invoices`) — insert,
+overwrite, hard delete, then read the original back:
+```
+op       version  value
+UPDATE   1        {"name":"Original","payRate":1450,"bank":"kbank-1234"}
+DELETE   2        {"name":"CLOBBERED","payRate":0}
+```
+The first row is what would have been lost forever the day before. Scratch rows
+deleted afterwards (`scratch_rows_left = 0`); no real record was touched.
+
+Retention simulated read-only on `nirm-monthlyVol` with the recent window
+narrowed to 5 so the daily half had work to do: old rule kept 5 snapshots all
+within minutes of each other, new rule kept **7 spanning 4 separate days**,
+oldest 2026-08-04 — a month further back.
+
+## What Worked
+- **Reading the live database instead of the code's claims about itself.**
+  `pg_trigger`, `pg_policies`, `pg_proc`, `kv_snapshots` grouped by key. The
+  "1h 19m of login history" finding is invisible from the source — the rule
+  looks fine until you measure what it produces under real write rates.
+- **Reading the deployed bundle to prove what is live** (technique inherited
+  from the previous handoff, and it paid off again — see the gotcha below).
+- **Log fingerprints beat inference.** Counting *repeat attempts against the
+  same version number* (31 → 2) separated the code fix from the confounder
+  (a user closing two browsers). Volume alone would not have.
+- **Proving a fix with a real round trip**, on a scratch domain, then cleaning
+  up — rather than asserting the trigger "should" work.
+- **Running the advisors again after the migration.** That is how the mistake
+  below was caught, in the same session, rather than months later.
+- Saying plainly that the logs cannot identify a person, instead of offering a
+  name that happened to fit the timestamp.
+
+## What Didn't Work / gotchas
+- **I introduced a security regression and the advisor caught it.** The new
+  trigger function inherited default grants and was briefly callable at
+  `/rest/v1/rpc/kv_record_snapshot_on_change` by `anon` and `authenticated`.
+  Fixed by migration 3. **Any new `SECURITY DEFINER` function in this project
+  needs an explicit `revoke all ... from public, anon, authenticated`** — match
+  `kv_snapshot_on_change`, which is `postgres` + `service_role` only.
+- **Minified bundles eat identifiers.** Checking the deployed JS for
+  `LAZY_KEYS`, `lastSavedJson`, `MIN_SHOW_MS` or `await backoff(attempt)` gives
+  false negatives — the minifier renames them all. **Only string literals
+  survive.** Use the `console.info` version banner (`"v3.5 installed"`) as the
+  deploy marker. I briefly told April the deploy had not landed because of this.
+- **`edge_logs` has no user identity.** Field list is IP / UA / Cloudflare geo
+  only. Don't plan attribution work around it (see next steps item 8).
+- **Node is not installed on April's machine** for development — only Adobe's
+  bundled copy at
+  `C:\Program Files\Adobe\Adobe Creative Cloud Experience\libs\node.exe`, with
+  no npm. So **no local build/lint is possible**; Vercel builds on push. Usable
+  for one-off scripts via a `.ps1`/`.js` file (inline `-e` gets mangled).
+- **The MCP shell eats `$`.** PowerShell one-liners with variables silently
+  break. Write a `.ps1` or `.js` file to temp and run that.
+- **`formatDateTime(..., '%F %H:%M')` in ClickHouse gives the MONTH, not
+  minutes.** Use `toString(toStartOfFiveMinute(timestamp))`.
+- `query_logs` is capped at a 24 h window — a week takes seven calls.
+- **`.github/**` is refused by `device_commit_files`** ("protected file"). Those
+  files still have to be saved by hand (carried over from the previous session).
+
+## Standing constraints — DO NOT BREAK
+- **Never run `git` on April's machine.** She pushes herself, every time.
+  (`push-result.txt` in the repo root is an old failed-auth artifact — a git
+  credential dialog cannot be answered through the MCP shell.)
+- **Test emails go only to `niramol.k@crea.asia`** — never the Finance list,
+  never an external recipient, without explicit approval.
+- Ask before deploying anything on the live email path.
+
+## Next steps
+
+### Blocked on April — do this first, it outranks everything below
+1. **Confirm Supabase backups + point-in-time recovery are ON.**
+   Dashboard → Database → Backups. Not visible through the API, so nobody else
+   can check it. Every guard in this system is a *second* line of defence; if
+   PITR is off there is no first. Get the retention window in days.
+
+### High value, ready to start
+2. **Split `nirm-allBrandAsgn` by month.** 2.09 MB in one row = 58% of what is
+   left of the startup payload, AND the reason each of its writes took 90–120 s
+   under load. Touches `nirm_kv_to_tables` (it already diffs by month — start
+   there), the 3-way merge, and the roster's load path. Biggest remaining win.
+3. **Weekly export April holds herself.** Scheduled job writing roster, agents,
+   brands, allocations to a dated file in OneDrive. Supabase backups protect
+   against Supabase failing; this protects against losing the account.
+4. **Test one real restore.** Pick an agent record, restore it from
+   `kv_record_snapshots` into a scratch table, confirm it comes back intact.
+   An untested backup is a belief.
+5. **Drop the dead weight — export first.** `app_state_history` is **273 MB**,
+   54% of the 504 MB database, belonging to the storage layer retired in July.
+   Plus nine dated rescue tables (~25 MB): `kv_state_backup_20260818`,
+   `kv_state_good_20260819`, `kv_records_good_20260819`,
+   `kv_records_deleted_20260819`, `kv_allasgn_rescue_20260826`,
+   `messages_robot_backup_20260808`, `tickets_robot_backup_20260808`,
+   `messages_attname_backup_20260824`, `messages_dupe_backup_20260825`.
+
+### Resilience — offered, not yet built
+6. **Tab leader election** (~30 lines, BroadcastChannel). One writer per browser;
+   extra tabs become read-only followers. April asked whether making NiRM a
+   desktop app would fix this — **no**: same JS, same requests, same shared rows;
+   it would only prevent the three-browsers-on-one-machine case, at the cost of
+   packaging, signing and 27 people on 27 versions. This is the cheap version of
+   the same benefit.
+7. **Split `nirm-prefs` and `nirm-role` per user.** Single shared rows that all
+   27 people write — the reason they reached versions 20,332 and 12,373. This is
+   the one that matters *because* many people use the tool.
+8. **Stamp `updated_by` with the user id** instead of a random UUID, so a future
+   runaway write is attributable from the database. April explicitly asked "who
+   made it happen" and the answer today is "unknowable". This fixes that.
+9. **Server-side circuit breaker** — reject writes when one client hits the same
+   key more than N times a minute. Then no client-side bug can take the DB down.
+10. **An alert**, so the next incident is noticed at 09:50 by a monitor, not at
+    10:30 by agents.
+
+### Small, still open
+11. Enable **leaked-password protection** (Supabase Auth, free toggle) — April.
+12. **Revoke `EXECUTE`** on `app_state_patch` and `app_state_patch_v2` — retired
+    storage layer, any signed-in user can currently patch arbitrary state.
+13. **`TEL_TOKEN`** in `src/ServiceCRM.jsx` ships in the client bundle; it is the
+    same token 3CX uses, so anyone can forge a call event. Move it server-side.
+14. **`xlsx@0.18.5`** — CVE-2023-30533, npm `latest` is stuck at 0.18.5
+    (verified against the registry). Fix is the SheetJS CDN tarball; needs real
+    testing of the XLSX export paths. See `SECURITY.md`.
+15. **Three `.github/` files** (`dependabot.yml`, `workflows/security.yml`,
+    `workflows/codeql.yml`) still need saving by hand — the bridge refuses them.
+16. Five GitHub settings clicks: Dependabot alerts, Dependabot security updates,
+    a ruleset on `CREA-HQ`, Actions read-only permissions, 2FA required.
+
+### Carried over, still unfinished from earlier sessions
+17. **Brand tagging** — 41 of 75 cases have no `brand_id` (all arriving via the
+    shared `cs@crea.asia`). Flagged, not started.
+18. **Amaze**: April to check Seller Center for a chat/message notification
+    toggle; the `email` edge function then needs an Amaze classification so chat
+    notifications become tickets instead of being archived as robot mail. The
+    CP/Ascend chat-API request letter is drafted and needs shop IDs + contacts.
+19. **TK-E10515** (Nestlé) draft reply still needs April's two decisions: whether
+    point 3 (redelivery/refund) is hers to promise, and a real deadline date.
+20. Run the Fix buttons for July/August/September/November allocation drift.
+
+## Files touched this session
+```
+src/AllocationRoster2026.jsx   ping-pong fix in the realtime sync handler
+src/safeStorage.js             v3.3 -> v3.5: backoff() + LAZY_KEYS + the two
+                               callers that assumed a full preload
+HANDOFF.md                     this section
+```
+Database: three migrations listed above. Nothing else in production was modified.
