@@ -7,6 +7,7 @@ import {
   ShieldCheck, Repeat, ThumbsUp, Paperclip, Globe, BookMarked,
   PhoneCall, PhoneOff, PhoneIncoming, PhoneOutgoing, PhoneMissed, Mic, MicOff,
   Pause, Play, Delete, Grid3x3, Radio, Server, Headphones, Link2,
+  Eye, EyeOff,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -1067,6 +1068,13 @@ const D = {
   otpLiveHint: ["just arrived — expires in a few minutes", "เพิ่งเข้ามา หมดอายุในไม่กี่นาที"],
   otpLogTitle: ["Recently copied", "ประวัติการคัดลอกล่าสุด"],
   otpWaiting: ["No code right now — one appears here the moment someone signs in to LINE", "ยังไม่มีรหัส จะขึ้นทันทีที่มีการเข้าสู่ระบบ LINE"],
+  /* The one switch that hides the dashboard card (Settings, admin only) */
+  otpCardTitle: ["Show the code card on the dashboard", "แสดงการ์ดรหัสบนแดชบอร์ด"],
+  otpCardOnHint: ["Everyone can see a live code on their dashboard", "ทุกคนเห็นรหัสที่ยังใช้ได้บนแดชบอร์ด"],
+  otpCardOffHint: ["Hidden for everyone. Codes are still here in Settings.", "ซ่อนสำหรับทุกคน รหัสยังดูได้ที่หน้าตั้งค่านี้"],
+  otpCardOffDone: ["Code card hidden for everyone", "ซ่อนการ์ดรหัสสำหรับทุกคนแล้ว"],
+  otpCardOnDone: ["Code card is showing again", "แสดงการ์ดรหัสอีกครั้งแล้ว"],
+  otpCardSaveFail: ["Could not save — the card is unchanged", "บันทึกไม่สำเร็จ การ์ดยังเหมือนเดิม"],
   chanOn: ["Connected · cases arrive automatically", "เชื่อมต่อแล้ว · รับเคสอัตโนมัติ"],
   chanOff: ["Not connected", "ยังไม่เปิดใช้งาน"],
   chanTurnedOn: ["Now receiving cases from %s", "เปิดรับเคสจาก %s"],
@@ -5775,7 +5783,53 @@ async function copyLineCode(code, row, me, toast) {
 /* Exported: agents do not have Service CRM at all, so this also mounts in the
    Roster shell where every role does land. Both mounts read the same rows;
    whichever is on screen shows the same code. */
+/* ONE switch, TWO readers — the same discipline as useLineCodes above: a single
+   place decides whether the dashboard card is on, so Settings and the card can
+   never disagree about it.
+
+   Stored as `otpCardHidden` on kv_state key `nirm-globalFlags`. Absent = false
+   = visible, so nothing changes for anyone until an admin actually turns it
+   off, and a storage hiccup fails towards the behaviour people already have.
+
+   peek(), NOT get(). get() advances safeStorage's merge ancestor, and the v3.2
+   rule is that only the component which also SAVES a key may do that. This
+   component never saves nirm-globalFlags — the Roster owns it and the Settings
+   toggle below writes it. Using get() here would let an unrelated read re-anchor
+   the ancestor and hand someone a silent whole-key clobber. */
+function useOtpCardHidden() {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    let dead = false;
+    (async () => {
+      try {
+        const r = await window.storage?.peek?.("nirm-globalFlags");
+        if (!dead) setHidden(Boolean(r?.value?.otpCardHidden));
+      } catch (e) { /* storage not up yet — stay visible, which is today's behaviour */ }
+    })();
+    /* An admin flipping the switch should empty everyone's dashboard within a
+       few seconds, not on their next reload — that is the whole point of a
+       switch you reach for when a code is on screen and shouldn't be. */
+    const onSync = (e) => {
+      const f = e.detail && e.detail["nirm-globalFlags"];
+      if (f && !dead) setHidden(Boolean(f.otpCardHidden));
+    };
+    window.addEventListener("nirm-storage-sync", onSync);
+    return () => { dead = true; window.removeEventListener("nirm-storage-sync", onSync); };
+  }, []);
+  return hidden;
+}
+
+/* Split in two on purpose. When the card is off this returns before
+   LineCodeAlertCard mounts, so useLineCodes never runs and the 60-second poll
+   never starts. Hiding the card also takes its database load off every agent's
+   browser — see the interval comment in useLineCodes. */
 export function LineCodeAlert({ me, toast }) {
+  const hidden = useOtpCardHidden();
+  if (hidden) return null;
+  return <LineCodeAlertCard me={me} toast={toast} />;
+}
+
+function LineCodeAlertCard({ me, toast }) {
   const say = toast || (() => {});
   const { rows } = useLineCodes(10 * 60 * 1000);
   const live = (rows ?? []).map((r) => ({ r, code: pickCode(r.subject, r.body) })).filter((x) => x.code);
@@ -5824,6 +5878,44 @@ function LineCodes({ me, toast }) {
   const { rows, ever } = useLineCodes(24 * 3600 * 1000, { checkEver: true });
   const [log, setLog] = useState([]);
 
+  /* The dashboard-card switch. It lives here rather than in the general
+     Settings list because this panel is already admin-gated and because the
+     thing it controls is right underneath it — you flip it while looking at
+     the codes it hides.
+     get() is correct HERE (unlike in the card): this component is the one that
+     writes nirm-globalFlags, so it is entitled to advance the merge ancestor.
+     The Roster also holds this key, and safeStorage's 3-way merge keeps its
+     other fields intact when we write ours. */
+  const [cardHidden, setCardHidden] = useState(false);
+  const [flagBusy, setFlagBusy] = useState(false);
+  useEffect(() => {
+    let dead = false;
+    Promise.resolve(window.storage?.get?.("nirm-globalFlags"))
+      .then((r) => { if (!dead) setCardHidden(Boolean(r?.value?.otpCardHidden)); })
+      .catch(() => {});
+    return () => { dead = true; };
+  }, []);
+
+  const toggleCard = async () => {
+    if (flagBusy) return;
+    const next = !cardHidden;
+    setCardHidden(next);          // optimistic — the switch should move at once
+    setFlagBusy(true);
+    try {
+      const cur = (await window.storage.get("nirm-globalFlags"))?.value || {};
+      await window.storage.set("nirm-globalFlags", { ...cur, otpCardHidden: next });
+      toast?.(next ? t("otpCardOffDone") : t("otpCardOnDone"));
+    } catch (e) {
+      /* Put the switch back. A control that stays flipped after a failed save
+         tells you the card is hidden when every agent can still read the code —
+         the one lie this particular switch must never tell. */
+      setCardHidden(!next);
+      console.error("[CRM] could not save the LINE card switch", e);
+      toast?.(t("otpCardSaveFail"), "error");
+    }
+    setFlagBusy(false);
+  };
+
   useEffect(() => {
     let dead = false;
     supabase.from("line_code_views").select("viewer_name, viewer_email, code_last2, copied_at")
@@ -5843,6 +5935,29 @@ function LineCodes({ me, toast }) {
         <div><h3 className="font-bold text-[15px]">{t("otpTitle")}</h3>
           <p className="text-[12.5px]" style={{ color: "var(--muted)" }}>{t("otpSub")}</p></div>
       </div>
+
+      {/* One switch, and it is the only control here that changes what OTHER
+          people see — hence its own bordered row rather than a line in a list. */}
+      <div className="flex items-center gap-3 py-3 mb-3 px-3 rounded-xl"
+           style={{ background: cardHidden ? "#FEF3C7" : "var(--sky, #EFF6FF)" }}>
+        {cardHidden ? <EyeOff size={16} style={{ color: "#B45309", flex: "none" }} />
+                    : <Eye size={16} style={{ color: "var(--blue, #2563EB)", flex: "none" }} />}
+        <div className="min-w-0">
+          <b className="text-[13px]">{t("otpCardTitle")}</b>
+          <p className="text-[11.5px] mt-0.5" style={{ color: "var(--muted)" }}>
+            {cardHidden ? t("otpCardOffHint") : t("otpCardOnHint")}
+          </p>
+        </div>
+        <button className="ml-auto rounded-full flex-none transition"
+                aria-label={t("otpCardTitle")} aria-pressed={!cardHidden} disabled={flagBusy}
+                style={{ width: 40, height: 22, padding: 3, opacity: flagBusy ? 0.6 : 1,
+                         background: cardHidden ? "#CBD5E1" : "var(--green)" }}
+                onClick={toggleCard}>
+          <span className="block rounded-full bg-white transition"
+                style={{ width: 16, height: 16, transform: cardHidden ? "none" : "translateX(18px)" }} />
+        </button>
+      </div>
+
       {rows === null ? <p className="text-[12px]" style={{ color: "var(--muted)" }}>…</p>
         : withCodes.length === 0 ? (
           <p className="text-[12px]" style={{ color: "var(--muted)" }}>{ever ? t("otpNone") : t("otpNever")}</p>
