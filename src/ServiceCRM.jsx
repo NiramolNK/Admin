@@ -854,6 +854,9 @@ const D = {
   nmTo: ["To", "ถึง"],
   nmCc: ["Cc", "สำเนาถึง"],
   nmCcAdd: ["Add Cc", "เพิ่มสำเนาถึง"],
+  /* Said out loud when the server removes recipients — see the v27 filter */
+  ccDropped: ["%s Cc recipient(s) were NOT emailed — they have a NiRM login and read the case here", "ไม่ได้ส่งสำเนาถึง %s คน เพราะมีบัญชี NiRM และอ่านเคสนี้ในระบบอยู่แล้ว"],
+  attDropped: ["%s attachment(s) could NOT be sent", "แนบไฟล์ไม่สำเร็จ %s ไฟล์"],
   nmSubject: ["Subject", "หัวข้อ"],
   nmBody: ["Message", "ข้อความ"],
   nmCustomer: ["Customer name", "ชื่อลูกค้า"],
@@ -2658,7 +2661,14 @@ function NewMessage({ me, onClose, onSent, toast }) {
   const [sigEdit, setSigEdit] = useState(false);     // tweak the sign-off for this email
   const [sigOverride, setSigOverride] = useState(null);
   const [f, setF] = useState({ from: OUTBOUND_MAILBOXES[0], to: "", cc: "", customer: "", subject: "", body: "" });
-  const [showCc, setShowCc] = useState(false);
+  /* FIX (April, 2026-09-04 — "cc email not being sent" on TK-E10545).
+     Cc used to be hidden behind a "+ Add Cc" link. On a REPLY the Cc chips are
+     already on screen, so an empty Cc is obvious; on a brand-new compose there
+     is nothing to look at, and the agent sent to Nestlé with the field still
+     collapsed. The data says the field itself works — the same agent Cc'd six
+     Nestlé addresses from this same form the next day — so the fault was that
+     Cc was invisible at the moment it mattered. It now starts open. */
+  const [showCc, setShowCc] = useState(true);
   const [files, setFiles] = useState([]);
   const [sig, setSig] = useState("");
   const [err, setErr] = useState("");
@@ -2735,7 +2745,15 @@ function NewMessage({ me, onClose, onSent, toast }) {
           ...(sigOverride != null ? { noSignature: true } : {}),
         }),
       });
-      if (!r.ok) { const j = await r.json().catch(() => ({})); setBusy(false); return setErr("✉ " + (j.error || `send failed (${r.status})`)); }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setBusy(false); return setErr("✉ " + (j.error || `send failed (${r.status})`)); }
+
+      /* The server already told us how many Cc addresses it removed (v27 drops
+         colleagues who hold a NiRM login, to save SendGrid quota) — we simply
+         threw the number away and toasted a flat "sent". That is how a Cc can
+         vanish with nobody any the wiser. Say it out loud instead. */
+      if (j.ccDroppedCrmUsers > 0) toast(t("ccDropped", String(j.ccDroppedCrmUsers)), "error");
+      if (Array.isArray(j.att_errors) && j.att_errors.length) toast(t("attDropped", String(j.att_errors.length)), "error");
 
       onSent({
         id: "TK-E" + tkRow.id, dbId: tkRow.id,
@@ -3290,7 +3308,14 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
               setText((cur) => cur ? cur : msgText);
               toast("✉ EMAIL NOT SENT — " + why + " · your draft was restored", "error");
             }
-            else { setRcpt((p) => ({ ...p, pinned: ccPinList })); setAddCc([]); setDropPin([]); setDropForever([]); } // manual chips are now saved; skip-once was for that reply
+            else {
+              setRcpt((p) => ({ ...p, pinned: ccPinList })); setAddCc([]); setDropPin([]); setDropForever([]); // manual chips are now saved; skip-once was for that reply
+              /* Same silence as the compose window had: the server reports what
+                 it removed and nobody was listening. */
+              const j = await r.json().catch(() => ({}));
+              if (j.ccDroppedCrmUsers > 0) toast(t("ccDropped", String(j.ccDroppedCrmUsers)), "error");
+              if (Array.isArray(j.att_errors) && j.att_errors.length) toast(t("attDropped", String(j.att_errors.length)), "error");
+            }
           } catch (e) {
             setText((cur) => cur ? cur : msgText);
             toast("✉ EMAIL NOT SENT — network error · your draft was restored", "error");
