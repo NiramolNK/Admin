@@ -28,19 +28,26 @@ const IconUsers = (p) => <Ico {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 
 const IconBarChart = (p) => <Ico {...p}><path d="M12 20V10M18 20V4M6 20v-4"/></Ico>;
 const IconFileText = (p) => <Ico {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 13h4M10 17h4M8 9h2"/></Ico>;
 const IconBook = (p) => <Ico {...p}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></Ico>;
-const NirmLogo = ({size=32,light=false}) => {
-  const bg = light ? "#fff" : "#0D9488";
-  const fg = light ? "#0D9488" : "#fff";
-  return (
-    <svg width={size} height={size} viewBox="0 0 36 36" fill="none" style={{flexShrink:0}}>
-      <rect width="36" height="36" rx="10" fill={bg}/>
-      <rect x="7" y="20" width="5" height="9" rx="2" fill={fg} opacity="0.45"/>
-      <rect x="15.5" y="14" width="5" height="15" rx="2" fill={fg} opacity="0.7"/>
-      <rect x="24" y="7" width="5" height="22" rx="2" fill={fg}/>
-      <circle cx="27" cy="7" r="2.5" fill={fg}/>
-    </svg>
-  );
-};
+/* The real NiRM mark (April, 2026-09-06). Was a placeholder: three teal bars
+   and a dot drawn inline, because no logo file existed. Now served from
+   /public — the SAME file the favicon is built from, so the tab, the sidebar
+   and the sign-in card cannot drift apart when the logo next changes.
+   `light` is kept because callers pass it: the mark is a colour gradient on
+   transparent, which reads on the white sidebar but would disappear on a
+   coloured header, so there it sits on a white tile instead. */
+const NirmLogo = ({size=32,light=false}) => (
+  <img
+    src="/icon-192.png"
+    width={size}
+    height={size}
+    alt=""
+    style={{
+      flexShrink: 0,
+      display: "block",
+      ...(light ? { background: "#fff", borderRadius: size * 0.28, padding: size * 0.08 } : {}),
+    }}
+  />
+);
 const IconX = (p) => <Ico {...p}><path d="M18 6 6 18M6 6l12 12"/></Ico>;
 const IconChevL = (p) => <Ico {...p}><path d="m15 18-6-6 6-6"/></Ico>;
 const IconChevR = (p) => <Ico {...p}><path d="m9 18 6-6-6-6"/></Ico>;
@@ -902,7 +909,13 @@ export default function AllocationPanel({ isAdmin = true }) {
   // view -> URL hash + browser-tab title
   useEffect(() => {
     if (window.location.hash !== "#" + allocTab) window.history.replaceState(null, "", "#" + allocTab);
-    document.title = (TAB_TITLES[allocTab] || "NiRM") + " - NiRM Roster";
+    /* FIX (April, 2026-09-06 — the tab read "Roster"). This was
+       "<View> - NiRM Roster", so with a few tabs open Chrome truncated it to
+       the first word: "Roster", "Payroll", "Invoices" — every word EXCEPT the
+       one that says which app it is. Setting the title here also silently
+       overrode the <title> in index.html, so fixing that file alone did
+       nothing. Name first, view second. */
+    document.title = "NiRM" + (TAB_TITLES[allocTab] ? " · " + TAB_TITLES[allocTab] : "");
   }, [allocTab]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [agents, setAgents]         = useState(ALLOC_AGENTS_INIT);
