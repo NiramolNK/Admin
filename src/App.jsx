@@ -470,15 +470,19 @@ function Field({ label, type, value, onChange, placeholder, autoComplete, autoFo
   );
 }
 
-function Logo() {
+/* The real NiRM mark (April, 2026-09-06). This was a placeholder: three teal
+   bars and a dot, drawn inline because there was no logo file yet. Served from
+   /public so the browser caches it once and it stays in step with the favicon —
+   same source image, so the tab and the sign-in page can never drift apart. */
+function Logo({ size = 56 }) {
   return (
-    <svg width={48} height={48} viewBox="0 0 36 36" fill="none">
-      <rect width="36" height="36" rx="10" fill="#0D9488"/>
-      <rect x="7"  y="20" width="5" height="9"  rx="2" fill="#fff" opacity="0.45"/>
-      <rect x="15.5" y="14" width="5" height="15" rx="2" fill="#fff" opacity="0.7"/>
-      <rect x="24" y="7"  width="5" height="22" rx="2" fill="#fff"/>
-      <circle cx="27" cy="7" r="2.5" fill="#fff"/>
-    </svg>
+    <img
+      src="/icon-192.png"
+      width={size}
+      height={size}
+      alt="NiRM"
+      style={{ display: "block", margin: "0 auto" }}
+    />
   );
 }
 
