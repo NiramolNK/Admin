@@ -7446,7 +7446,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                       <td style={{padding:"8px 12px",whiteSpace:"nowrap"}}>{(()=>{const ag=agents.find(a=>(a.email||"").toLowerCase()===u.username.toLowerCase());return ag?(<><span style={{fontSize:10,padding:"2px 6px",borderRadius:6,background:"#F0FDFA",color:"#0D9488",fontWeight:700,fontFamily:"monospace",marginRight:6}}>{ag.id}</span><span style={{fontWeight:600,color:"#1A1D2E"}}>{ag.name}</span></>):(<span style={{color:"#CBD5E1"}}>-</span>);})()}</td>
                       <td style={{padding:"8px 12px"}}><span style={{fontSize:10,padding:"2px 8px",borderRadius:6,background:ROLES[u.role]?.bg||"#F1F5F9",color:ROLES[u.role]?.color||"#64748B",fontWeight:700}}>{ROLES[u.role]?.label||u.role}</span></td>
                       <td style={{padding:"8px 12px",textAlign:"center"}}>
-                        <button onClick={()=>setEditingUser({...u,_idx:i,_isNew:false})} style={{padding:"3px 10px",borderRadius:6,border:"none",background:"#EFF6FF",color:"#1D4ED8",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginRight:4}}>Edit</button>
+                        <button onClick={()=>setEditingUser({...u,password:"",_idx:i,_isNew:false})} style={{padding:"3px 10px",borderRadius:6,border:"none",background:"#EFF6FF",color:"#1D4ED8",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginRight:4}}>Edit</button>
                         {u.username.toLowerCase()!==loginUser.toLowerCase() && <button onClick={()=>{if(window.confirm("Delete user '"+u.username+"'?"))setUserAccounts(prev=>prev.filter((_,j)=>j!==i));}} style={{padding:"3px 10px",borderRadius:6,border:"none",background:"#FEF2F2",color:"#EF4444",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>}
                       </td>
                     </tr>
@@ -7466,12 +7466,12 @@ export default function AllocationPanel({ isAdmin = true }) {
                     They will receive an email with a link to set their own password. Make sure their email domain is verified in Resend, or the email won't be delivered.
                   </div>
                 )}
-                <div style={{display:editingUser._isNew && editingUser._invite ? "block" : "grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
+                <div style={{display:(editingUser._isNew ? !editingUser._invite : (userAccounts[editingUser._idx]?.username||"").toLowerCase()===(loginUser||"").toLowerCase()) ? "grid" : "block",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
                   <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Email (used to sign in)</label>
                     <input value={editingUser.username} type="email" placeholder="someone@crea.asia" onChange={e=>setEditingUser({...editingUser,username:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
-                  {!(editingUser._isNew && editingUser._invite) && (
+                  {(editingUser._isNew ? !editingUser._invite : (userAccounts[editingUser._idx]?.username||"").toLowerCase()===(loginUser||"").toLowerCase()) && (
                     <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Password</label>
-                      <input value={editingUser.password} onChange={e=>setEditingUser({...editingUser,password:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                      <input value={editingUser.password} type="password" autoComplete="new-password" placeholder={editingUser._isNew?"At least 6 characters":"Leave blank to keep current"} onChange={e=>setEditingUser({...editingUser,password:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
                   )}
                 </div>
                 <div style={{marginBottom:12}}>
@@ -7489,8 +7489,8 @@ export default function AllocationPanel({ isAdmin = true }) {
                     const isInvite = editingUser._isNew && editingUser._invite;
                     if(!email){alert("Email required.");return;}
                     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){alert("Please enter a valid email address.");return;}
-                    if(!isInvite && !pw){alert("Password required (or use Invite to send an email).");return;}
-                    if(!isInvite && pw.length < 6){alert("Password must be at least 6 characters.");return;}
+                    if(editingUser._isNew && !isInvite && !pw){alert("Password required (or use Invite to send an email).");return;}
+                    if(pw && pw.length < 6){alert("Password must be at least 6 characters.");return;}
                     if(editingUser._isNew){
                       if(userAccounts.some(u=>u.username.toLowerCase()===email.toLowerCase())){alert("This email is already in the user list.");return;}
                       // Server-side creation via the admin-users Edge Function.
@@ -7565,7 +7565,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                           alert("Note: no matching Supabase profile found for " + email + " - role saved in app only and may revert on next login.");
                         }
                       } catch (_) { /* non-fatal */ }
-                      setUserAccounts(prev=>prev.map((u,i)=>i===editingUser._idx?{username:email,password:pw,role:editingUser.role}:u));
+                      setUserAccounts(prev=>prev.map((u,i)=>i===editingUser._idx?{username:email,password:"__supabase__",role:editingUser.role}:u));
                       if(isOwn) setRole(editingUser.role);
                     }
                     setEditingUser(null);
@@ -7588,10 +7588,10 @@ export default function AllocationPanel({ isAdmin = true }) {
                 <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Username</label>
                   <input defaultValue={myAccount.username} id="__myUser" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
                 <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Password</label>
-                  <input defaultValue={myAccount.password} id="__myPass" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                  <input defaultValue="" id="__myPass" type="password" autoComplete="new-password" placeholder="Leave blank to keep your current password" style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
                 <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Role</label>
                   <div style={{padding:"8px 10px",borderRadius:8,background:ROLES[myAccount.role]?.bg,color:ROLES[myAccount.role]?.color,fontSize:12,fontWeight:700}}>{ROLES[myAccount.role]?.label} <span style={{fontSize:10,fontWeight:400,opacity:0.7}}>— only Manager can change</span></div></div>
-                <button onClick={()=>{const u=document.getElementById("__myUser")?.value?.trim();const p=document.getElementById("__myPass")?.value;if(!u||!p){alert("Required");return;}setUserAccounts(prev=>prev.map((a,i)=>i===myIdx?{...a,username:u,password:p}:a));setLoginUser(u);setShowUserMgmt(false);}} style={{padding:"10px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
+                <button onClick={async ()=>{const u=document.getElementById("__myUser")?.value?.trim();const p=document.getElementById("__myPass")?.value;if(!u){alert("Email required.");return;}if(p){if(p.length<6){alert("Password must be at least 6 characters.");return;}const {error:pwErr}=await supabase.auth.updateUser({password:p});if(pwErr){alert("Password NOT changed: "+pwErr.message+"\nYou are still signed in with your old password.");return;}alert("Password updated. Use it the next time you sign in.");}setUserAccounts(prev=>prev.map((a,i)=>i===myIdx?{...a,username:u,password:"__supabase__"}:a));setLoginUser(u);setShowUserMgmt(false);}} style={{padding:"10px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save</button>
               </div>);})()}
           </div>
         </div>
