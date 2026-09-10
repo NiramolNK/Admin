@@ -5767,16 +5767,25 @@ function useLineCodes(windowMs, { checkEver = false } = {}) {
     return () => clearInterval(iv);
   }, [windowMs]);
 
-  /* "Has LINE mail EVER arrived?" has no time bound, so it scans the whole
-     archive with six ILIKE patterns. It answers a one-off setup question, so
-     it runs ONCE, only where it is actually shown (Settings) — never on the
-     dashboard poll, which is what made it dangerous. */
+  /* "Has LINE mail EVER arrived?" is a yes/no, but it used to be asked with
+     count:"exact" + head:true, which makes Postgres COUNT every matching row
+     across the whole archive using six unbounded ILIKE patterns. On 2026-09-09
+     that scan hit the statement timeout (68k rows / 87 MB and growing ~64k
+     rows a month). Two changes make it cheap:
+       - limit(1): we want existence, so stop at the first hit instead of
+         counting all of them;
+       - a generous time bound: OTP mail either arrives regularly or not at
+         all, so "in the last 180 days" answers the setup question exactly as
+         well, and lets the query ride the received_at index instead of
+         reading the whole table. */
   useEffect(() => {
     if (!checkEver) return;
     let dead = false;
     const like = OTP_SENDERS.flatMap((d) => [`sender.ilike.%${d}%`, `body.ilike.%${d}%`]).join(",");
-    supabase.from("platform_notifications").select("id", { count: "exact", head: true }).or(like)
-      .then(({ count }) => { if (!dead) setEver(Boolean(count)); })
+    const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
+    supabase.from("platform_notifications").select("id")
+      .or(like).gte("received_at", since).limit(1)
+      .then(({ data }) => { if (!dead) setEver(Boolean(data && data.length)); })
       .catch(() => {});
     return () => { dead = true; };
   }, [checkEver]);
