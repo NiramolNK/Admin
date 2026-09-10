@@ -1,6 +1,12 @@
 // ════════════════════════════════════════════════════════════════════════
-// NiRM Roster — safeStorage.js  (v3.5 — per-record store, CAS backoff,
+// NiRM Roster — safeStorage.js  (v3.6 — per-record store, CAS backoff,
 //                                 lazy keys)
+//
+// v3.6 (2026-09-10): window.__nirmKvActive is claimed at the TOP of
+// installSafeStorage, not the bottom. Setting it last left the legacy
+// supabase.js app_state writer live for the whole boot — 35 writes to the
+// retired store in 24h, 18 of them failing. Two live stores is the condition
+// that wiped July's brand allocation.
 //
 // v3.5 (2026-09-02): fetchAll no longer downloads 3.4 MB on every app load.
 // The big screen-specific and dead keys are fetched on demand. See LAZY_KEYS.
@@ -656,6 +662,15 @@ async function migrateFromBlobIfNeeded() {
 // ─── public install ───────────────────────────────────────────────────────
 
 export async function installSafeStorage() {
+  // FIX (2026-09-10): claim the store FIRST, before any awaits. This flag used
+  // to be set on the last line of this function, so from page load until
+  // fetchAll() finished the legacy supabase.js app_state writer was still live
+  // — and any save in that window went to app_state, reviving the two-live-
+  // stores condition that wiped July's brand allocation. Postgres logs for
+  // 2026-09-09 showed 35 such writes in 24h, 18 of them failing. Setting it
+  // here closes the window: the legacy layer is silent from the first tick.
+  window.__nirmKvActive = true;
+
   await migrateFromBlobIfNeeded();
   await fetchAll();
   for (const domain of RECORD_DOMAINS) await seedRecordsIfNeeded(domain);
@@ -816,11 +831,12 @@ export async function installSafeStorage() {
     },
   };
 
-  // FIX (SINGLE-LAYER): announce that kv_state is the live store. The legacy
-  // supabase.js app_state shim checks this flag and goes fully silent —
-  // no writes, no realtime application, no reconnect reloads. Two live
-  // storage layers caused the 2026-07-08 brand-allocation wipe.
-  window.__nirmKvActive = true;
-  console.info("[safeStorage] v3.5 installed — per-record store active for", [...RECORD_DOMAINS].join(", "),
+  // FIX (SINGLE-LAYER): kv_state is the live store; the legacy supabase.js
+  // app_state shim checks window.__nirmKvActive and goes fully silent — no
+  // writes, no realtime application, no reconnect reloads. Two live storage
+  // layers caused the 2026-07-08 brand-allocation wipe. The flag is now set
+  // at the TOP of this function (see above), not here, so the legacy writer
+  // has no boot-time window in which it is still live.
+  console.info("[safeStorage] v3.6 installed — per-record store active for", [...RECORD_DOMAINS].join(", "),
     "· lazy keys:", [...LAZY_KEYS].join(", "));
 }
