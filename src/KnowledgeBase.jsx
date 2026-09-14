@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import SEED_RESOURCES from "./data/kb-resources-seed.json";
 import DEFAULT_PICS from "./data/kb-brand-pics.json";
+import { supabase } from "./supabase.js";
 
 // ═══════════════════════════════════════════════════════════════
 // KNOWLEDGE BASE — org-wide resource library for NiRM Roster.
@@ -108,9 +109,17 @@ const K = { resources: "kb-resources", pics: "kb-brand-pics", seeded: "kb-seeded
 // and does NOT search the public web (that would need Vertex AI Search /
 // Document AI / Gemini multimodal — separate GCP infrastructure).
 const KB_FN_BASE = "https://bequrilwgooesolepubv.supabase.co/functions/v1";
+// SECURITY (2026-09-10): this call used to go out with no Authorization
+// header, so kb-ai-search had to accept anonymous callers — which made it a
+// free public LLM relay billed to CREA's OpenAI key. Sending the signed-in
+// user's access token lets the function require a real NiRM session.
 async function askKBAi(query, resources) {
+  const { data: { session } = {} } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("ai-search: not signed in");
   const r = await fetch(`${KB_FN_BASE}/kb-ai-search`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ query, resources: resources.map((x) => ({ id: x.id, title: x.title, type: x.type, category: x.category, description: x.description, url: x.url })) }),
   });
   if (!r.ok) throw new Error(`ai-search ${r.status}`);
