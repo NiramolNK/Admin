@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { supabase } from "./supabase.js";
 
 // ═══════════════════════════════════════════════════════════════
 // SVCR SERVICE DESK — multi-channel inbox: TikTok video comments,
@@ -165,6 +166,20 @@ function isChannelConnected(settings, brand, key) {
   return Boolean(resolvedEndpoint(settings, brand, key) && conn.accountId);
 }
 
+// SECURITY (2026-09-10 review): every call below used to go out with no
+// Authorization header, which forced the channel functions to accept anonymous
+// callers. That meant a stranger could POST to tiktok-proxy/reply or
+// tiktok-messaging/send and publish text as the brand, or read customers'
+// private DMs. Sending the signed-in user's access token lets those functions
+// require a real NiRM session. A call made while signed out now fails fast and
+// loudly rather than silently reaching an open endpoint.
+async function authHeaders(extra = {}) {
+  const { data: { session } = {} } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("not signed in");
+  return { ...extra, Authorization: `Bearer ${token}` };
+}
+
 // ── fetch / normalize / send: one contract across all channels ──
 // TikTok's two functions have their own established shapes (already live in
 // production); everything else (LINE OA, Email, Amaze) uses a generic
@@ -185,24 +200,29 @@ async function channelError(r, what) {
 }
 
 async function fetchChannelRaw(endpoint, key, accountId) {
+  const headers = await authHeaders();
   if (key === "tiktok_comment") {
-    const r = await fetch(`${endpoint}/comments?business_id=${encodeURIComponent(accountId)}`);
+    const r = await fetch(`${endpoint}/comments?business_id=${encodeURIComponent(accountId)}`, { headers });
     if (!r.ok) throw await channelError(r, "comments");
     return (await r.json()).comments || [];
   }
   if (key === "tiktok_dm") {
-    const r = await fetch(`${endpoint}/messages?business_id=${encodeURIComponent(accountId)}`);
+    const r = await fetch(`${endpoint}/messages?business_id=${encodeURIComponent(accountId)}`, { headers });
     if (!r.ok) throw await channelError(r, "messages");
     return (await r.json()).messages || [];
   }
-  const r = await fetch(`${endpoint}/messages?account_id=${encodeURIComponent(accountId)}`);
+  const r = await fetch(`${endpoint}/messages?account_id=${encodeURIComponent(accountId)}`, { headers });
   if (!r.ok) throw await channelError(r, "messages");
   return (await r.json()).messages || [];
 }
 
 async function sendChannelMessage(endpoint, key, payload) {
   const path = key === "tiktok_comment" ? "/reply" : "/send";
-  const r = await fetch(`${endpoint}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const r = await fetch(`${endpoint}${path}`, {
+    method: "POST",
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
   if (!r.ok) throw await channelError(r, "send");
   return r.json();
 }
@@ -245,7 +265,11 @@ function buildSendPayload(key, brand, accountId, i, text) {
 // Contract: POST {fnBase}/{aiPath}  body: {inquiry, toneProfile, language, templates, extraInstruction}
 //           → { variants: [{style, text}, ...] }
 async function aiDraftReplies(s, payload) {
-  const r = await fetch(fnUrl(s, s.aiPath), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const r = await fetch(fnUrl(s, s.aiPath), {
+    method: "POST",
+    headers: await authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
   if (!r.ok) throw new Error(`ai ${r.status}`);
   const j = await r.json();
   if (!Array.isArray(j.variants)) throw new Error("bad ai shape");
