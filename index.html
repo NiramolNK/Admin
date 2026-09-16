@@ -16,6 +16,12 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="theme-color" content="#2FB380" />
 
+    <!-- Internal tool: keep it out of search indexes and model-training crawls.
+         See public/robots.txt for the per-crawler list. Both are requests that
+         only well-behaved crawlers honour — the real protection is that NiRM
+         needs a login, and that Storage buckets are private. -->
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet, noimageindex" />
+
     <!-- "NiRM Roster" truncated to "Roster" once a few tabs were open, which is
          the one word that does NOT identify the app. Name first. -->
     <title>NiRM</title>
