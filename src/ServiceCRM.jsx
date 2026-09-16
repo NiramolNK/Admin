@@ -486,6 +486,19 @@ function mapDbTicket(t, msgs) {
    45s, so ten agents refreshing at once still costs TikTok one call. It never
    blocks or breaks the inbox — if it fails, the existing cases still load. */
 let _ttSyncAt = 0;
+/* SECURITY (2026-09-16): the two tiktok-crm calls below used to go out with no
+   Authorization header, which is why that function had to accept anonymous
+   callers — and /reply publishes text PUBLICLY as the brand, addressed by a
+   sequential integer ticket id anyone could walk. Sending the signed-in user's
+   token lets the function require a real NiRM session, and lets the server log
+   who published a given reply. */
+async function crmAuthHeaders(extra = {}) {
+  const { data: { session } = {} } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("not signed in");
+  return { ...extra, Authorization: `Bearer ${token}` };
+}
+
 async function syncTikTok() {
   /* The inbox reloads every 20s for every signed-in agent. The server already
      throttles the real TikTok call, but the request itself still costs a
@@ -494,7 +507,7 @@ async function syncTikTok() {
   _ttSyncAt = Date.now();
   try {
     const r = await fetch(`${FN_BASE}/tiktok-crm/sync`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      method: "POST", headers: await crmAuthHeaders({ "Content-Type": "application/json" }), body: "{}",
     });
     if (!r.ok) throw new Error(`sync ${r.status}`);
   } catch (e) {
@@ -3258,7 +3271,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
         (async () => {
           try {
             const r = await fetch(`${FN_BASE}/tiktok-crm/reply`, {
-              method: "POST", headers: { "Content-Type": "application/json" },
+              method: "POST", headers: await crmAuthHeaders({ "Content-Type": "application/json" }),
               body: JSON.stringify({ ticketId: tk.dbId, body: msgText, agentName: tv(me.n) }),
             });
             if (!r.ok) {
