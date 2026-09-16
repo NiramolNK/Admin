@@ -1216,6 +1216,91 @@ function ListEditor({ title, items, k, placeholder, type = "text", onAdd, onRemo
   );
 }
 
+/* AI consent panel (April, 2026-09-16).
+   NiRM's AI features send customer text to OpenAI. This is the switch that
+   allows it, and it ships OFF — nothing leaves until a manager says so.
+
+   Deliberately NOT stored in kv_state: every signed-in user can write that
+   table (SELECT/UPDATE/DELETE are all `using (true)`), and a permission flag
+   anyone can flip is not a permission. It lives in public.ai_settings, whose
+   UPDATE policy requires is_manager(). The edge functions read the same row,
+   so switching this off stops the calls server-side — turning it off is a real
+   block, not just a hidden button. */
+function AiConsentPanel() {
+  const [row, setRow] = React.useState(null);   // null = loading
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState("");
+  const [recent, setRecent] = React.useState([]);
+
+  const load = React.useCallback(async () => {
+    const { data } = await supabase.from("ai_settings").select("enabled, updated_at, updated_by").eq("id", "main").maybeSingle();
+    setRow(data ?? { enabled: false });
+    const { data: log } = await supabase.from("ai_usage_log")
+      .select("used_at, fn, actor, allowed, chars_sent")
+      .order("used_at", { ascending: false }).limit(5);
+    setRecent(log ?? []);
+  }, []);
+
+  React.useEffect(() => { load().catch(() => setRow({ enabled: false })); }, [load]);
+
+  const toggle = async () => {
+    if (!row) return;
+    const next = !row.enabled;
+    if (next && !window.confirm(
+      "Allow NiRM to send customer message text to OpenAI?\n\n" +
+      "This turns on AI reply drafting and AI knowledge search for everyone. " +
+      "Customer messages, brand names and your reply templates will be sent to " +
+      "OpenAI's servers each time an agent uses those features.\n\n" +
+      "Every use is recorded below. You can switch this off at any time."
+    )) return;
+    setBusy(true); setErr("");
+    const { error } = await supabase.from("ai_settings")
+      .update({ enabled: next, updated_at: new Date().toISOString(), updated_by: (await supabase.auth.getUser()).data?.user?.email ?? null })
+      .eq("id", "main");
+    setBusy(false);
+    if (error) { setErr(error.message.includes("policy") ? "Only a manager can change this." : error.message); return; }
+    load().catch(() => {});
+  };
+
+  const on = row?.enabled === true;
+
+  return (
+    <div style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12, gridColumn: "1 / -1" }}>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#0F1B2D", marginBottom: 8 }}>⟳ AI assistance — your permission</div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+        <button onClick={toggle} disabled={busy || row === null}
+          style={{ padding: "8px 16px", borderRadius: 9, border: "none", cursor: busy ? "wait" : "pointer", fontFamily: "inherit",
+            fontSize: 12, fontWeight: 700, background: on ? "#12A150" : "#E5E4F1", color: on ? "#fff" : "#4B4F70", minWidth: 150 }}>
+          {row === null ? "Checking…" : on ? "● Allowed — switch off" : "○ Blocked — allow AI"}
+        </button>
+        <div style={{ flex: 1, minWidth: 260, fontSize: 11, color: "#6B6F90", lineHeight: 1.6 }}>
+          {on
+            ? "Customer messages are being sent to OpenAI when agents use AI drafting or AI search. Switch off to stop immediately — the block is enforced on the server, not just hidden here."
+            : "Nothing is being sent to OpenAI. AI drafting and AI search will refuse to run until you allow them. This is the default."}
+          {row?.updated_by ? <div style={{ marginTop: 4, color: "#8B8FB0" }}>Last changed by {row.updated_by}</div> : null}
+        </div>
+      </div>
+      {err ? <div style={{ marginTop: 8, fontSize: 11, color: "#B91C1C" }}>{err}</div> : null}
+      {recent.length > 0 && (
+        <div style={{ marginTop: 12, borderTop: "1px solid #F1EFF7", paddingTop: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#8B8FB0", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Recent AI use</div>
+          {recent.map((r, n) => (
+            <div key={n} style={{ fontSize: 11, color: "#6B6F90", display: "flex", gap: 8, padding: "2px 0" }}>
+              <span style={{ color: r.allowed ? "#12A150" : "#B91C1C", fontWeight: 700 }}>{r.allowed ? "sent" : "blocked"}</span>
+              <span style={{ fontFamily: "monospace" }}>{r.fn}</span>
+              <span>{r.actor || "(not signed in)"}</span>
+              <span style={{ marginLeft: "auto", color: "#A7ABC8" }}>{new Date(r.used_at).toLocaleString()}</span>
+            </div>
+          ))}
+          <div style={{ fontSize: 10, color: "#A7ABC8", marginTop: 6 }}>
+            The log records who, when and how much — never the message text itself.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsPane({ settings, setSettings }) {
   const [inp, setInp] = useState({ agent: "", brand: "", holiday: "" });
   const setI = (k, v) => setInp((p) => ({ ...p, [k]: v }));
@@ -1335,6 +1420,8 @@ function SettingsPane({ settings, setSettings }) {
           <input style={S.input} value={settings.aiPath || ""} onChange={(e) => setSettings((s) => ({ ...s, aiPath: e.target.value.trim() }))} />
         </Field>
       </div>
+
+      <AiConsentPanel />
 
       <div style={{ border: "1px solid #E5E4F1", borderRadius: 12, padding: 12, gridColumn: "1 / -1" }}>
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, color: "#0F1B2D", marginBottom: 4 }}>⟳ Channel Connections</div>
