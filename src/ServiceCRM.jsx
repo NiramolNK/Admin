@@ -5727,7 +5727,39 @@ function SignatureSettings({ me, toast }) {
    ADMIN ONLY, deliberately. A code shown here is a working key to that LINE
    account for the next few minutes: whoever can read it can finish the login.
    It is never emailed, forwarded or written into a case. */
-const OTP_SENDERS = ["linecorp.com", "line.me", "line-beta.me"];
+/* Where login codes come from, as PostgREST filter clauses.
+
+   LINE matches the domain in sender OR body - the From address varies, but the
+   domain is always somewhere in the message.
+
+   Amaze (April, 2026-09-16) needs sender AND subject together, which is why
+   this is a list of clauses rather than a list of domains.
+
+   Amaze sends BOTH its login codes and its ~300-a-month new-order
+   notifications ("คำสั่งซื้อใหม่ หมายเลข ...") from the SAME address,
+   otp-no-reply@prod.amaze.shop. Matching the sender alone therefore pulls
+   every order mail into this query: measured on the live table, 294 of them
+   against 5 real codes. None of those 294 would ever RENDER, because pickCode
+   finds no anchored code in them - but they would fill the ten rows this query
+   asks for and push a genuine code off the end, which is worse than useless
+   when someone is waiting on a code that expires.
+
+   The subject separates them cleanly: every code mail is "Amaze seller
+   verification code" (5 of 5 carry a code), while the order mails and the
+   password-expiry reminders are Thai and contain no such word. Matching on
+   "verification" rather than the full phrase keeps the filter free of spaces,
+   which PostgREST is happier with inside and(). */
+const OTP_SOURCES = [
+  { name: "LINE", clauses: [
+    "sender.ilike.%linecorp.com%", "body.ilike.%linecorp.com%",
+    "sender.ilike.%line.me%", "body.ilike.%line.me%",
+    "sender.ilike.%line-beta.me%", "body.ilike.%line-beta.me%",
+  ] },
+  { name: "Amaze", clauses: [
+    "and(sender.ilike.%amaze.shop%,subject.ilike.%verification%)",
+  ] },
+];
+const otpFilter = () => OTP_SOURCES.flatMap((s) => s.clauses).join(",");
 // Real LINE mail is mostly Thai/English with the code on its own line. Look
 // near a "code" word first so a random order number or year can't win, then
 // fall back to any standalone 4–8 digit run.
@@ -5763,10 +5795,9 @@ function useLineCodes(windowMs, { checkEver = false } = {}) {
      pattern-matches the handful of rows inside the window. */
   const load = async () => {
     const since = new Date(Date.now() - windowMs).toISOString();
-    const like = OTP_SENDERS.flatMap((d) => [`sender.ilike.%${d}%`, `body.ilike.%${d}%`]).join(",");
     const { data } = await supabase.from("platform_notifications")
       .select("id, sender, subject, body, our_box, received_at")
-      .or(like).gte("received_at", since)
+      .or(otpFilter()).gte("received_at", since)
       .order("received_at", { ascending: false }).limit(10);
     setRows(data ?? []);
   };
@@ -5794,10 +5825,9 @@ function useLineCodes(windowMs, { checkEver = false } = {}) {
   useEffect(() => {
     if (!checkEver) return;
     let dead = false;
-    const like = OTP_SENDERS.flatMap((d) => [`sender.ilike.%${d}%`, `body.ilike.%${d}%`]).join(",");
     const since = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString();
     supabase.from("platform_notifications").select("id")
-      .or(like).gte("received_at", since).limit(1)
+      .or(otpFilter()).gte("received_at", since).limit(1)
       .then(({ data }) => { if (!dead) setEver(Boolean(data && data.length)); })
       .catch(() => {});
     return () => { dead = true; };
