@@ -51,7 +51,6 @@ const NirmLogo = ({size=32,light=false}) => (
 const IconX = (p) => <Ico {...p}><path d="M18 6 6 18M6 6l12 12"/></Ico>;
 const IconChevL = (p) => <Ico {...p}><path d="m15 18-6-6 6-6"/></Ico>;
 const IconChevR = (p) => <Ico {...p}><path d="m9 18 6-6-6-6"/></Ico>;
-const IconMenu = (p) => <Ico {...p}><path d="M4 6h16M4 12h16M4 18h16"/></Ico>;
 
 // ── Responsive shell (April, 2026-10-04: "use via mobile and pad") ───────────
 // One source of truth for the three layouts the shell knows about:
@@ -2593,11 +2592,16 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   const dateLabel = `${MONTHS[rosterMonth-1]} ${rosterYear}`;
 
-  // Sidebar geometry. On a phone the sidebar is a fixed drawer, so it takes
-  // no room in the flex row and always shows its labels; elsewhere it is the
-  // 220px panel or the 64px icon rail.
-  const sbWide = isPhone ? true : sidebarOpen;
-  const SW = isPhone ? 0 : (sidebarOpen ? 220 : 64);
+  // Sidebar geometry. Desktop/tablet: the 220px panel or the 64px icon rail.
+  // Phone (April, 2026-10-04: "in mobile mode can foldable tab <<>> as well"):
+  // the same two states - a 56px icon rail that stays in the layout, and the
+  // full menu, which on a phone overlays the content instead of pushing it
+  // (220px of a 390px screen would leave nothing to read).
+  const PHONE_RAIL = 56;
+  const sbWide = isPhone ? drawerOpen : sidebarOpen;
+  const SW = isPhone ? PHONE_RAIL : (sidebarOpen ? 220 : 64);
+  const expandSidebar   = () => (isPhone ? setDrawerOpen(true)  : setSidebarOpen(true));
+  const collapseSidebar = () => (isPhone ? setDrawerOpen(false) : setSidebarOpen(false));
   // Content padding tracks the screen size. The Service CRM and Knowledge
   // Base wrappers cancel it with negative margins, so they read these too.
   const padY = isPhone ? 12 : isTablet ? 18 : 24;
@@ -3111,44 +3115,42 @@ export default function AllocationPanel({ isAdmin = true }) {
       )}
 
       {/* ═══ SIDEBAR ═══
-          Desktop/tablet: a sticky column, 220px open or 64px icon rail.
-          Phone: a fixed off-canvas drawer behind the ☰ button in the top bar,
-          with a backdrop; tapping a destination (or the backdrop, or Esc)
-          closes it. */}
+          Desktop/tablet: a sticky column, 220px open or 64px icon rail, with
+          the same «« / »» toggle everywhere.
+          Phone: the rail (56px) stays in the layout; »» opens the full menu
+          as an overlay with a backdrop, and «« / a destination / the backdrop
+          / Esc fold it back to the rail. */}
       {isPhone && drawerOpen && (
-        <div onClick={()=>setDrawerOpen(false)} aria-hidden="true"
-          style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.38)",zIndex:1000,backdropFilter:"blur(1px)"}}/>
+        <>
+          {/* holds the rail's column while the sidebar is the overlay, so the
+              content does not jump sideways */}
+          <div aria-hidden="true" style={{width:PHONE_RAIL,flexShrink:0}}/>
+          <div onClick={()=>setDrawerOpen(false)} aria-hidden="true"
+            style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.38)",zIndex:1000,backdropFilter:"blur(1px)"}}/>
+        </>
       )}
-      <div className="nirm-sidebar" aria-hidden={isPhone && !drawerOpen ? "true" : undefined} style={isPhone ? {
+      <div className="nirm-sidebar" style={isPhone && drawerOpen ? {
           position:"fixed",top:0,left:0,bottom:0,width:256,maxWidth:"86vw",background:"#fff",
           borderRight:"1px solid #E2E8F0",display:"flex",flexDirection:"column",zIndex:1001,
-          transform:drawerOpen?"translateX(0)":"translateX(-104%)",transition:"transform 0.22s ease",
-          boxShadow:drawerOpen?"0 12px 40px rgba(15,23,42,0.28)":"none",
-          visibility:drawerOpen?"visible":"hidden",transitionProperty:"transform, visibility",
+          boxShadow:"0 12px 40px rgba(15,23,42,0.28)",
         } : {
           width:SW,minHeight:"100vh",background:"#fff",borderRight:"1px solid #E2E8F0",display:"flex",flexDirection:"column",
           transition:"width 0.2s ease",flexShrink:0,position:"sticky",top:0,height:"100vh",overflow:"hidden",zIndex:50,
         }}>
         {/* Logo */}
-        <div style={{padding:sbWide?"20px 20px 16px":"20px 12px 16px",display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid #F1F5F9",flexShrink:0}}>
-          <NirmLogo size={sbWide?30:36}/>
+        <div style={{padding:sbWide?"20px 20px 16px":(isPhone?"16px 8px 12px":"20px 12px 16px"),display:"flex",alignItems:"center",justifyContent:sbWide?"flex-start":"center",gap:10,borderBottom:"1px solid #F1F5F9",flexShrink:0}}>
+          <NirmLogo size={sbWide?30:(isPhone?30:36)}/>
           {sbWide && <span style={{fontSize:16,fontWeight:700,letterSpacing:-0.3,color:"#0F172A",flex:1}}>NiRM</span>}
-          {sbWide && !isPhone && (
-            <button onClick={()=>setSidebarOpen(false)} title="Hide menu" aria-label="Hide menu"
-              style={{width:28,height:28,borderRadius:7,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
+          {sbWide && (
+            <button onClick={collapseSidebar} title="Hide menu" aria-label="Hide menu"
+              style={{width:isPhone?34:28,height:isPhone?34:28,borderRadius:7,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
               <IconChevL size={14} color="#64748B" style={{marginRight:-8}}/><IconChevL size={14} color="#64748B"/>
-            </button>
-          )}
-          {isPhone && (
-            <button onClick={()=>setDrawerOpen(false)} title="Close menu" aria-label="Close menu"
-              style={{width:32,height:32,borderRadius:8,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
-              <IconX size={16} color="#64748B"/>
             </button>
           )}
         </div>
         {!sbWide && (
-          <button onClick={()=>setSidebarOpen(true)} title="Show menu" aria-label="Show menu"
-            style={{margin:"8px auto 0",width:36,height:28,borderRadius:7,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
+          <button onClick={expandSidebar} title="Show menu" aria-label="Show menu"
+            style={{margin:"8px auto 0",width:isPhone?40:36,height:isPhone?34:28,borderRadius:7,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
             <IconChevR size={14} color="#64748B" style={{marginRight:-8}}/><IconChevR size={14} color="#64748B"/>
           </button>
         )}
@@ -3293,13 +3295,6 @@ export default function AllocationPanel({ isAdmin = true }) {
         {/* ── Top Bar ── */}
         <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:isPhone?"10px 12px":`14px ${padX}px`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:isPhone?10:16,flexWrap:"wrap",position:"sticky",top:0,zIndex:40}}>
           <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
-            {/* Phone only: the sidebar is a drawer, this opens it. */}
-            {isPhone && (
-              <button onClick={()=>setDrawerOpen(true)} title="Menu" aria-label="Open menu" aria-expanded={drawerOpen}
-                style={{width:38,height:38,borderRadius:9,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#334155",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
-                <IconMenu size={19} color="#334155"/>
-              </button>
-            )}
             <div style={{minWidth:0}}>
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
                 {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="invoices"?"Invoice Approvals":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="daily"?"Daily Count":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
