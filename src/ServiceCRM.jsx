@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, useContext, createContext 
 import {
   LayoutDashboard, Inbox, Ticket, Users, BookOpen, BarChart3, UserCog, Settings,
   Bell, Search, Plus, Download, LogOut, Phone, X, Clock, CheckCircle2, AlertTriangle,
-  Send, StickyNote, Star, ChevronRight, Save, UserPlus, Zap, Timer, Languages,
+  Send, StickyNote, Star, ChevronRight, ChevronLeft, Save, UserPlus, Zap, Timer, Languages,
   MessageSquare, Mail, ShoppingBag, Smartphone, Tag, ArrowUpRight, Copy, Edit3,
   ShieldCheck, Repeat, ThumbsUp, Paperclip, Globe, BookMarked,
   PhoneCall, PhoneOff, PhoneIncoming, PhoneOutgoing, PhoneMissed, Mic, MicOff,
@@ -1298,6 +1298,33 @@ const CSS = `
 .svc input, .svc select, .svc textarea { font-family:inherit; font-size:14px; color:var(--ink); }
 .svc :focus-visible { outline:2px solid var(--blue); outline-offset:2px; border-radius:6px; }
 @media (prefers-reduced-motion:reduce){ .svc *{ animation:none!important; transition:none!important; } }
+
+/* Inbox on a phone (2026-10-04): the three panes become one screen at a time.
+   The list fills the screen until a case is tapped; the thread then takes
+   over with a back arrow; the customer side panel is folded away. */
+.svc-inbox-back { display:none; }
+@media (min-width:768px) and (max-width:1099px){
+  /* tablet portrait: three panes do not fit next to the icon rail - fold the
+     customer side panel away and narrow the list so the thread stays readable */
+  .svc-inbox-side { display:none; }
+  .svc-inbox-list { width:250px !important; }
+}
+@media (max-width:767px){
+  .svc-inbox { height:calc(100dvh - 118px) !important; }
+  .svc-inbox-list { width:100% !important; border-right:0 !important; }
+  .svc-inbox[data-has-case="1"] .svc-inbox-list { display:none; }
+  .svc-inbox[data-has-case="0"] > .flex-1 { display:none; }   /* "pick a case" placeholder - the list is the screen */
+  .svc-inbox-side { display:none; }
+  .svc-inbox-back { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; border-radius:9px; border:1px solid var(--line); background:#fff; flex:none; }
+  .svc-inbox .svc-inbox-head { padding-left:12px; padding-right:12px; }
+}
+@media (max-width:1099px){
+  /* narrow thread pane: title on its own line, SLA chip + status below it */
+  .svc-inbox .svc-inbox-head { flex-wrap:wrap; row-gap:8px; }
+  .svc-inbox .svc-inbox-head > div.min-w-0 { flex:1 1 0; min-width:0; }
+  .svc-inbox .svc-inbox-head > .ml-auto { flex:1 1 100%; margin-left:0 !important; justify-content:flex-end; }
+  .svc-inbox .svc-inbox-head select { width:140px !important; }
+}
 
 .card { background:#fff; border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
 .fld { width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:9px; background:#fff; outline:none; transition:.15s; }
@@ -3043,7 +3070,9 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
     if (aw) return (sla(a).left ?? 0) - (sla(b).left ?? 0);
     return lastAt(b) - lastAt(a);
   });
-  const [sel, setSel] = useState(focus?.id || rows[0]?.id || null);
+  // Desktop opens on the first case; a phone opens on the list (the thread
+  // pane replaces the list there, so auto-selecting would hide the inbox).
+  const [sel, setSel] = useState(focus?.id || (typeof window !== "undefined" && window.innerWidth < 768 ? null : rows[0]?.id) || null);
   const [text, setText] = useState("");
   const [files, setFiles] = useState([]);          // pending attachments (real email cases)
   const fileRef = useRef(null);
@@ -3365,8 +3394,8 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   };
 
   return (
-    <div className="card overflow-hidden flex" style={{ height: "calc(100vh - 132px)" }}>
-      <div className="flex-none flex flex-col border-r" style={{ width: 308, borderColor: "var(--line)" }}>
+    <div className="card overflow-hidden flex svc-inbox" data-has-case={tk ? "1" : "0"} style={{ height: "calc(100vh - 132px)" }}>
+      <div className="flex-none flex flex-col border-r svc-inbox-list" style={{ width: 308, borderColor: "var(--line)" }}>
         <div className="p-3 border-b" style={{ borderColor: "var(--line)" }}>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: "var(--muted)" }} />
@@ -3410,8 +3439,10 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
 
       {!tk ? <div className="flex-1"><Empty icon={Inbox} title={t("pickCase")} sub={t("pickCaseSub")} /></div> : (
         <>
-          <div className="flex-1 min-w-0 flex flex-col" style={{ background: "#F8F6FB" }}>
-            <div className="px-5 py-3 bg-white border-b flex items-center gap-3" style={{ borderColor: "var(--line)" }}>
+          <div className="flex-1 min-w-0 flex flex-col svc-inbox-thread" style={{ background: "#F8F6FB" }}>
+            <div className="px-5 py-3 bg-white border-b flex items-center gap-3 svc-inbox-head" style={{ borderColor: "var(--line)" }}>
+              {/* phone only (CSS): back to the case list */}
+              <button className="svc-inbox-back" onClick={() => setSel(null)} aria-label="Back to inbox" title="Back to inbox"><ChevronLeft size={18} /></button>
               <div className="min-w-0">
                 <div className="font-bold text-[14.5px] truncate">{subjectOf(tk)}</div>
                 <div className="text-[11.5px]" style={{ color: "var(--muted)" }}>{tk.id} · {tv(tk.customer)} · {t("receivedAgo", ago(tk.createdAt))}{tk.emailTo ? <> · <span title="Mailbox this email was sent to">✉ {tk.emailTo}</span></> : null}</div>
@@ -3676,7 +3707,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
             </div>
           </div>
 
-          <div className="flex-none border-l overflow-auto scroll" style={{ width: 288, borderColor: "var(--line)", background: "#fff" }}>
+          <div className="flex-none border-l overflow-auto scroll svc-inbox-side" style={{ width: 288, borderColor: "var(--line)", background: "#fff" }}>
             <div className="p-4 border-b text-center" style={{ borderColor: "var(--line)" }}>
               <div className="rounded-full grid place-items-center mx-auto text-white font-bold text-[19px]" style={{ width: 54, height: 54, background: "var(--navy)" }}>{tv(tk.customer).charAt(0)}</div>
               <div className="font-bold text-[14.5px] mt-2">{tv(tk.customer)}</div>
@@ -6642,7 +6673,7 @@ export const crmTabsFor = (rosterRole, lang = "en") =>
   NAV.filter((n) => n.roles.includes(crmRoleOf(rosterRole)))
      .map((n) => ({ k: n.k, label: (D[n.key] || [n.k, n.k])[lang === "th" ? 1 : 0] }));
 
-export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav }) {
+export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav, navSticky = true }) {
   const [lang, setLangState] = useState("en");
   LANG.cur = lang;                       // keep module helpers in sync before children render
   const setLang = (l) => { LANG.cur = l; setLangState(l); };
@@ -6997,7 +7028,7 @@ export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav }) 
       {/* horizontal top bar (was a left sidebar) — NiRM already owns the left rail.
           With hideNav (sections in NiRM's sidebar) the bar disappears entirely. */}
       {!hideNav && (
-      <div className="flex items-center gap-1.5 px-4 py-2" style={{ background: "var(--navy)", position: "sticky", top: 0, zIndex: 40, overflowX: "auto" }}>
+      <div className="flex items-center gap-1.5 px-4 py-2" style={{ background: "var(--navy)", position: navSticky ? "sticky" : "static", top: 0, zIndex: 40, overflowX: "auto" }}>
         {nav.map((n) => (
           <button key={n.k} className={`nav-i ${tab === n.k ? "on" : ""}`} style={{ width: "auto", flex: "none", padding: "8px 12px", gap: 8, whiteSpace: "nowrap" }} onClick={() => setTab(n.k)}>
             <n.ic size={16} className="flex-none" />{t(n.key)}
