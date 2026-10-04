@@ -51,6 +51,26 @@ const NirmLogo = ({size=32,light=false}) => (
 const IconX = (p) => <Ico {...p}><path d="M18 6 6 18M6 6l12 12"/></Ico>;
 const IconChevL = (p) => <Ico {...p}><path d="m15 18-6-6 6-6"/></Ico>;
 const IconChevR = (p) => <Ico {...p}><path d="m9 18 6-6-6-6"/></Ico>;
+const IconMenu = (p) => <Ico {...p}><path d="M4 6h16M4 12h16M4 18h16"/></Ico>;
+
+// ── Responsive shell (April, 2026-10-04: "use via mobile and pad") ───────────
+// One source of truth for the three layouts the shell knows about:
+//   phone  (< 768px)      sidebar is an off-canvas drawer behind a ☰ button
+//   tablet (768–1099px)   sidebar starts as the 64px icon rail
+//   desktop (≥ 1100px)    sidebar starts open; the user's choice is remembered
+const BP_PHONE = 768;
+const BP_DESKTOP = 1100;
+function useViewportWidth() {
+  const [vw, setVw] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1280));
+  useEffect(() => {
+    let raf = 0;
+    const onResize = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setVw(window.innerWidth)); };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => { window.removeEventListener("resize", onResize); window.removeEventListener("orientationchange", onResize); cancelAnimationFrame(raf); };
+  }, []);
+  return vw;
+}
 const IconUpload = (p) => <Ico {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></Ico>;
 const IconDownload = (p) => <Ico {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></Ico>;
 const IconTrash = (p) => <Ico {...p}><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></Ico>;
@@ -919,12 +939,34 @@ export default function AllocationPanel({ isAdmin = true }) {
   }, [allocTab]);
   // Sidebar collapse is remembered per browser (April, 2026-09-29): the old
   // toggle was a pale chevron at the foot of the sidebar that nobody found.
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
-    try { return window.localStorage.getItem("nirm-sidebar") !== "closed"; } catch (_) { return true; }
+  // 2026-10-04: the preference is written only when the user presses the
+  // toggle, so a tablet's rail-by-default never gets saved as "closed" and
+  // carried over to the desktop.
+  const vw = useViewportWidth();
+  const isPhone  = vw < BP_PHONE;
+  const isTablet = vw >= BP_PHONE && vw < BP_DESKTOP;
+  const [sidebarOpen, setSidebarOpenState] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem("nirm-sidebar");
+      if (saved === "open") return true;
+      if (saved === "closed") return false;
+      return window.innerWidth >= BP_DESKTOP;        // no preference yet
+    } catch (_) { return true; }
   });
+  const setSidebarOpen = (open) => {
+    setSidebarOpenState(open);
+    try { window.localStorage.setItem("nirm-sidebar", open ? "open" : "closed"); } catch (_) {}
+  };
+  // Phone: the sidebar is a drawer. Never remembered — a drawer that reopens
+  // itself on every page load would cover the content.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  useEffect(() => { if (!isPhone && drawerOpen) setDrawerOpen(false); }, [isPhone]);
   useEffect(() => {
-    try { window.localStorage.setItem("nirm-sidebar", sidebarOpen ? "open" : "closed"); } catch (_) {}
-  }, [sidebarOpen]);
+    if (!drawerOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") setDrawerOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
   const [agents, setAgents]         = useState(ALLOC_AGENTS_INIT);
   
   const [budget, setBudget]         = useState(ALLOC_BUDGET);
@@ -2551,8 +2593,17 @@ export default function AllocationPanel({ isAdmin = true }) {
 
   const dateLabel = `${MONTHS[rosterMonth-1]} ${rosterYear}`;
 
-  // Sidebar collapsed state
-  const SW = sidebarOpen ? 220 : 64;
+  // Sidebar geometry. On a phone the sidebar is a fixed drawer, so it takes
+  // no room in the flex row and always shows its labels; elsewhere it is the
+  // 220px panel or the 64px icon rail.
+  const sbWide = isPhone ? true : sidebarOpen;
+  const SW = isPhone ? 0 : (sidebarOpen ? 220 : 64);
+  // Content padding tracks the screen size. The Service CRM and Knowledge
+  // Base wrappers cancel it with negative margins, so they read these too.
+  const padY = isPhone ? 12 : isTablet ? 18 : 24;
+  const padX = isPhone ? 12 : isTablet ? 20 : 28;
+  const contentPad = `${padY}px ${padX}px`;
+  const bleed = `-${padY}px -${padX}px`;
 
   // ── Personal view data (for T1/viewer agents) ─────────────────────────────
   // Match by email first (preferred), fall back to name
@@ -3059,42 +3110,67 @@ export default function AllocationPanel({ isAdmin = true }) {
         </div>
       )}
 
-      {/* ═══ SIDEBAR ═══ */}
-      <div style={{width:SW,minHeight:"100vh",background:"#fff",borderRight:"1px solid #E2E8F0",display:"flex",flexDirection:"column",transition:"width 0.2s ease",flexShrink:0,position:"sticky",top:0,height:"100vh",overflow:"hidden",zIndex:50}}>
+      {/* ═══ SIDEBAR ═══
+          Desktop/tablet: a sticky column, 220px open or 64px icon rail.
+          Phone: a fixed off-canvas drawer behind the ☰ button in the top bar,
+          with a backdrop; tapping a destination (or the backdrop, or Esc)
+          closes it. */}
+      {isPhone && drawerOpen && (
+        <div onClick={()=>setDrawerOpen(false)} aria-hidden="true"
+          style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.38)",zIndex:1000,backdropFilter:"blur(1px)"}}/>
+      )}
+      <div className="nirm-sidebar" aria-hidden={isPhone && !drawerOpen ? "true" : undefined} style={isPhone ? {
+          position:"fixed",top:0,left:0,bottom:0,width:256,maxWidth:"86vw",background:"#fff",
+          borderRight:"1px solid #E2E8F0",display:"flex",flexDirection:"column",zIndex:1001,
+          transform:drawerOpen?"translateX(0)":"translateX(-104%)",transition:"transform 0.22s ease",
+          boxShadow:drawerOpen?"0 12px 40px rgba(15,23,42,0.28)":"none",
+          visibility:drawerOpen?"visible":"hidden",transitionProperty:"transform, visibility",
+        } : {
+          width:SW,minHeight:"100vh",background:"#fff",borderRight:"1px solid #E2E8F0",display:"flex",flexDirection:"column",
+          transition:"width 0.2s ease",flexShrink:0,position:"sticky",top:0,height:"100vh",overflow:"hidden",zIndex:50,
+        }}>
         {/* Logo */}
-        <div style={{padding:sidebarOpen?"20px 20px 16px":"20px 12px 16px",display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid #F1F5F9"}}>
-          <NirmLogo size={sidebarOpen?30:36}/>
-          {sidebarOpen && <span style={{fontSize:16,fontWeight:700,letterSpacing:-0.3,color:"#0F172A",flex:1}}>NiRM</span>}
-          {sidebarOpen && (
+        <div style={{padding:sbWide?"20px 20px 16px":"20px 12px 16px",display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid #F1F5F9",flexShrink:0}}>
+          <NirmLogo size={sbWide?30:36}/>
+          {sbWide && <span style={{fontSize:16,fontWeight:700,letterSpacing:-0.3,color:"#0F172A",flex:1}}>NiRM</span>}
+          {sbWide && !isPhone && (
             <button onClick={()=>setSidebarOpen(false)} title="Hide menu" aria-label="Hide menu"
               style={{width:28,height:28,borderRadius:7,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
               <IconChevL size={14} color="#64748B" style={{marginRight:-8}}/><IconChevL size={14} color="#64748B"/>
             </button>
           )}
+          {isPhone && (
+            <button onClick={()=>setDrawerOpen(false)} title="Close menu" aria-label="Close menu"
+              style={{width:32,height:32,borderRadius:8,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
+              <IconX size={16} color="#64748B"/>
+            </button>
+          )}
         </div>
-        {!sidebarOpen && (
+        {!sbWide && (
           <button onClick={()=>setSidebarOpen(true)} title="Show menu" aria-label="Show menu"
-            style={{margin:"8px auto 0",width:36,height:28,borderRadius:7,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0}}>
+            style={{margin:"8px auto 0",width:36,height:28,borderRadius:7,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#64748B",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
             <IconChevR size={14} color="#64748B" style={{marginRight:-8}}/><IconChevR size={14} color="#64748B"/>
           </button>
         )}
 
-        {/* Nav items */}
-        <div style={{flex:1,padding:"12px 8px",display:"flex",flexDirection:"column",gap:2}}>
+        {/* Nav items. The list scrolls on its own when the window is short
+            (laptop at 768px tall with the Service CRM sections open), so the
+            footer with Sign out never gets pushed off the bottom. */}
+        <div className="nirm-nav" style={{flex:1,minHeight:0,overflowY:"auto",overflowX:"hidden",padding:"12px 8px",display:"flex",flexDirection:"column",gap:2}}>
           {[["roster","Roster"],["payment","My Invoice"],["invoices","Invoice Approvals"],["allocation","Allocation"],["dates","Dates"],["volume","Performance"],["daily","Daily Count"],["agents","Teams"],["budget","Report"],["analytics","CS Analytics"],["crm","Service CRM"],["kb","Knowledge Base"]].map(([t,l])=>{
             if(!allowedTabs.includes(t)) return null;
             const active2 = allocTab===t;
             const iconColor = active2?"#0D9488":"#94A3B8";
             return (
               <div key={t} style={{display:"contents"}}>
-              <button onClick={()=>setAllocTab(t)} style={{
-                display:"flex",alignItems:"center",gap:10,padding:sidebarOpen?"9px 14px":"9px 0",
-                justifyContent:sidebarOpen?"flex-start":"center",
+              <button onClick={()=>{ setAllocTab(t); if (isPhone && t!=="crm") setDrawerOpen(false); }} title={sbWide?undefined:l} aria-label={l} style={{
+                display:"flex",alignItems:"center",gap:10,padding:sbWide?"9px 14px":"9px 0",
+                justifyContent:sbWide?"flex-start":"center",
                 border:"none",cursor:"pointer",fontFamily:"inherit",
                 borderRadius:8,fontSize:13,fontWeight:active2?600:450,
                 background:active2?"#F0FDFA":"transparent",
                 color:active2?"#0D9488":"#64748B",
-                transition:"all 0.15s",width:"100%",
+                transition:"all 0.15s",width:"100%",flexShrink:0,
               }}>
                 {t==="roster"&&<CalendarIcon size={18} color={iconColor}/>}
                 {t==="allocation"&&<IconGrid size={18} color={iconColor}/>}
@@ -3108,12 +3184,14 @@ export default function AllocationPanel({ isAdmin = true }) {
                 {t==="analytics"&&<IconBarChart size={18} color={iconColor}/>}
                 {t==="crm"&&<IconUsers size={18} color={iconColor}/>}
                 {t==="kb"&&<IconBook size={18} color={iconColor}/>}
-                {sidebarOpen && l}
+                {sbWide && l}
               </button>
               {/* Service CRM sections live here in the sidebar — the CRM's own
-                  green tab bar is hidden (hideNav) so there is one navigation */}
-              {t==="crm" && active2 && sidebarOpen && crmTabsFor(role).map(it => (
-                <button key={it.k} onClick={()=>setCrmTab(it.k)} style={{
+                  tab bar is hidden (hideNav) so there is one navigation. When
+                  the sidebar is the icon rail there is no room for them, so
+                  the CRM shows its own bar instead (see hideNav below). */}
+              {t==="crm" && active2 && sbWide && crmTabsFor(role).map(it => (
+                <button key={it.k} onClick={()=>{ setCrmTab(it.k); if (isPhone) setDrawerOpen(false); }} style={{
                   display:"flex",alignItems:"center",gap:8,padding:"6px 14px 6px 42px",
                   border:"none",cursor:"pointer",fontFamily:"inherit",borderRadius:8,
                   fontSize:12.5,fontWeight:crmTab===it.k?600:450,width:"100%",textAlign:"left",
@@ -3129,7 +3207,7 @@ export default function AllocationPanel({ isAdmin = true }) {
         </div>
 
         {/* Sidebar footer — role + logout */}
-        <div style={{padding:"12px",borderTop:"1px solid #F1F5F9"}}>
+        <div style={{padding:"12px",borderTop:"1px solid #F1F5F9",flexShrink:0}}>
           {(() => {
             const prof = userProfiles[(loginUser||"").toLowerCase()] || {};
             const ownAgent = agents.find(a => (a.email && a.email.toLowerCase().trim() === (loginUser||"").toLowerCase().trim()) || (a.name && a.name.toLowerCase().trim() === (loginUser||"").toLowerCase().trim()));
@@ -3137,7 +3215,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             const displayName = ownAgent?.fullName || prof.preferName || loginUser || ROLES[role]?.label || "User";
             const initial = displayName.charAt(0).toUpperCase();
             return (<>
-          {role && sidebarOpen && (
+          {role && sbWide && (
             <div onClick={()=>setShowProfile(true)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderRadius:8,background:ROLES[role].bg,marginBottom:8,cursor:"pointer",transition:"opacity 0.15s"}}
               onMouseEnter={e=>e.currentTarget.style.opacity="0.8"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
               {profilePhoto
@@ -3149,7 +3227,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               </div>
             </div>
           )}
-          {role && !sidebarOpen && (
+          {role && !sbWide && (
             <div onClick={()=>setShowProfile(true)} style={{display:"flex",justifyContent:"center",marginBottom:8,cursor:"pointer"}}>
               {profilePhoto
                 ? <DocImg stored={profilePhoto} style={{width:32,height:32,borderRadius:8,objectFit:"cover"}}/>
@@ -3158,10 +3236,10 @@ export default function AllocationPanel({ isAdmin = true }) {
           )}
             </>);
           })()}
-          <div style={{display:"flex",gap:4,flexDirection:sidebarOpen?"row":"column",alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:4,flexDirection:sbWide?"row":"column",alignItems:"center",flexWrap:"wrap"}}>
             <button onClick={()=>setShowUserMgmt(true)}
-              style={{padding:"6px 10px",borderRadius:7,border:"1px solid #3B82F622",background:"#EFF6FF",color:"#1D4ED8",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flex:sidebarOpen?1:"unset",display:"flex",alignItems:"center",gap:4,justifyContent:"center"}}>
-              <IconUsers size={12} color="#1D4ED8"/>{sidebarOpen?(role==="manager"?" Users":" Account"):""}
+              style={{padding:"6px 10px",borderRadius:7,border:"1px solid #3B82F622",background:"#EFF6FF",color:"#1D4ED8",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flex:sbWide?1:"unset",display:"flex",alignItems:"center",gap:4,justifyContent:"center"}}>
+              <IconUsers size={12} color="#1D4ED8"/>{sbWide?(role==="manager"?" Users":" Account"):""}
             </button>
             {role==="manager" && (
               <button onClick={async ()=>{
@@ -3174,13 +3252,13 @@ export default function AllocationPanel({ isAdmin = true }) {
                 const seed={}; CS_BRANDS_INIT.forEach(b=>{seed[b.id]={...(b.chats||{})};});
                 setMonthlyVol({"2026-03":seed});
                 setRosterYear(2026); setRosterMonth(4); setLockedMonths({});
-              }} style={{padding:"6px 10px",borderRadius:7,border:"1px solid #FCA5A533",background:"#FFF5F5",color:"#EF4444",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flex:sidebarOpen?1:"unset"}}>
-                <IconTrash size={12} color="#EF4444" style={{display:"inline",verticalAlign:"-2px"}}/>{sidebarOpen?" Reset":""}
+              }} style={{padding:"6px 10px",borderRadius:7,border:"1px solid #FCA5A533",background:"#FFF5F5",color:"#EF4444",fontSize:10,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flex:sbWide?1:"unset"}}>
+                <IconTrash size={12} color="#EF4444" style={{display:"inline",verticalAlign:"-2px"}}/>{sbWide?" Reset":""}
               </button>
             )}
             <button onClick={handleLogout}
-              style={{padding:"6px 10px",borderRadius:7,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:10,fontWeight:500,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4,justifyContent:"center",flex:sidebarOpen?1:"unset"}}>
-              <IconLogOut size={12} color="#64748B"/>{sidebarOpen?" Sign out":""}
+              style={{padding:"6px 10px",borderRadius:7,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:10,fontWeight:500,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4,justifyContent:"center",flex:sbWide?1:"unset"}}>
+              <IconLogOut size={12} color="#64748B"/>{sbWide?" Sign out":""}
             </button>
           </div>
         </div>
@@ -3213,9 +3291,16 @@ export default function AllocationPanel({ isAdmin = true }) {
           </div>
         )}
         {/* ── Top Bar ── */}
-        <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:"14px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:16,flexWrap:"wrap",position:"sticky",top:0,zIndex:40}}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div>
+        <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:isPhone?"10px 12px":`14px ${padX}px`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:isPhone?10:16,flexWrap:"wrap",position:"sticky",top:0,zIndex:40}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
+            {/* Phone only: the sidebar is a drawer, this opens it. */}
+            {isPhone && (
+              <button onClick={()=>setDrawerOpen(true)} title="Menu" aria-label="Open menu" aria-expanded={drawerOpen}
+                style={{width:38,height:38,borderRadius:9,border:"1px solid #E2E8F0",background:"#F8FAFC",color:"#334155",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",padding:0,flexShrink:0}}>
+                <IconMenu size={19} color="#334155"/>
+              </button>
+            )}
+            <div style={{minWidth:0}}>
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
                 {allocTab==="roster"?"Roster":allocTab==="payment"?"My Invoice":allocTab==="invoices"?"Invoice Approvals":allocTab==="allocation"?"Allocation":allocTab==="dates"?"Dates":allocTab==="volume"?"Performance":allocTab==="daily"?"Daily Count":allocTab==="agents"?"Teams":allocTab==="analytics"?"CS Analytics":allocTab==="crm"?"Service Desk":allocTab==="kb"?"Knowledge Base":"Report"}
               </div>
@@ -3227,7 +3312,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             </div>
           </div>
 
-          <div style={{display:"flex",alignItems:"center",gap:12,marginLeft:"auto"}}>
+          <div style={{display:"flex",alignItems:"center",gap:isPhone?8:12,marginLeft:"auto",flexWrap:"wrap"}}>
             {/* Who is in NiRM right now. Managers and T2 see names and the tab
                 each person is on; everyone else sees a count only. */}
             <LiveNow canSeeNames={role==="manager" || role==="fulltime"} />
@@ -3239,8 +3324,11 @@ export default function AllocationPanel({ isAdmin = true }) {
           </div>
         </div>
 
-        {/* ── Content Area ── */}
-        <div style={{flex:1,padding:"24px 28px",overflowY:"auto"}}>
+        {/* ── Content Area ──
+            overflowX:auto lets a wide table (the month grid, payroll) scroll
+            inside the page on a phone instead of stretching the whole screen
+            sideways and pushing the top bar off. */}
+        <div style={{flex:1,padding:contentPad,overflowY:"auto",overflowX:"auto",minWidth:0}}>
 
         {/* ── LINE login code ──
             Lives here, not in Service CRM: agents have no Service CRM tab
@@ -7310,7 +7398,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             CS ANALYTICS TAB — Customer Service Dashboard
         ══════════════════════════════════════════ */}
         {allocTab==="analytics" && (
-          <div style={{margin:"-24px -28px"}}>
+          <div style={{margin:bleed}}>
             <CSAnalyticsTab role={role} canEdit={role==="manager"} monthlyCost={totalCost} currentMonthCode={["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"][volMonth-1]} chatByBrand={(() => {
               // Aggregate Chat Volume data (per brand × platform × month) for CS Analytics
               const out = {};
@@ -7365,8 +7453,12 @@ export default function AllocationPanel({ isAdmin = true }) {
             SERVICE CRM TAB — Service Desk & CRM (bilingual EN/ไทย)
         ══════════════════════════════════════════ */}
         {allocTab==="crm" && (
-          <div style={{margin:"-24px -28px"}}>
-            <ServiceCRM user={loginUser} role={role} tab={crmTab} onTab={setCrmTab} hideNav />
+          <div style={{margin:bleed}}>
+            {/* hideNav: the sections are sidebar sub-items while the sidebar
+                is wide. On the icon rail and on a phone they are not, so the
+                CRM shows its own section bar (not sticky - NiRM's top bar
+                already is). */}
+            <ServiceCRM user={loginUser} role={role} tab={crmTab} onTab={setCrmTab} hideNav={!isPhone && sidebarOpen} navSticky={false} />
           </div>
         )}
 
@@ -7374,7 +7466,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             KB TAB — Knowledge Base (org-wide, all roles)
         ══════════════════════════════════════════ */}
         {allocTab==="kb" && (
-          <div style={{margin:"-24px -28px"}}>
+          <div style={{margin:bleed}}>
             <KnowledgeBase role={role} canEdit={canEdit} />
           </div>
         )}
@@ -7706,6 +7798,27 @@ export default function AllocationPanel({ isAdmin = true }) {
         }
         @media (hover: none) {
           button:hover { opacity: 1; }
+        }
+
+        /* Responsive shell (2026-10-04). The sidebar's own nav list scrolls
+           when the window is short; keep its scrollbar out of the icon rail. */
+        .nirm-nav { scrollbar-width: thin; }
+        .nirm-nav::-webkit-scrollbar { width: 3px; }
+        @supports (height: 100dvh) {
+          /* Mobile browsers: 100vh includes the hidden address bar, so the
+             bottom of a 100vh column sits under the toolbar. dvh does not. */
+          .nirm-sidebar { height: 100dvh !important; min-height: 100dvh !important; }
+        }
+        @media (max-width: 767px) {
+          /* iOS Safari zooms into any field smaller than 16px on focus and
+             leaves the page zoomed. Text fields only - the roster grid's
+             tiny controls keep their size. */
+          input:not([type]), input[type="text"], input[type="email"], input[type="password"],
+          input[type="search"], textarea { font-size: 16px !important; }
+          .svc main.p-6 { padding: 12px !important; }
+        }
+        @media (min-width: 768px) and (max-width: 1099px) {
+          .svc main.p-6 { padding: 16px !important; }
         }
       `}</style>
     </div>
