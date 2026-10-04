@@ -7441,6 +7441,8 @@ export default function AllocationPanel({ isAdmin = true }) {
             brands={brands}
             getShift={tallyShiftFor}
             getAgentBrands={tallyBrandsFor}
+            year={rosterYear}
+            month={rosterMonth}
           />
         )}
 

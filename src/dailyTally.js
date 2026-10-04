@@ -289,6 +289,28 @@ export async function fetchHourly(q) {
   return data || [];
 }
 
+/**
+ * Month view (manager / T2): every (day, shift, agent) status row in a date
+ * range — same view as the Shift Board, just a range instead of one day.
+ * Volumes are small (a few hundred rows a month), so the grid is built client-side.
+ */
+export async function fetchMonthStatus(q) {
+  const { data, error } = await db().from('v_shift_status')
+    .select('work_date,shift,agent_id,tapped_total,event_count,confirmed_total,submitted_at,reopened_at,status,drifted')
+    .gte('work_date', q.from).lte('work_date', q.to);
+  if (error) throw error;
+  return data || [];
+}
+
+/** Month view: brand × platform touches per day in a range. */
+export async function fetchMonthDaily(q) {
+  const { data, error } = await db().from('v_tally_daily')
+    .select('work_date,agent_id,brand_id,platform,source,cnt')
+    .gte('work_date', q.from).lte('work_date', q.to);
+  if (error) throw error;
+  return data || [];
+}
+
 /** An agent's own recent daily totals, for the 7-day strip. */
 export async function fetchMyRecent(q) {
   const { data, error } = await db().from('v_tally_daily')
@@ -372,5 +394,6 @@ export default {
   DB_SCHEMA, bkkToday, withinEditWindow, tappablePlatforms, platformSource, myAgentId,
   PLATFORM_HELP, TAP_ORDER, tap, flush, installFlushHooks, onBufferChange,
   pendingFor, pendingCount, rowKey, fetchShiftCounts, fetchShiftBoard,
-  fetchBrandDay, fetchHourly, fetchMyRecent, endShift, recallShift, reopenShift,
+  fetchBrandDay, fetchHourly, fetchMyRecent, fetchMonthStatus, fetchMonthDaily,
+  endShift, recallShift, reopenShift,
 };

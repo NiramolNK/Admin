@@ -635,16 +635,289 @@ function Volume({ brands }) {
   );
 }
 
+/* ═══════════════════════ Manager / T2 — Month view ══════════════════════
+ * April, 2026-10-04: "for manager to T2 can see this monthly view". One grid:
+ * agents down, days across, touches in the cells, coloured by whether the
+ * shift was ended. Follows the month picker in the NiRM top bar. */
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const pad2 = (n) => String(n).padStart(2, "0");
+const CELL_BG = { ended: "#ECFDF5", open: "#FEF3C7", missing: "#FEE2E2", future: "#FFFFFF", none: "#FFFFFF" };
+
+function MonthView({ agents, brands, getShift, year, month }) {
+  const today = DC.bkkToday();
+  const now = new Date(Date.now() + 7 * 3600e3);
+  const y = Number(year) || now.getUTCFullYear();
+  const m = Number(month) || (now.getUTCMonth() + 1);
+  const nDays = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const days = useMemo(
+    () => Array.from({ length: nDays }, (_, i) => `${y}-${pad2(m)}-${pad2(i + 1)}`), [y, m, nDays]);
+  const from = days[0], to = days[nDays - 1];
+
+  const status = useAsync(() => DC.fetchMonthStatus({ from, to }), [from, to]);
+  const daily = useAsync(() => DC.fetchMonthDaily({ from, to }), [from, to]);
+
+  const brandName = useMemo(
+    () => Object.fromEntries((brands || []).map((b) => [b.id, b.name || b.id])), [brands]);
+
+  /* cells[agent][day] = { tapped, confirmed, ended, open, missing, drifted } */
+  const grid = useMemo(() => {
+    const cells = {};
+    const touch = (a, d) => ((cells[a] = cells[a] || {})[d] = cells[a][d] ||
+      { tapped: 0, confirmed: null, ended: 0, open: 0, missing: 0, drifted: false, shifts: 0 });
+    for (const r of status.data || []) {
+      if (r.work_date < from || r.work_date > to) continue;   // belt and braces: the query is already ranged
+      const c = touch(r.agent_id, r.work_date);
+      c.shifts += 1;
+      c.tapped += Number(r.tapped_total || 0);
+      if (r.confirmed_total !== null && r.confirmed_total !== undefined) {
+        c.confirmed = (c.confirmed || 0) + Number(r.confirmed_total);
+      }
+      c[r.status] = (c[r.status] || 0) + 1;
+      if (r.drifted) c.drifted = true;
+    }
+    return cells;
+  }, [status.data, from, to]);
+
+  /* Rows: the roster's active part-timers (T2 do not run the tally — same rule
+   * as the Shift Board) plus anyone who has data this month even if they are
+   * no longer in the roster. */
+  const rows = useMemo(() => {
+    const byId = new Map();
+    for (const a of agents || []) {
+      if (a.active === false) continue;
+      if ((a.team || "") === "T2") continue;
+      byId.set(a.id, { id: a.id, name: a.name || a.id, team: a.team || "" });
+    }
+    for (const id of Object.keys(grid)) {
+      if (!byId.has(id)) {
+        const a = (agents || []).find((x) => x.id === id);
+        if (a && (a.team || "") === "T2" && !Object.values(grid[id]).some((c) => c.tapped || c.shifts)) continue;
+        byId.set(id, { id, name: (a && a.name) || id, team: (a && a.team) || "", extra: !a });
+      }
+    }
+    return [...byId.values()];
+  }, [agents, grid]);
+
+  /* A day counts as expected when the roster has the agent working it. */
+  const expected = (agentId, d) => {
+    if (!getShift) return false;
+    return WORKED.has(getShift(agentId, d));
+  };
+
+  const cellState = (agentId, d) => {
+    const c = grid[agentId] && grid[agentId][d];
+    if (d > today) return { kind: "future", value: c ? c.tapped : null, c };
+    if (!c) return expected(agentId, d) ? { kind: "missing", value: null, c: null } : { kind: "none", value: null, c: null };
+    if (c.missing && !c.ended && !c.open) return { kind: "missing", value: c.tapped || null, c };
+    if (c.open) return { kind: "open", value: c.tapped, c };
+    return { kind: "ended", value: c.tapped, c };
+  };
+
+  const agentTotal = (agentId) =>
+    Object.values(grid[agentId] || {}).reduce((s, c) => s + c.tapped, 0);
+  const dayTotal = useMemo(() => {
+    const t = {};
+    for (const a of Object.keys(grid)) for (const d of Object.keys(grid[a])) t[d] = (t[d] || 0) + grid[a][d].tapped;
+    return t;
+  }, [grid]);
+  const monthTotal = Object.values(dayTotal).reduce((a, b) => a + b, 0);
+
+  const tally = useMemo(() => {
+    let ended = 0, open = 0, missing = 0;
+    for (const r of rows) for (const d of days) {
+      if (d > today) continue;
+      const k = cellState(r.id, d).kind;
+      if (k === "ended") ended++; else if (k === "open") open++; else if (k === "missing") missing++;
+    }
+    return { ended, open, missing };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, days, grid, today]);
+
+  /* Brand × platform for the month */
+  const bp = useMemo(() => {
+    const rowsB = {}, cols = {}, cells = {};
+    for (const r of daily.data || []) {
+      if (r.work_date < from || r.work_date > to) continue;
+      const n = Number(r.cnt || 0);
+      rowsB[r.brand_id] = (rowsB[r.brand_id] || 0) + n;
+      cols[r.platform] = (cols[r.platform] || 0) + n;
+      cells[`${r.brand_id}|${r.platform}`] = (cells[`${r.brand_id}|${r.platform}`] || 0) + n;
+    }
+    const bids = Object.keys(rowsB).sort((a, b) => rowsB[b] - rowsB[a]);
+    const pfs = Object.keys(cols).sort((a, b) => cols[b] - cols[a]);
+    return { rowsB, cols, cells, bids, pfs, max: Math.max(1, ...Object.values(cells)) };
+  }, [daily.data, from, to]);
+
+  const exportCsv = () => {
+    const head = ["Agent", "Team", ...days.map((d) => d.slice(8)), "Total"];
+    const lines = [head.join(",")];
+    for (const r of rows) {
+      const vals = days.map((d) => { const s = cellState(r.id, d); return s.value === null || s.value === undefined ? "" : s.value; });
+      lines.push([`"${String(r.name).replace(/"/g, '""')}"`, r.team, ...vals, agentTotal(r.id)].join(","));
+    }
+    lines.push(["Total", "", ...days.map((d) => dayTotal[d] || ""), monthTotal].join(","));
+    const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `daily-count-${y}-${pad2(m)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  const loading = status.loading || daily.loading;
+  const error = status.error || daily.error;
+  const label = `${MONTH_NAMES[m - 1]} ${y}`;
+  const tile = (lab, val, color) => (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".05em", color: T.ink3 }}>{lab}</div>
+      <div style={{ fontSize: 26, fontWeight: 700, lineHeight: 1.1, color: color || T.ink, fontVariantNumeric: "tabular-nums" }}>{val}</div>
+    </div>
+  );
+  const dow = (d) => ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"][new Date(d + "T00:00:00Z").getUTCDay()];
+  const isWeekend = (d) => { const w = new Date(d + "T00:00:00Z").getUTCDay(); return w === 0 || w === 6; };
+  const stick = { position: "sticky", left: 0, background: "#fff", zIndex: 1 };
+
+  return (
+    <div>
+      <div style={S.card}>
+        <div style={S.between}>
+          <div>
+            <h2 style={S.h2}>Month — {label}</h2>
+            <p style={S.sub}>Touches per agent per day. Change the month with the picker in the top bar.</p>
+          </div>
+          <div style={S.row}>
+            <button style={S.ghost} onClick={exportCsv} disabled={loading}>Export CSV</button>
+            <button style={S.ghost} onClick={() => { status.reload(); daily.reload(); }}>Refresh</button>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+          {tile("Touches", monthTotal)}
+          {tile("Agents counted", Object.keys(grid).length)}
+          {tile("Ended", tally.ended, "#065F46")}
+          {tile("Not ended", tally.open, tally.open ? "#92400E" : T.ink3)}
+          {tile("Missing", tally.missing, tally.missing ? T.red : T.ink3)}
+        </div>
+      </div>
+
+      <div style={S.card}>
+        {loading && <p style={S.sub}>Loading…</p>}
+        {error && <div style={{ ...S.note, background: "#FEE2E2", color: "#991B1B" }}>
+          {(error && error.message) || String(error)}</div>}
+        {!loading && !error && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: 720 }}>
+              <thead><tr>
+                <th style={{ ...S.th, ...stick, zIndex: 2, minWidth: 130 }}>Agent</th>
+                {days.map((d) => (
+                  <th key={d} style={{ ...S.th, textAlign: "center", padding: "6px 2px", minWidth: 30,
+                    color: d === today ? T.teal : isWeekend(d) ? T.red : T.ink3,
+                    background: d === today ? T.tealBg : "transparent" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700 }}>{Number(d.slice(8))}</div>
+                    <div style={{ fontSize: 9, fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>{dow(d)}</div>
+                  </th>
+                ))}
+                <th style={{ ...S.th, textAlign: "right", minWidth: 56 }}>Total</th>
+              </tr></thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td style={{ ...S.td, ...stick, fontWeight: 600, whiteSpace: "nowrap", padding: "6px 10px" }}>
+                      {r.name}
+                      {r.team && <span style={{ fontSize: 10, color: T.ink3, marginLeft: 6 }}>{r.team}</span>}
+                      {r.extra && <span style={{ fontSize: 10, color: T.ink3, marginLeft: 6 }}>not in roster</span>}
+                    </td>
+                    {days.map((d) => {
+                      const s = cellState(r.id, d);
+                      const title = s.c
+                        ? `${r.name} · ${d} — ${s.c.tapped} tapped${s.c.confirmed !== null ? `, ${s.c.confirmed} confirmed` : ""}${s.c.open ? " · not ended" : ""}${s.c.missing && !s.c.ended ? " · missing" : ""}${s.c.drifted ? " · edited after End shift" : ""}`
+                        : s.kind === "missing" ? `${r.name} · ${d} — rostered, nothing counted and no End shift` : `${r.name} · ${d}`;
+                      return (
+                        <td key={d} title={title} style={{ ...S.td, textAlign: "center", padding: "6px 2px",
+                          fontVariantNumeric: "tabular-nums", background: CELL_BG[s.kind] || "#fff",
+                          color: s.kind === "missing" ? T.red : s.kind === "open" ? T.amber : s.value ? T.ink : T.ink3,
+                          fontWeight: s.value ? 600 : 400, fontSize: 12 }}>
+                          {s.value !== null && s.value !== undefined ? s.value : s.kind === "missing" ? "–" : ""}
+                          {s.c && s.c.drifted && <span title="edited after End shift" style={{ color: T.red }}>*</span>}
+                        </td>
+                      );
+                    })}
+                    <td style={{ ...S.td, textAlign: "right", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                      {agentTotal(r.id) || ""}
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <td style={{ ...S.td, ...stick, fontWeight: 700, borderBottom: 0, borderTop: `2px solid ${T.line}` }}>Total</td>
+                  {days.map((d) => (
+                    <td key={d} style={{ ...S.td, textAlign: "center", padding: "6px 2px", fontWeight: 700, borderBottom: 0,
+                      borderTop: `2px solid ${T.line}`, fontVariantNumeric: "tabular-nums", fontSize: 12 }}>
+                      {dayTotal[d] || ""}
+                    </td>
+                  ))}
+                  <td style={{ ...S.td, textAlign: "right", fontWeight: 700, borderBottom: 0, borderTop: `2px solid ${T.line}`,
+                    fontVariantNumeric: "tabular-nums" }}>{monthTotal}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+        <div style={S.note}>
+          <span style={{ ...chip(CELL_BG.ended, "#065F46"), marginRight: 6 }}>ended</span>
+          <span style={{ ...chip(CELL_BG.open, "#92400E"), marginRight: 6 }}>tapped, not ended</span>
+          <span style={{ ...chip(CELL_BG.missing, T.red), marginRight: 6 }}>rostered, nothing counted</span>
+          blank = day off or not rostered &middot; * = edited after End shift &middot; T2 are not shown (they do not run the tally).
+        </div>
+      </div>
+
+      <div style={S.card}>
+        <h2 style={S.h2}>Brand &times; platform — {label}</h2>
+        <p style={S.sub}>Whole month, manual platforms only. Darker = more volume.</p>
+        {daily.loading ? <p style={S.sub}>Loading…</p> : bp.bids.length === 0 ? (
+          <div style={S.note}>Nothing counted in {label} yet.</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ borderCollapse: "separate", borderSpacing: 2 }}>
+              <thead><tr>
+                <th style={{ ...S.th, border: 0 }} />
+                {bp.pfs.map((p) => <th key={p} style={{ ...S.th, border: 0, textAlign: "center" }}>{p}</th>)}
+                <th style={{ ...S.th, border: 0, textAlign: "right" }}>Total</th>
+              </tr></thead>
+              <tbody>
+                {bp.bids.map((bid) => (
+                  <tr key={bid}>
+                    <th style={{ ...S.th, border: 0, textAlign: "left", whiteSpace: "nowrap" }}>{brandName[bid] || bid}</th>
+                    {bp.pfs.map((p) => {
+                      const v = bp.cells[`${bid}|${p}`] || 0;
+                      const base = { borderRadius: 5, padding: "9px 8px", textAlign: "center", fontWeight: 700, fontSize: 13, fontVariantNumeric: "tabular-nums" };
+                      if (!v) return <td key={p} style={{ border: 0, padding: 0 }}><div style={{ ...base, background: "#F8FAFC", color: T.ink3, fontWeight: 400 }}>&ndash;</div></td>;
+                      const step = Math.min(RAMP.length - 1, Math.floor((v / bp.max) * RAMP.length));
+                      return <td key={p} style={{ border: 0, padding: 0 }}><div style={{ ...base, background: RAMP[step], color: step >= 4 ? "#fff" : T.ink }}>{v}</div></td>;
+                    })}
+                    <td style={{ border: 0, textAlign: "right", fontWeight: 700, padding: "0 8px", fontVariantNumeric: "tabular-nums", fontSize: 13 }}>{bp.rowsB[bid]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════ Shell ═════════════════════════════════ */
 export default function DailyCount({
-  role = "agent", myAgentId, agents = [], brands = [], getShift, getAgentBrands,
+  role = "agent", myAgentId, agents = [], brands = [], getShift, getAgentBrands, year, month,
 }) {
   const canSupervise = role === "manager" || role === "fulltime";
-  const [tab, setTab] = useState("mine");
+  // Managers and T2 land on the month overview — most of them are not linked
+  // to an agent record, so "My Shift" has nothing to show them (April, 2026-10-04).
+  const [tab, setTab] = useState(canSupervise ? "month" : "mine");
   useEffect(() => { DC.installFlushHooks(); }, []);
 
-  const tabs = [{ k: "mine", label: "My Shift" }].concat(
-    canSupervise ? [{ k: "board", label: "Shift Board" }, { k: "volume", label: "Volume" }] : []);
+  const tabs = canSupervise
+    ? [{ k: "month", label: "Month" }, { k: "board", label: "Shift Board" }, { k: "volume", label: "Volume" }, { k: "mine", label: "My Shift" }]
+    : [{ k: "mine", label: "My Shift" }];
 
   return (
     <div>
@@ -665,6 +938,9 @@ export default function DailyCount({
       {tab === "mine" && (
         <MyShift myAgentId={myAgentId} agents={agents} brands={brands}
           getShift={getShift} getAgentBrands={getAgentBrands} />
+      )}
+      {tab === "month" && canSupervise && (
+        <MonthView agents={agents} brands={brands} getShift={getShift} year={year} month={month} />
       )}
       {tab === "board" && canSupervise && (
         <ShiftBoard agents={agents} role={role} getShift={getShift} />
