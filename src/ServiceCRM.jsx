@@ -250,6 +250,10 @@ function useSoftphone(toast) {
 
 /* Bottom-left status pill + in-call controls */
 function SoftphoneBar({ sf }) {
+  // phones (2026-10-06): collapsed to a status dot until tapped, or while a
+  // call is live - the full bar was sitting on top of list rows and buttons.
+  const [sfOpen, setSfOpen] = useState(false);
+  const open = sfOpen || sf.state === "oncall" || sf.state === "connecting";
   const [secs, setSecs] = useState(0);
   useEffect(() => {
     if (sf.state !== "oncall") { setSecs(0); return; }
@@ -265,10 +269,14 @@ function SoftphoneBar({ sf }) {
     : sf.state === "error" ? (sf.problem || t("sfOff")) : t("sfOff");
 
   return (
-    <div className="fixed z-[70] svc-softphone" style={{ left: 18, bottom: 18 }}>
+    <div className={`fixed z-[70] svc-softphone ${open ? "open" : ""}`} style={{ left: 18, bottom: 18 }} onClick={() => { if (!open) setSfOpen(true); }}>
       <div className="card flex items-center gap-2.5 px-3 py-2.5" style={{ maxWidth: 330 }}>
         <span className="dot" style={{ background: tint }} />
         <span className="text-[12.5px] font-semibold truncate" style={{ color: tint }}>{label}</span>
+        {sfOpen && sf.state !== "oncall" && (
+          <button className="svc-softphone-close" aria-label="Collapse" onClick={(e) => { e.stopPropagation(); setSfOpen(false); }}
+                  style={{ display: "none", opacity: .6, padding: "0 2px" }}><X size={13} /></button>
+        )}
         {sf.state === "oncall" ? (
           <>
             <button className="btn btn-g" style={{ padding: "4px 9px", fontSize: 12 }} onClick={sf.toggleMute}>
@@ -1330,6 +1338,16 @@ const CSS = `
      stops sitting on top of the case list */
   .svc-softphone { left:auto !important; right:12px !important; bottom:calc(68px + env(safe-area-inset-bottom, 0px)) !important; }
   .svc-softphone .card { max-width:min(300px, calc(100vw - 24px)) !important; padding:6px 10px !important; border-radius:999px !important; }
+  .svc-softphone:not(.open) .card { width:40px; height:40px; padding:0 !important; justify-content:center; cursor:pointer; }
+  .svc-softphone:not(.open) .card > *:not(.dot) { display:none !important; }
+  .svc-softphone:not(.open) .card .dot { width:12px; height:12px; }
+  .svc-softphone.open .svc-softphone-close { display:flex !important; }
+  /* dashboards / KPI rows: six tiles across 390px became unreadable slivers */
+  .svc main .grid[style*="repeat("]:not([style*="auto-"]) { grid-template-columns:repeat(2, minmax(0,1fr)) !important; }
+  .svc main .grid[style*="grid-template-columns"]:not([style*="repeat("]) { grid-template-columns:minmax(0,1fr) !important; }
+  .svc main .grid.grid-cols-3, .svc main .grid.grid-cols-5 { grid-template-columns:repeat(2, minmax(0,1fr)) !important; }
+  .svc main .grid[style*="max-width"] { max-width:none !important; }
+  .svc main { padding-bottom:72px !important; }
   body:has(.svc-inbox[data-has-case="1"]) .svc-softphone { display:none; }
   .svc-inbox-list { width:100% !important; border-right:0 !important; }
   .svc-inbox[data-has-case="1"] .svc-inbox-list { display:none; }
