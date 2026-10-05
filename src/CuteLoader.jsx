@@ -33,8 +33,16 @@ import catUrl from "./assets/cat-wait.png";
    Holding a loader open past its work usually makes an app feel slower, and
    that would matter here if the veil blocked anything. It does not:
    pointer-events is none, so the desk stays fully clickable underneath for the
-   whole time. */
-const MIN_SHOW_MS = 4500;
+   whole time.
+
+   Tuning (Oct 2026): she is a "something is slow" signal, not a "something
+   saved" signal. GRACE_MS is how long a write may take before she appears at
+   all — the auto-save, presence and tally writes almost always finish inside
+   it, so routine work shows nothing. MIN_SHOW_MS is just long enough for one
+   animation cycle (CAT_DUR .9s) so she never flickers; it used to be 4500 and
+   turned every half-second save into a 4.5 s cat. */
+const GRACE_MS = 800;
+const MIN_SHOW_MS = 1200;
 
 const store = { n: 0, shown: false, timer: null, subs: new Set(), shownAt: 0, hold: null };
 const emit = () => store.subs.forEach((fn) => fn(store.shown));
@@ -66,7 +74,7 @@ const begin = () => {
   store.n += 1;
   if (store.n === 1 && !store.timer) {
     // the grace period — a save that takes 80 ms should look instant
-    store.timer = setTimeout(() => { store.timer = null; if (store.n > 0) show(); }, 250);
+    store.timer = setTimeout(() => { store.timer = null; if (store.n > 0) show(); }, GRACE_MS);
   }
 };
 const end = () => {
@@ -168,7 +176,7 @@ export default function CuteLoader({ label = "Loading" }) {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     if (!on) { setSlow(false); return; }
-    const t = setTimeout(() => setSlow(store.n > 0), MIN_SHOW_MS);
+    const t = setTimeout(() => setSlow(store.n > 0), 4000);
     return () => clearTimeout(t);
   }, [on]);
 
@@ -179,7 +187,7 @@ export default function CuteLoader({ label = "Loading" }) {
          the desk unable to click anything. */
       style={{ position: "fixed", inset: 0, zIndex: 9999, pointerEvents: "none",
                display: "flex", alignItems: "center", justifyContent: "center",
-               background: "rgba(15,23,42,.28)", backdropFilter: "blur(2px)" }}
+               background: "rgba(15,23,42,.10)" }}
       role="status" aria-live="polite">
       <style>{CSS}</style>
       <div className="nirm-card"
