@@ -16,6 +16,18 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta name="theme-color" content="#2FB380" />
 
+    <!-- PWA: lets phones/tablets "Add to Home Screen" and open NiRM full-screen
+         like an app (no store needed). Manifest = name/icons/colours; the
+         service worker (public/sw.js, registered in src/pwa.js) caches only the
+         app shell — never Supabase data. apple-* tags are what iOS reads
+         instead of the manifest. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="NiRM" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="application-name" content="NiRM" />
+
     <!-- Internal tool: keep it out of search indexes and model-training crawls.
          See public/robots.txt for the per-crawler list. Both are requests that
          only well-behaved crawlers honour — the real protection is that NiRM
