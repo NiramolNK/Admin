@@ -27,6 +27,7 @@ import {
   DB_SCHEMA,
 } from "./supabase.js";
 import { installSafeStorage } from "./safeStorage.js";
+import InstallHint from "./InstallHint.jsx";
 
 export default function App() {
   const [booting, setBooting]   = useState(true);
@@ -354,6 +355,8 @@ export default function App() {
         </div>
       )}
       <AllocationPanel />
+      {/* PWA: "Install NiRM" hint on phones/tablets + "updated — Reload" bar */}
+      <InstallHint />
     </>
   );
 }
