@@ -265,7 +265,7 @@ function SoftphoneBar({ sf }) {
     : sf.state === "error" ? (sf.problem || t("sfOff")) : t("sfOff");
 
   return (
-    <div className="fixed z-[70]" style={{ left: 18, bottom: 18 }}>
+    <div className="fixed z-[70] svc-softphone" style={{ left: 18, bottom: 18 }}>
       <div className="card flex items-center gap-2.5 px-3 py-2.5" style={{ maxWidth: 330 }}>
         <span className="dot" style={{ background: tint }} />
         <span className="text-[12.5px] font-semibold truncate" style={{ color: tint }}>{label}</span>
@@ -1309,8 +1309,28 @@ const CSS = `
   .svc-inbox-side { display:none; }
   .svc-inbox-list { width:250px !important; }
 }
+.svc-reply-summary { display:none; }
 @media (max-width:767px){
   .svc-inbox { height:calc(100dvh - 118px) !important; }
+  /* 2026-10-06 phone pass — an open case is a full-screen view: list → thread
+     → composer, no side panel, no tab bar (hidden by NiRM's shell CSS). */
+  .svc-inbox[data-has-case="1"] .svc-inbox-thread { position:fixed; inset:0; z-index:60; background:#F8F6FB; }
+  .svc-inbox[data-has-case="1"] .svc-inbox-head { padding-top:calc(10px + env(safe-area-inset-top, 0px)); }
+  .svc-inbox-head .font-bold.truncate { white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.3; }
+  .svc-inbox-head .min-w-0 > div:last-child span[title] { display:none; }   /* mailbox address - already on the From pill */
+  .svc-inbox .svc-inbox-head select { width:auto !important; flex:1 1 0; min-width:0; }
+  .svc-inbox-thread > .overflow-auto.p-5 { padding:12px !important; }
+  .bub { max-width:90%; }
+  .svc-reply-summary { display:flex; align-items:center; gap:8px; padding-bottom:6px; }
+  .svc-reply-meta:not(.open) .svc-reply-full { display:none; }
+  .svc-compose-tools { flex-wrap:wrap; }
+  .svc-hint { display:none; }
+  .svc-inbox-thread .border-t.p-3 { padding-bottom:calc(12px + env(safe-area-inset-bottom, 0px)) !important; }
+  /* softphone: a compact pill tucked above the tab bar, right-aligned, so it
+     stops sitting on top of the case list */
+  .svc-softphone { left:auto !important; right:12px !important; bottom:calc(68px + env(safe-area-inset-bottom, 0px)) !important; }
+  .svc-softphone .card { max-width:min(300px, calc(100vw - 24px)) !important; padding:6px 10px !important; border-radius:999px !important; }
+  body:has(.svc-inbox[data-has-case="1"]) .svc-softphone { display:none; }
   .svc-inbox-list { width:100% !important; border-right:0 !important; }
   .svc-inbox[data-has-case="1"] .svc-inbox-list { display:none; }
   .svc-inbox[data-has-case="0"] > .flex-1 { display:none; }   /* "pick a case" placeholder - the list is the screen */
@@ -1358,7 +1378,7 @@ table.tbl { width:100%; border-collapse:collapse; }
 .conv:hover { background:#F8FAFC; }
 .conv.on { background:var(--sky); border-left-color:var(--blue); }
 
-.bub { max-width:74%; padding:10px 13px; border-radius:14px; font-size:13.5px; line-height:1.55; white-space:pre-wrap; }
+.bub { overflow-wrap:anywhere; word-break:break-word; max-width:74%; padding:10px 13px; border-radius:14px; font-size:13.5px; line-height:1.55; white-space:pre-wrap; }
 .bub-c { background:#fff; border:1px solid var(--line); border-bottom-left-radius:4px; }
 .bub-a { background:var(--blue); color:#fff; border-bottom-right-radius:4px; }
 .bub-n { background:var(--amber-bg); border:1px dashed #E9C384; color:#7A5410; border-radius:10px; }
@@ -3180,6 +3200,10 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const [sig, setSig] = useState("");
   const [noSig, setNoSig] = useState(false);
   const [showSig, setShowSig] = useState(false);
+  // phones (2026-10-06): Reply-all / From / To / Cc / signature collapse to a
+  // one-line summary so the composer is reachable without scrolling; "Edit"
+  // expands the full controls. Desktop ignores this (CSS).
+  const [metaOpen, setMetaOpen] = useState(false);
   const [sigHtmlPv, setSigHtmlPv] = useState("");   // the exact HTML the email carries — logo included
   useEffect(() => {
     setNoSig(false); setShowSig(false);
@@ -3499,8 +3523,24 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
 
             {/* reply-all: everyone already on this email thread */}
             {tk.channel === "email" && tk.dbId && !isNote && (
-              <div className="px-4 pt-2.5 pb-0.5 border-t" style={{ borderColor: "var(--line)" }}>
-                <div className="flex items-center gap-2 flex-wrap text-[11.5px]">
+              <div className={`px-4 pt-2.5 pb-0.5 border-t svc-reply-meta ${metaOpen ? "open" : ""}`} style={{ borderColor: "var(--line)" }}>
+                {/* phone-only summary of the block below (CSS shows one or the other) */}
+                <div className="svc-reply-summary text-[11.5px]" style={{ color: "var(--muted)" }}>
+                  <span className="truncate" style={{ minWidth: 0, flex: 1 }}>
+                    <b style={{ color: toActive.length ? "var(--blue)" : "var(--red)" }}>
+                      {toActive.length ? toActive[0] : t("toNone")}
+                    </b>
+                    {toActive.length > 1 && <> +{toActive.length - 1}</>}
+                    {(() => { const n = (replyAll ? ccFinal.length : 0) + pinnedKept.filter((a) => !(replyAll && ccFinal.includes(a))).length + addCc.filter((a) => !(replyAll && ccFinal.includes(a)) && !pinnedKept.includes(a)).length;
+                              return n > 0 ? <> · Cc {n}</> : null; })()}
+                    <> · {fromActive.split("@")[0]}</>
+                    {sig && !noSig && <> · ✓ {t("sigWillAdd").split(" ")[0]}</>}
+                  </span>
+                  <button onClick={() => setMetaOpen((v) => !v)} className="font-semibold flex-none" style={{ color: "var(--blue)" }}>
+                    {metaOpen ? "▴" : "Edit"}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap text-[11.5px] svc-reply-full">
                   <label className="flex items-center gap-1.5 font-semibold cursor-pointer select-none"
                          style={{ color: replyAll ? "var(--blue)" : "var(--muted)" }}>
                     <input type="checkbox" checked={replyAll} onChange={(e) => setReplyAll(e.target.checked)} style={{ accentColor: "var(--blue)" }} />
@@ -3627,7 +3667,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
 
                 {/* signature — what the customer will actually see at the bottom */}
                 {sig && (
-                  <div className="mt-1.5 text-[11.5px]">
+                  <div className="mt-1.5 text-[11.5px] svc-reply-full">
                     <div className="flex items-center gap-2 flex-wrap">
                       <label className="flex items-center gap-1.5 cursor-pointer select-none" style={{ color: "var(--muted)" }}>
                         <input type="checkbox" checked={!noSig} onChange={(e) => setNoSig(!e.target.checked)} style={{ accentColor: "var(--blue)" }} />
@@ -3670,7 +3710,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                   </div>
                 </div>
               )}
-              <div className="flex gap-1.5 mb-2">
+              <div className="flex gap-1.5 mb-2 svc-compose-tools">
                 <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5 }} onClick={() => setShowCanned(!showCanned)}><Zap size={13} />{t("cannedBtn")}</button>
                 <button className="btn btn-g" style={{ padding: "5px 11px", fontSize: 12.5, borderColor: isNote ? "var(--amber)" : "var(--line)", background: isNote ? "var(--amber-bg)" : "#fff", color: isNote ? "var(--amber)" : "var(--ink)" }}
                         onClick={() => setIsNote(!isNote)}><StickyNote size={13} />{isNote ? t("noteBtnOn") : t("noteBtn")}</button>
@@ -3697,7 +3737,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                         placeholder={isNote ? t("notePh") : t("replyPh", tv(tk.customer), tv(CH[tk.channel].n))}
                         style={{ background: isNote ? "#FFFBF2" : "#fff" }} />
               <div className="flex items-center gap-2 mt-2">
-                <span className="text-[11.5px]" style={{ color: "var(--muted)" }}>{t("ctrlEnter")}</span>
+                <span className="text-[11.5px] svc-hint" style={{ color: "var(--muted)" }}>{t("ctrlEnter")}</span>
                 <button className="btn btn-p ml-auto"
                         title={noRecipient ? t("toNone") : undefined}
                         disabled={(!text.trim() && !files.length) || noRecipient} onClick={send}>
