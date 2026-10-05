@@ -2,6 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import "./tw.css";
+import { registerPwa } from "./pwa.js";
+
+// PWA: service worker + install/update events (no-op in dev). See pwa.js.
+registerPwa();
 
 // FIX (data-loss pass 2): surface unhandled promise rejections with their
 // CONTENTS. Chrome collapses rejected plain objects (e.g. Supabase error
