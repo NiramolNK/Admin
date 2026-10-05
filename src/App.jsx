@@ -26,7 +26,7 @@ import {
   isEarlyRecoveryLink,
   DB_SCHEMA,
 } from "./supabase.js";
-import { installSafeStorage } from "./safeStorage.js";
+import { installSafeStorage, refreshAfterSignIn } from "./safeStorage.js";
 import InstallHint from "./InstallHint.jsx";
 
 export default function App() {
@@ -124,6 +124,13 @@ export default function App() {
               currentUser.id !== window.__nirmAdminUserId) {
             return; // foreign session window during invite — don't touch profile
           }
+        }
+        // FIX (2026-10-06): the store was filled at boot, possibly as an
+        // anonymous reader (empty under RLS). Re-read everything with the
+        // signed-in session BEFORE the panel mounts and starts autosaving.
+        if (event === "SIGNED_IN") {
+          try { await refreshAfterSignIn(); }
+          catch (e) { console.error("[auth] refresh after sign-in failed", e); }
         }
         const p = await getCurrentRole();
         // FIX (Add User unmount race): when an admin invites a new user, the
