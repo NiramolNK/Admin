@@ -3351,7 +3351,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             Base, which have their own bars; month picker only on month-based
             screens, so Teams does not carry a useless month control) */}
         {!(isPhone && (allocTab==="crm" || allocTab==="kb")) && (
-        <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:isPhone?"10px 12px":`14px ${padX}px`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:isPhone?10:16,flexWrap:"wrap",position:"sticky",top:0,zIndex:40}}>
+        <div className="nirm-topbar" style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:isPhone?"10px 12px":`14px ${padX}px`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:isPhone?10:16,flexWrap:"wrap",position:"sticky",top:0,zIndex:40}}>
           <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
             <div style={{minWidth:0}}>
               <div style={{fontSize:15,fontWeight:700,color:"#0F172A",letterSpacing:-0.2}}>
@@ -7878,6 +7878,16 @@ export default function AllocationPanel({ isAdmin = true }) {
           /* A Service Desk case is a full-screen view on a phone (see the
              CRM's own CSS) - the tab bar would sit on top of the composer. */
           body:has(.svc-inbox[data-has-case="1"]) .nirm-bottom-nav { display: none !important; }
+        }
+        /* Installed on an iPhone home screen the page runs under the status
+           bar (clock / battery). viewport-fit=cover + these insets keep the
+           content below it: a white strip over the status bar, the page and
+           the sticky bars pushed down by the same amount. Zero everywhere else. */
+        @media (display-mode: standalone) and (max-width: 767px) {
+          body { padding-top: env(safe-area-inset-top, 0px); }
+          body::before { content: ""; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: #fff; z-index: 2000; }
+          .nirm-topbar { top: env(safe-area-inset-top, 0px) !important; }
+          .nirm-sidebar { padding-top: env(safe-area-inset-top, 0px); }
         }
         @media (min-width: 768px) and (max-width: 1099px) {
           .svc main.p-6 { padding: 16px !important; }
