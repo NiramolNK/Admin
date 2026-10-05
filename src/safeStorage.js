@@ -661,6 +661,21 @@ async function migrateFromBlobIfNeeded() {
 
 // ─── public install ───────────────────────────────────────────────────────
 
+// FIX (2026-10-06, phone "data lost" scare): installSafeStorage() runs at
+// boot, BEFORE the user is signed in on a fresh browser (a freshly installed
+// home-screen app, a new phone, a cleared browser). Under RLS an anonymous
+// read of kv_state / kv_records is not an error — it is an EMPTY 200. The
+// empty result was cached, and after sign-in get("nirm-agents") saw a cached
+// empty domain, returned null, and the roster fell back to the built-in
+// sample agents (Ohm/Joy/Boo/… with ids A06–A15) with autosave armed. Called
+// from App.jsx on SIGNED_IN so every cache is re-read with the real session.
+export async function refreshAfterSignIn() {
+  await fetchAll();
+  await Promise.all([...RECORD_DOMAINS].map(fetchDomain));
+  for (const domain of RECORD_DOMAINS) await seedRecordsIfNeeded(domain);
+  broadcastSync();
+}
+
 export async function installSafeStorage() {
   // FIX (2026-09-10): claim the store FIRST, before any awaits. This flag used
   // to be set on the last line of this function, so from page load until
@@ -745,6 +760,10 @@ export async function installSafeStorage() {
     async get(key) {
       if (RECORD_DOMAINS.has(key)) {
         if (!recLatest.has(key)) await fetchDomain(key);
+        // An EMPTY cached domain is never trusted on its own: it is what an
+        // anonymous (pre-sign-in) read looks like under RLS. Re-read once
+        // with the current session before concluding the domain is empty.
+        if ((recLatest.get(key) || new Map()).size === 0) await fetchDomain(key);
         // Empty domain reads as null — same contract as a missing kv key,
         // so fresh environments still fall back to the app's defaults.
         if ((recLatest.get(key) || new Map()).size === 0) return null;
