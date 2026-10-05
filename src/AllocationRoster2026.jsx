@@ -28,6 +28,7 @@ const IconUsers = (p) => <Ico {...p}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 
 const IconBarChart = (p) => <Ico {...p}><path d="M12 20V10M18 20V4M6 20v-4"/></Ico>;
 const IconFileText = (p) => <Ico {...p}><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 13h4M10 17h4M8 9h2"/></Ico>;
 const IconBook = (p) => <Ico {...p}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></Ico>;
+const IconMenu = (p) => <Ico {...p}><path d="M4 6h16M4 12h16M4 18h16"/></Ico>;
 /* The real NiRM mark (April, 2026-09-06). Was a placeholder: three teal bars
    and a dot drawn inline, because no logo file existed. Now served from
    /public — the SAME file the favicon is built from, so the tab, the sidebar
@@ -1539,6 +1540,16 @@ export default function AllocationPanel({ isAdmin = true }) {
         // hasAnyPerDomain would be true, and the migration path would be
         // skipped — silently losing legacy fields that never made it.
         const hasAnyPerDomain = Object.keys(fetched).length > 0;
+        // FIX (2026-10-06): a real workspace never has roster months but no
+        // agents. If the roster/brands loaded and agents did not, the agents
+        // read was wrong (anonymous/empty under RLS, flaky network) — throw so
+        // the retry loop runs instead of silently showing the built-in sample
+        // agents with autosave armed. That is exactly what the phone did on
+        // 6 Oct 03:14 ("15 agents", empty October).
+        if (hasAnyPerDomain && fetched.agents === undefined &&
+            (fetched.allAsgn !== undefined || fetched.brands !== undefined)) {
+          throw new Error("agents missing while roster data present — refusing to load sample agents");
+        }
         let d = fetched;
         if (!hasAnyPerDomain) {
           const r = await window.storage.get("nirm-all");
@@ -2597,7 +2608,10 @@ export default function AllocationPanel({ isAdmin = true }) {
   // the same two states - a 56px icon rail that stays in the layout, and the
   // full menu, which on a phone overlays the content instead of pushing it
   // (220px of a 390px screen would leave nothing to read).
-  const PHONE_RAIL = 56;
+  // 2026-10-06 (April: "improve ux ui for mobile"): phones no longer keep a
+  // 56px rail - a bottom tab bar (see nirm-bottom-nav) carries the main
+  // destinations, and the full menu opens as the "More" sheet (drawerOpen).
+  const PHONE_RAIL = 0;
   const sbWide = isPhone ? drawerOpen : sidebarOpen;
   const SW = isPhone ? PHONE_RAIL : (sidebarOpen ? 220 : 64);
   const expandSidebar   = () => (isPhone ? setDrawerOpen(true)  : setSidebarOpen(true));
@@ -3129,6 +3143,7 @@ export default function AllocationPanel({ isAdmin = true }) {
             style={{position:"fixed",inset:0,background:"rgba(15,23,42,0.38)",zIndex:1000,backdropFilter:"blur(1px)"}}/>
         </>
       )}
+      {(!isPhone || drawerOpen) && (
       <div className="nirm-sidebar" style={isPhone && drawerOpen ? {
           position:"fixed",top:0,left:0,bottom:0,width:256,maxWidth:"86vw",background:"#fff",
           borderRight:"1px solid #E2E8F0",display:"flex",flexDirection:"column",zIndex:1001,
@@ -3265,6 +3280,46 @@ export default function AllocationPanel({ isAdmin = true }) {
           </div>
         </div>
       </div>
+      )}
+
+      {/* ═══ PHONE BOTTOM TAB BAR ═══
+          Phones only. The first four tabs this role may see, in the order
+          people actually reach for them on a phone, plus "More" which opens
+          the full menu (the same overlay the rail used to open). Hidden by
+          CSS while a Service Desk case is open full-screen. */}
+      {isPhone && !drawerOpen && (() => {
+        const ORDER = ["roster","daily","crm","agents","payment","invoices","kb","allocation","dates","volume","budget","analytics"];
+        const LABEL = { roster:"Roster", daily:"Daily Count", crm:"Service Desk", agents:"Teams", payment:"My Invoice", invoices:"Approvals", kb:"Knowledge", allocation:"Allocation", dates:"Dates", volume:"Performance", budget:"Report", analytics:"Analytics" };
+        const ICON  = { roster:CalendarIcon, daily:IconGrid, crm:IconUsers, agents:IconUsers, payment:IconFileText, invoices:IconFileText, kb:IconBook, allocation:IconGrid, dates:CalendarIcon, volume:IconBarChart, budget:IconFileText, analytics:IconBarChart };
+        const primary = ORDER.filter(t => allowedTabs.includes(t)).slice(0, 4);
+        const moreActive = !primary.includes(allocTab);
+        const Item = ({ k, label, Icon, on, onClick }) => (
+          <button onClick={onClick} aria-label={label} aria-current={on ? "page" : undefined} style={{
+            flex:1, minWidth:0, border:"none", background:"transparent", cursor:"pointer", fontFamily:"inherit",
+            display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:3,
+            padding:"6px 2px 4px", color: on ? "#0D9488" : "#64748B", fontSize:10.5, fontWeight: on ? 700 : 500,
+          }}>
+            <span style={{width:40,height:26,borderRadius:13,display:"flex",alignItems:"center",justifyContent:"center",background:on?"#CCFBF1":"transparent"}}>
+              <Icon size={19} color={on ? "#0D9488" : "#64748B"} />
+            </span>
+            <span style={{maxWidth:"100%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span>
+          </button>
+        );
+        return (
+          <nav className="nirm-bottom-nav" aria-label="Main" style={{
+            position:"fixed", left:0, right:0, bottom:0, zIndex:900,
+            display:"flex", alignItems:"stretch",
+            background:"rgba(255,255,255,0.96)", backdropFilter:"blur(10px)", WebkitBackdropFilter:"blur(10px)",
+            borderTop:"1px solid #E2E8F0", paddingBottom:"env(safe-area-inset-bottom, 0px)",
+            boxShadow:"0 -6px 20px rgba(15,23,42,0.06)",
+          }}>
+            {primary.map(t => (
+              <Item key={t} k={t} label={LABEL[t]} Icon={ICON[t]} on={allocTab===t} onClick={()=>setAllocTab(t)} />
+            ))}
+            <Item k="more" label="More" Icon={IconMenu} on={moreActive} onClick={()=>setDrawerOpen(true)} />
+          </nav>
+        );
+      })()}
 
       {/* ═══ MAIN CONTENT ═══ */}
       <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
@@ -3292,7 +3347,10 @@ export default function AllocationPanel({ isAdmin = true }) {
             <span>Saving…</span>
           </div>
         )}
-        {/* ── Top Bar ── */}
+        {/* ── Top Bar ── (phones: hidden on Service Desk and Knowledge
+            Base, which have their own bars; month picker only on month-based
+            screens, so Teams does not carry a useless month control) */}
+        {!(isPhone && (allocTab==="crm" || allocTab==="kb")) && (
         <div style={{background:"#fff",borderBottom:"1px solid #E2E8F0",padding:isPhone?"10px 12px":`14px ${padX}px`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:isPhone?10:16,flexWrap:"wrap",position:"sticky",top:0,zIndex:40}}>
           <div style={{display:"flex",alignItems:"center",gap:12,minWidth:0}}>
             <div style={{minWidth:0}}>
@@ -3311,19 +3369,23 @@ export default function AllocationPanel({ isAdmin = true }) {
             {/* Who is in NiRM right now. Managers and T2 see names and the tab
                 each person is on; everyone else sees a count only. */}
             <LiveNow canSeeNames={role==="manager" || role==="fulltime"} />
+            {(!isPhone || !["agents","crm","kb","analytics"].includes(allocTab)) && (
             <MonthPicker
               rosterYear={rosterYear} setRosterYear={setRosterYear}
               rosterMonth={rosterMonth} setRosterMonth={setRosterMonth}
               MONTHS={MONTHS}
             />
+            )}
           </div>
         </div>
+        )}
 
         {/* ── Content Area ──
             overflowX:auto lets a wide table (the month grid, payroll) scroll
             inside the page on a phone instead of stretching the whole screen
             sideways and pushing the top bar off. */}
-        <div style={{flex:1,padding:contentPad,overflowY:"auto",overflowX:"auto",minWidth:0}}>
+        <div style={{flex:1,padding:contentPad,overflowY:"auto",overflowX:"auto",minWidth:0,
+                     paddingBottom: isPhone ? `calc(${padY}px + 64px + env(safe-area-inset-bottom, 0px))` : undefined}}>
 
         {/* ── LINE login code ──
             Lives here, not in Service CRM: agents have no Service CRM tab
@@ -7813,6 +7875,9 @@ export default function AllocationPanel({ isAdmin = true }) {
           input:not([type]), input[type="text"], input[type="email"], input[type="password"],
           input[type="search"], textarea { font-size: 16px !important; }
           .svc main.p-6 { padding: 12px !important; }
+          /* A Service Desk case is a full-screen view on a phone (see the
+             CRM's own CSS) - the tab bar would sit on top of the composer. */
+          body:has(.svc-inbox[data-has-case="1"]) .nirm-bottom-nav { display: none !important; }
         }
         @media (min-width: 768px) and (max-width: 1099px) {
           .svc main.p-6 { padding: 16px !important; }
