@@ -1,7 +1,8 @@
 // NiRM — InstallHint.jsx
 // Two small bars shown at the bottom of the screen, only when relevant:
 //   1. "Install NiRM" — phones/tablets viewing in a browser tab (not yet on the
-//      home screen). Android/Chrome gets a real Install button; iPhone/iPad get
+//      home screen), and Windows/Mac desktops in Edge or Chrome (2026-10-09:
+//      installs as a NiRM app in the Start menu/taskbar with its own window). Android/Chrome gets a real Install button; iPhone/iPad get
 //      the Share → Add to Home Screen instruction, since iOS has no prompt API.
 //      Dismiss hides it for 14 days (localStorage, per browser).
 //   2. "NiRM updated" — a new deploy is ready; Reload applies it. Never
@@ -91,14 +92,18 @@ export default function InstallHint() {
     );
   }
 
-  if (hidden || !narrow) return null;
+  if (hidden) return null;
+  // Desktop: only when the browser can actually install (Edge/Chrome); a
+  // small card in the corner rather than a full-width bar.
+  if (!narrow && !installEvt) return null;
+  const style = narrow ? barStyle : { ...barStyle, left: "auto", right: 20, bottom: 20, maxWidth: 400 };
 
   if (installEvt) {
     return (
-      <div role="status" style={barStyle}>
+      <div role="status" style={style}>
         <img src="/icon-192.png" alt="" width={32} height={32} style={{ flex: "none", borderRadius: 8 }} />
         <span style={{ flex: 1 }}>
-          <strong>Install NiRM</strong> — opens full-screen from your home screen.
+          <strong>Install NiRM</strong> — {narrow ? "opens full-screen from your home screen." : "its own window, pinned to your taskbar."}
         </span>
         <button
           style={btnStyle}
