@@ -1876,6 +1876,13 @@ const ago = (ms) => {
   return t("dayAgo", Math.floor(m / 1440));
 };
 const clock = (ms) => new Date(ms).toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
+/* v3.7 (April, 9 Oct): a thread spans days, so every message shows its date
+   as well as its time — "7 Oct 13:11", with the year once it is not this year. */
+const dayTime = (ms) => {
+  const d = new Date(ms);
+  const thisYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(locale(), { day: "numeric", month: "short", ...(thisYear ? {} : { year: "numeric" }) }) + " " + clock(ms);
+};
 const dur = (m) => m == null ? "—" : m < 60 ? t("uMin", m) : m < 1440 ? t("uHr", (m / 60).toFixed(1)) : t("uDay", (m / 1440).toFixed(1));
 const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 const fmt = (n) => new Intl.NumberFormat(locale()).format(n);
@@ -3529,7 +3536,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                       })()}
                     </div>
                     <div className="text-[10.5px] mt-1 px-1" style={{ color: "var(--muted)", textAlign: m.from === "agent" ? "right" : "left" }}>
-                      {m.from === "customer" ? tv(tk.customer) : m.by || t("supportTeam")} · {clock(m.at)}
+                      {m.from === "customer" ? tv(tk.customer) : m.by || t("supportTeam")} · <span title={new Date(m.at).toLocaleString(locale())}>{dayTime(m.at)}</span>
                     </div>
                   </div>
                 </div>
