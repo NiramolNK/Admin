@@ -491,10 +491,13 @@ export async function signUp(email, password, username, role = "viewer") {
   return { user: data.user };
 }
 
-export async function signIn(email, password) {
+// captchaToken: Cloudflare Turnstile token from the sign-in form (see
+// src/turnstile.js). Undefined when Turnstile is not configured.
+export async function signIn(email, password, captchaToken) {
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
+    ...(captchaToken ? { options: { captchaToken } } : {}),
   });
   if (error) return { error };
   return { user: data.user };
