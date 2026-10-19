@@ -28,6 +28,7 @@ import {
 } from "./supabase.js";
 import { installSafeStorage, refreshAfterSignIn } from "./safeStorage.js";
 import InstallHint from "./InstallHint.jsx";
+import { useTurnstile, TURNSTILE_ENABLED } from "./turnstile.js";
 
 export default function App() {
   const [booting, setBooting]   = useState(true);
@@ -227,12 +228,16 @@ export default function App() {
     return () => { cancelled = true; };
   }, [profile]);
 
-  const handleSignIn = async (e) => {
+  // captcha = { token, reset } from the Turnstile widget on the sign-in
+  // screen (inert when VITE_TURNSTILE_SITE_KEY is not set).
+  const handleSignIn = async (e, captcha) => {
     e?.preventDefault();
     setErr("");
+    if (TURNSTILE_ENABLED && !captcha?.token) { setErr("Please wait for the bot check to finish, then try again."); return; }
     setBusy(true);
-    const { error } = await signIn(email, password);
+    const { error } = await signIn(email, password, captcha?.token);
     setBusy(false);
+    captcha?.reset?.();   // tokens are single-use
     if (error) setErr(error.message);
   };
 
@@ -381,9 +386,13 @@ function AuthScreen({
   const isForgot   = mode === "forgot";
   const isRecovery = mode === "recovery";
 
+  // Turnstile (anti-bot) widget — only on the plain sign-in form.
+  const captchaRef = useRef(null);
+  const captcha = useTurnstile(captchaRef, !isForgot && !isRecovery);
+
   const submit = isRecovery ? onSetNewPassword
                : isForgot   ? onForgotPassword
-               : onSignIn;
+               : (e) => onSignIn(e, captcha);
 
   const title = isRecovery ? "Set a new password"
               : isForgot   ? "Reset your password"
@@ -420,6 +429,13 @@ function AuthScreen({
           />
         )}
 
+        {TURNSTILE_ENABLED && !isForgot && !isRecovery && (
+          <div style={{ marginBottom: 16 }}>
+            <div ref={captchaRef} />
+            {captcha.error && <div style={{ fontSize: 12, color: "#EF4444", fontWeight: 600, marginTop: 6 }}>{captcha.error}</div>}
+          </div>
+        )}
+
         {(err || info) && (
           <div style={{
             fontSize: 12, color: info ? "#059669" : "#EF4444",
@@ -431,7 +447,7 @@ function AuthScreen({
           </div>
         )}
 
-        <button type="submit" disabled={busy} style={primaryBtnStyle}>
+        <button type="submit" disabled={busy || (TURNSTILE_ENABLED && !isForgot && !isRecovery && !captcha.token)} style={primaryBtnStyle}>
           {busy ? "…"
             : isRecovery ? "Update password"
             : isForgot   ? "Send reset link"
