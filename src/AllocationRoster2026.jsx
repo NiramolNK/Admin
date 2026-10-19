@@ -193,7 +193,16 @@ const COMPANY_INFO = {
 };
 const THAI_MONTHS = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
 const THAI_MONTH_ABBR = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-const WITHHOLDING_RATE = 0.03;
+// Withholding tax (ภาษีหัก ณ ที่จ่าย). The PERCENT is a manager setting kept in
+// globalFlags.whtPct (Finance tab → batch panel → "Withholding tax"), so
+// Finance can change it without a code deploy. 3% is the default; the percent
+// an invoice was computed with is frozen into its snapshot as `whtPct`.
+const DEFAULT_WHT_PCT = 3;
+const normalizeWhtPct = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0 || n > 50) return DEFAULT_WHT_PCT;
+  return Math.round(n * 100) / 100;
+};
 const ALLOC_BRANDS  = ["Alpha","Beta","Gamma"];
 
 // ── Platforms ────────────────────────────────────────────────────────────────
@@ -2650,6 +2659,10 @@ export default function AllocationPanel({ isAdmin = true }) {
   // This is the ONLY place the invoice maths lives: the agent's own invoice,
   // the approver queue and the post-submission drift check all call it, so
   // they cannot drift apart from each other.
+  // Current withholding-tax percent (manager setting, see DEFAULT_WHT_PCT).
+  const whtPct = normalizeWhtPct(globalFlags?.whtPct);
+  const WITHHOLDING_RATE = whtPct / 100;
+  const saveWhtPct = (pct) => setGlobalFlags(p => ({ ...(p || {}), whtPct: normalizeWhtPct(pct) }));
   const computeInvoiceFigures = (agentId, period) => {
     const ag = agents.find(a => a.id === agentId);
     if (!ag) return null;
@@ -2685,7 +2698,7 @@ export default function AllocationPanel({ isAdmin = true }) {
     return {
       agentId: ag.id, agentName: ag.name, period, periodStart, periodEnd,
       costDay: ag.costDay, workDays, otDays, normalDays, extraHours, extraPay,
-      subtotal, withholding, netAmount: subtotal - withholding,
+      subtotal, withholding, netAmount: subtotal - withholding, whtPct,
       invoiceNumber: `${periodY}${String(periodM+1).padStart(2,"0")}${String(ag.id).replace(/\D/g,"").slice(-2)}`,
     };
   };
@@ -4540,6 +4553,8 @@ export default function AllocationPanel({ isAdmin = true }) {
               computeFigures={computeInvoiceFigures}
               recipients={financeRecipients}
               onSaveRecipients={saveFinanceRecipients}
+              whtPct={whtPct}
+              onSaveWhtPct={saveWhtPct}
               lateSubmit={lateSubmit}
               onSetLateSubmit={setLateSubmit}
               role={role}
@@ -4711,7 +4726,7 @@ export default function AllocationPanel({ isAdmin = true }) {
               </table>
               <div style="margin-top:18px;display:grid;grid-template-columns:170px 100px 70px;gap:6px;font-size:13px">
                 <div>จำนวนเงินที่ได้รับ</div><div style="text-align:right;font-family:monospace">${fmtBaht(netAmount)}</div><div>บาท</div>
-                <div>ภาษีหัก ณ ที่จ่าย 3%</div><div style="text-align:right;font-family:monospace">${fmtBaht(withholding)}</div><div>บาท</div>
+                <div>ภาษีหัก ณ ที่จ่าย ${fig.whtPct}%</div><div style="text-align:right;font-family:monospace">${fmtBaht(withholding)}</div><div>บาท</div>
               </div>
               <div class="pay-section">
                 <h3>ช่องทางการชำระเงิน</h3>
@@ -4870,7 +4885,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </table>
                 <div style={{display:"grid",gridTemplateColumns:"170px 100px 70px",gap:6,fontSize:12,marginBottom:18}}>
                   <div>จำนวนเงินที่ได้รับ</div><div style={{textAlign:"right",fontFamily:"monospace"}}>{netAmount.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
-                  <div>ภาษีหัก ณ ที่จ่าย 3%</div><div style={{textAlign:"right",fontFamily:"monospace"}}>{withholding.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
+                  <div>ภาษีหัก ณ ที่จ่าย {fig.whtPct}%</div><div style={{textAlign:"right",fontFamily:"monospace"}}>{withholding.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}</div><div>บาท</div>
                 </div>
                 <div>
                   <div style={{fontWeight:700,textDecoration:"underline",fontSize:12,marginBottom:6}}>ช่องทางการชำระเงิน</div>
@@ -6580,7 +6595,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                 // from the same tab. Now it carries gross, WHT and net, computed the
                 // same way computeInvoiceFigures does (WHT to the satang, then
                 // net = gross − WHT), and the TOTAL is the sum of the printed rows.
-                const rows = [["PO Number","PCode","Agent","Full Name","ID Card","Tax ID","Bank","Account Number","Account Holder","Period","Work Days","Cost/Day (฿)","Extra Hrs","Extra Pay (฿)","Gross Pay (฿)","WHT 3% (฿)","Net Pay (฿)","ID Card Photo","Bookbank Photo"]];
+                const rows = [["PO Number","PCode","Agent","Full Name","ID Card","Tax ID","Bank","Account Number","Account Holder","Period","Work Days","Cost/Day (฿)","Extra Hrs","Extra Pay (฿)","Gross Pay (฿)",`WHT ${whtPct}% (฿)`,"Net Pay (฿)","ID Card Photo","Bookbank Photo"]];
                 let sumGross = 0, sumWht = 0, sumNet = 0;
                 payRows.forEach(({ag,workDays,totalPay,extraH,extraPay}) => {
                   const gross = Math.round((totalPay||0)*100)/100;
@@ -6648,7 +6663,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                   <h1>Payment Summary — ${MONTHS[payMonth-1]} ${payYear}</h1>
                   <p>Period: ${periodLabel} &nbsp;·&nbsp; ${periodDates.length} days</p>
                   <table><thead><tr><th>Agent</th><th>PO Number</th><th>Work Days</th>
-                  <th style="text-align:right">Cost/Day</th><th style="text-align:right">Extra</th><th style="text-align:right">Gross</th><th style="text-align:right">WHT 3%</th><th style="text-align:right">Net Pay</th></tr></thead>
+                  <th style="text-align:right">Cost/Day</th><th style="text-align:right">Extra</th><th style="text-align:right">Gross</th><th style="text-align:right">WHT ${whtPct}%</th><th style="text-align:right">Net Pay</th></tr></thead>
                   <tbody>${rowsHtml}
                   <tr class="tot"><td colspan="5" style="padding:8px 10px">GRAND TOTAL</td>
                   <td style="text-align:right;font-family:monospace">฿${pGross.toLocaleString(undefined,{minimumFractionDigits:2})}</td>
