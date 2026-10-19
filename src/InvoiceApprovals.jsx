@@ -85,13 +85,26 @@ const periodLabel = (period) => {
   return y && m ? `${MONTH_NAME[m - 1]} ${y}` : String(period || "");
 };
 
+// Withholding-tax percent frozen in an invoice snapshot. Invoices submitted
+// before the rate became a setting carry no `whtPct` and were all 3%.
+export const whtPctOf = (inv) => {
+  const n = Number(inv?.whtPct);
+  return Number.isFinite(n) && n >= 0 ? n : 3;
+};
+// One label for a batch: "WHT 3%" when every invoice shares a rate, plain
+// "WHT" when a rate change fell between two submissions in the same batch.
+export const whtLabelFor = (invs) => {
+  const set = new Set((invs || []).map(whtPctOf));
+  return set.size === 1 ? `WHT ${[...set][0]}%` : "WHT";
+};
+
 // Fields that make up the money. Compared snapshot-vs-live to detect drift.
 const FIGURE_FIELDS = [
   ["workDays",    "Working days"],
   ["otDays",      "OT days"],
   ["extraHours",  "Extra hours"],
   ["subtotal",    "Subtotal"],
-  ["withholding", "Withholding 3%"],
+  ["withholding", "Withholding tax"],
   ["netAmount",   "Net payable"],
 ];
 
@@ -303,7 +316,7 @@ function agentPackPages(inv, agent, signature) {
         ${inv.otDays ? `<tr><td>วัน OT × ฿${money(inv.costDay)} × 1.5</td><td class="r">${inv.otDays}</td><td class="r">${money(inv.otDays * inv.costDay * 1.5)}</td></tr>` : ""}
         ${inv.extraHours ? `<tr><td>ชั่วโมงพิเศษ / Extra hours</td><td class="r">${inv.extraHours} h</td><td class="r">${money(inv.extraPay)}</td></tr>` : ""}
         <tr class="sum"><td colspan="2">รวม / Subtotal</td><td class="r">${money(inv.subtotal)}</td></tr>
-        <tr><td colspan="2">หัก ณ ที่จ่าย 3% / Withholding</td><td class="r">−${money(inv.withholding)}</td></tr>
+        <tr><td colspan="2">หัก ณ ที่จ่าย ${whtPctOf(inv)}% / Withholding</td><td class="r">−${money(inv.withholding)}</td></tr>
         <tr class="net"><td colspan="2">ยอดสุทธิ / Net payable</td><td class="r">฿${money(inv.netAmount)}</td></tr>
       </table>
       <div class="sig">
@@ -357,7 +370,7 @@ export function buildBatchPack({ approved, agents, period, batchTotal, by }) {
   <h1>CS parttime payment — ${periodLabel(period)}</h1>
   <div class="muted">Pay period ${approved[0]?.inv?.periodStart ?? ""} → ${approved[0]?.inv?.periodEnd ?? ""} · ${approved.length} agents · released by ${by || "CS Manager"}</div>
   <table class="summary">
-    <thead><tr><th>Invoice</th><th>Full name (Agent)</th><th class="r">Days</th><th class="r">Extra h</th><th class="r">Subtotal</th><th class="r">WHT 3%</th><th class="r">Net (THB)</th></tr></thead>
+    <thead><tr><th>Invoice</th><th>Full name (Agent)</th><th class="r">Days</th><th class="r">Extra h</th><th class="r">Subtotal</th><th class="r">${whtLabelFor(approved.map(r => r.inv))}</th><th class="r">Net (THB)</th></tr></thead>
     <tbody>${summaryRows}</tbody>
     <tfoot><tr><td colspan="6">TOTAL — net payable</td><td class="r">฿${THB(batchTotal)}</td></tr></tfoot>
   </table>
@@ -372,6 +385,8 @@ export function InvoiceBatchPanel({
   computeFigures,          // (agentId, period) => figures | null
   recipients,              // { to: [], cc: [] } — persisted in globalFlags
   onSaveRecipients,        // ({to, cc}) => void
+  whtPct = 3,              // withholding-tax percent (manager setting, globalFlags.whtPct)
+  onSaveWhtPct,            // (pct) => void
   lateSubmit = {},         // { "2026-08": ["10"] } — agents allowed to sign late
   onSetLateSubmit,         // (period, agentId, on) => void
   role, loginUser,
@@ -382,6 +397,16 @@ export function InvoiceBatchPanel({
   const [editingRcpt, setEditingRcpt] = useState(false);
   const [toDraft, setToDraft] = useState(rcpt.to.join(", "));
   const [ccDraft, setCcDraft] = useState(rcpt.cc.join(", "));
+  const [editingWht, setEditingWht] = useState(false);
+  const [whtDraft, setWhtDraft] = useState(String(whtPct));
+  const saveWht = () => {
+    const n = Number(String(whtDraft).replace("%", "").trim());
+    if (!Number.isFinite(n) || n < 0 || n > 50) { setNote({ tone: "warn", text: "Withholding tax must be a percent between 0 and 50 (e.g. 3)." }); return; }
+    const pct = Math.round(n * 100) / 100;
+    onSaveWhtPct?.(pct);
+    setWhtDraft(String(pct)); setEditingWht(false);
+    setNote({ tone: "ok", text: `Withholding tax set to ${pct}%. It applies to invoices computed from now on; an invoice already submitted keeps the rate it was signed with (the pre-share check will flag any that moved).` });
+  };
 
   const saveRcpt = () => {
     const to = parseEmailList(toDraft, 3);
@@ -735,6 +760,35 @@ export function InvoiceBatchPanel({
         )}
       </div>
 
+      {/* Withholding tax — a Finance setting, not code. Managers only. */}
+      <div style={{ padding: "9px 18px", borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#fff" }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3 }}>Withholding tax</span>
+        {editingWht ? (
+          <>
+            <input value={whtDraft} onChange={e => setWhtDraft(e.target.value)} inputMode="decimal"
+              onKeyDown={e => { if (e.key === "Enter") saveWht(); if (e.key === "Escape") { setWhtDraft(String(whtPct)); setEditingWht(false); } }}
+              style={{ width: 70, padding: "6px 10px", borderRadius: 7, border: "1px solid #E2E8F0", fontSize: 12, fontFamily: "inherit", textAlign: "right" }}/>
+            <span style={{ fontSize: 12, color: "#64748B" }}>%</span>
+            <button onClick={saveWht}
+              style={{ padding: "6px 14px", borderRadius: 7, border: "none", background: "#0D9488", color: "#fff", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>Save</button>
+            <button onClick={() => { setWhtDraft(String(whtPct)); setEditingWht(false); }}
+              style={{ padding: "6px 12px", borderRadius: 7, border: "1px solid #E2E8F0", background: "#fff", color: "#64748B", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          </>
+        ) : (
+          <>
+            <div style={{ flex: 1, minWidth: 220, fontSize: 11, color: "#475569", lineHeight: 1.6 }}>
+              <b style={{ color: "#1A1D2E" }}>ภาษีหัก ณ ที่จ่าย {whtPct}%</b> of the subtotal, rounded to the satang, then net = subtotal − WHT.
+            </div>
+            {isManager && (
+              <button onClick={() => { setWhtDraft(String(whtPct)); setEditingWht(true); }}
+                style={{ padding: "5px 12px", borderRadius: 7, border: "1px solid #E2E8F0", background: "#fff", color: "#64748B", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                Change
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
       {note && (
         <div style={{
           padding: "10px 18px", fontSize: 11, borderBottom: "1px solid #F1F5F9", wordBreak: "break-all",
@@ -747,7 +801,7 @@ export function InvoiceBatchPanel({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ background: "#F8FAFC" }}>
-              {["Agent", "PCODE", "Team", "Docs", "Days", "Extra h", "Subtotal", "WHT 3%", "Net payable", "Status"].map((h, i) => (
+              {["Agent", "PCODE", "Team", "Docs", "Days", "Extra h", "Subtotal", `WHT ${whtPct}%`, "Net payable", "Status"].map((h, i) => (
                 <th key={h} style={{ padding: "8px 12px", textAlign: i >= 4 && i <= 8 ? "right" : "left", fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: 0.3, borderBottom: "1px solid #E2E8F0", whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
@@ -840,7 +894,7 @@ export function batchEmailText({ approved, period, batchTotal, batchGross, batch
     `Pay period ${approved[0]?.inv?.periodStart ?? ""} to ${approved[0]?.inv?.periodEnd ?? ""}`,
     `Approved and released by ${by || "CS Manager"}.`,
     "",
-    `${pad("Invoice", 10)}${pad("Name", 32)}${padL("Days", 5)}${padL("Extra", 6)}${padL("Subtotal", 12)}${padL("WHT 3%", 10)}${padL("Net", 12)}`,
+    `${pad("Invoice", 10)}${pad("Name", 32)}${padL("Days", 5)}${padL("Extra", 6)}${padL("Subtotal", 12)}${padL(whtLabelFor(approved.map(r => r.inv)), 10)}${padL("Net", 12)}`,
     "-".repeat(87),
   ];
   for (const { agent, inv } of approved) {
@@ -982,13 +1036,13 @@ export default function InvoiceApprovals({
   const exportCsv = () => {
     const rows = [[
       "Invoice No", "Agent", "PCODE", "Period", "Working days", "OT days", "Extra hours",
-      "Daily rate", "Subtotal", "Withholding 3%", "Net payable", "Status", "Batch",
+      "Daily rate", "Subtotal", "WHT %", "Withholding", "Net payable", "Status", "Batch",
       "Submitted", "Manager approved", "Emailed to Finance",
     ]];
     for (const i of shown) {
       rows.push([
         i.invoiceNumber, i.agentName, i.pcode || "", i.period, i.workDays, i.otDays, i.extraHours,
-        i.costDay, i.subtotal, i.withholding, i.netAmount, INV_STATUS[i.status]?.label || i.status, i.batchId || "",
+        i.costDay, i.subtotal, whtPctOf(i), i.withholding, i.netAmount, INV_STATUS[i.status]?.label || i.status, i.batchId || "",
         i.submittedAt || "", i.managerAt || "", i.sharedAt || "",
       ]);
     }
@@ -1110,7 +1164,7 @@ export default function InvoiceApprovals({
                       <Detail label="OT days (1.5×)" value={inv.otDays} />
                       <Detail label="Extra hours" value={`${inv.extraHours || 0}h · ฿${THB(inv.extraPay)}`} />
                       <Detail label="Subtotal" value={`฿${THB(inv.subtotal)}`} />
-                      <Detail label="Withholding 3%" value={`−฿${THB(inv.withholding)}`} />
+                      <Detail label={`Withholding ${whtPctOf(inv)}%`} value={`−฿${THB(inv.withholding)}`} />
                       <Detail label="Net payable" value={`฿${THB(inv.netAmount)}`} strong />
                       {inv.batchId && <Detail label="Batch" value={inv.batchId} />}
                     </div>
