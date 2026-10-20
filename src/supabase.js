@@ -19,10 +19,11 @@ const __earlyUrlHash =
   typeof window !== "undefined" ? (window.location.hash || "") : "";
 const __earlyUrlSearch =
   typeof window !== "undefined" ? (window.location.search || "") : "";
+// type=invite (manager-sent invite, 20 Oct 2026) lands on the same
+// set-password screen as type=recovery — the new user has no password yet.
 const __earlyIsRecoveryLink =
-  __earlyUrlHash.includes("type=recovery") ||
-  __earlyUrlHash.includes("type%3Drecovery") ||
-  __earlyUrlSearch.includes("type=recovery");
+  /type(=|%3D)(recovery|invite)/.test(__earlyUrlHash) ||
+  /type=(recovery|invite)/.test(__earlyUrlSearch);
 export function isEarlyRecoveryLink() { return __earlyIsRecoveryLink; }
 export function getEarlyUrlHash() { return __earlyUrlHash; }
 
