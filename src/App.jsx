@@ -78,9 +78,8 @@ export default function App() {
     const isRecoveryLink =
       moduleSawRecovery ||
       earlyHashSawRecovery ||
-      hash.includes("type=recovery") ||
-      hash.includes("type%3Drecovery") ||
-      search.includes("type=recovery");
+      /type(=|%3D)(recovery|invite)/.test(hash) ||   // invite links → same set-password screen
+      /type=(recovery|invite)/.test(search);
     if (isRecoveryLink) {
       inRecoveryRef.current = true;
       setAuthMode("recovery");
@@ -279,7 +278,7 @@ export default function App() {
         const access_token = params.get("access_token");
         const refresh_token = params.get("refresh_token");
         const tokenType = params.get("type");
-        if (access_token && refresh_token && tokenType === "recovery") {
+        if (access_token && refresh_token && (tokenType === "recovery" || tokenType === "invite")) {
           const { error: setErr2 } = await supabase.auth.setSession({ access_token, refresh_token });
           if (setErr2) {
             setErr("Reset link has expired or already been used. Request a new password reset email.");
