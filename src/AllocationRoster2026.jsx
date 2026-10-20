@@ -7640,14 +7640,14 @@ export default function AllocationPanel({ isAdmin = true }) {
             </div>
             <div style={{display:"flex",gap:8}}>
               <button onClick={()=>setEditingUser({username:"",password:"",role:"viewer",_isNew:true,_invite:true})} style={{padding:"8px 16px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Invite User</button>
-              <button onClick={()=>setEditingUser({username:"",password:"",role:"viewer",_isNew:true,_invite:false})} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #0D9488",background:"transparent",color:"#0D9488",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add with password</button>
+              <button onClick={()=>setEditingUser({username:"",password:"",role:"viewer",_isNew:true,_invite:false})} style={{padding:"8px 12px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#64748B",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}} title="Only if you need to set the password yourself (e.g. a test account)">Set password manually</button>
             </div>
             {editingUser && (
               <div style={{marginTop:16,padding:16,borderRadius:10,border:"1px solid #E2E8F0",background:"#FAFBFC"}}>
                 <div style={{fontSize:13,fontWeight:700,color:"#1A1D2E",marginBottom:12}}>{editingUser._isNew?(editingUser._invite?"Invite New User":"Add New User (with password)"):"Edit User"}</div>
                 {editingUser._isNew && editingUser._invite && (
                   <div style={{fontSize:11,color:"#64748B",marginBottom:12,padding:"8px 10px",background:"#EFF6FF",borderRadius:6,lineHeight:1.5}}>
-                    They will receive an email with a link to set their own password. Make sure their email domain is verified in Resend, or the email won't be delivered.
+                    One step: the account is created in Supabase with the role you pick and an invite email goes out right away. They click the link, choose their own password and are signed in. No password to type here, nothing to do in the Supabase dashboard.
                   </div>
                 )}
                 <div style={{display:(editingUser._isNew ? !editingUser._invite : (userAccounts[editingUser._idx]?.username||"").toLowerCase()===(loginUser||"").toLowerCase()) ? "grid" : "block",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
@@ -7655,7 +7655,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     <input value={editingUser.username} type="email" placeholder="someone@crea.asia" onChange={e=>setEditingUser({...editingUser,username:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
                   {(editingUser._isNew ? !editingUser._invite : (userAccounts[editingUser._idx]?.username||"").toLowerCase()===(loginUser||"").toLowerCase()) && (
                     <div><label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Password</label>
-                      <input value={editingUser.password} type="password" autoComplete="new-password" placeholder={editingUser._isNew?"At least 6 characters":"Leave blank to keep current"} onChange={e=>setEditingUser({...editingUser,password:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
+                      <input value={editingUser.password} type="password" autoComplete="new-password" placeholder={editingUser._isNew?"6+ chars with a-z, A-Z and 0-9":"Leave blank to keep current"} onChange={e=>setEditingUser({...editingUser,password:e.target.value})} style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#fff",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/></div>
                   )}
                 </div>
                 <div style={{marginBottom:12}}>
@@ -7675,6 +7675,7 @@ export default function AllocationPanel({ isAdmin = true }) {
                     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){alert("Please enter a valid email address.");return;}
                     if(editingUser._isNew && !isInvite && !pw){alert("Password required (or use Invite to send an email).");return;}
                     if(pw && pw.length < 6){alert("Password must be at least 6 characters.");return;}
+                    if(pw && pw !== "__supabase__" && !(/[a-z]/.test(pw) && /[A-Z]/.test(pw) && /[0-9]/.test(pw))){alert("Password must contain a lowercase letter, an uppercase letter and a number (Supabase policy).\n\nTip: use Invite User instead and let them choose their own password.");return;}
                     if(editingUser._isNew){
                       if(userAccounts.some(u=>u.username.toLowerCase()===email.toLowerCase())){alert("This email is already in the user list.");return;}
                       // Server-side creation via the admin-users Edge Function.
@@ -7693,7 +7694,9 @@ export default function AllocationPanel({ isAdmin = true }) {
                         resp = await fetch("https://bequrilwgooesolepubv.supabase.co/functions/v1/admin-users", {
                           method: "POST",
                           headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminSession?.access_token ?? ""}` },
-                          body: JSON.stringify({ action: "create", email, password: isInvite ? null : pw, role: editingUser.role }),
+                          body: JSON.stringify(isInvite
+                            ? { action: "invite", email, role: editingUser.role, redirectTo: window.location.origin }
+                            : { action: "create", email, password: pw, role: editingUser.role }),
                         });
                         j = await resp.json().catch(() => ({}));
                       } catch (err) {
@@ -7704,20 +7707,21 @@ export default function AllocationPanel({ isAdmin = true }) {
                         alert("Could not create the user: " + ((j && j.error) || ("HTTP " + resp.status)) + "\n\nThe user was NOT added.");
                         return;
                       }
-                      // Invite mode: the account now exists (with a random
-                      // password they never see) — the set-password email is the
-                      // recovery flow the app already handles.
+                      // Invite mode (v3): admin-users did BOTH halves server-side —
+                      // auth.admin.inviteUserByEmail() created the account and sent
+                      // Supabase's invite email; the profile role is set. The link
+                      // lands on the app with type=invite, which opens the same
+                      // set-password screen as a recovery link.
                       let inviteNote = "";
                       if (isInvite) {
-                        const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
-                        inviteNote = resetErr
-                          ? "\n\n⚠ The set-password email could not be sent (" + resetErr.message + ") — they can use Forgot Password on the sign-in page instead."
-                          : "\n\nA set-password email is on its way to them.";
+                        inviteNote = j.emailSent === false
+                          ? "\n\n⚠ The invite email could not be sent (" + (j.emailError || "unknown error") + ") — they can use Forgot Password on the sign-in page instead."
+                          : "\n\nAn invite email is on its way to them — they click the link and choose their own password.";
                       }
                       if (j.existed) {
                         alert("This email already had a Supabase account — its role is now " + editingUser.role + " and their password is unchanged." + inviteNote);
                       } else if (isInvite) {
-                        alert("User created in Supabase as " + editingUser.role + "." + inviteNote);
+                        alert("Invited " + email + " as " + editingUser.role + "." + inviteNote);
                       } else {
                         alert("User created in Supabase as " + editingUser.role + ". They can sign in with this email and the password you set.");
                       }
