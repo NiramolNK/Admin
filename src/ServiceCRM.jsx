@@ -26,6 +26,23 @@ const EMAIL_FROM = "cs.solution@crea.asia";        // SendGrid-verified single s
 const EMAIL_FROM_NAME = "CREA Customer Care";
 const biText = (s) => ({ en: s ?? "", th: s ?? "" });
 const ATT_BUCKET = "ticket-attachments";
+
+/* ── paste-to-attach (20 Oct 2026): screenshots pasted with Ctrl+V into a
+   composer become pending attachments, same list the paperclip feeds.
+   Returns the image files found on the clipboard (named so two pastes in
+   the same minute don't collide). Non-image paste is left to the browser. */
+function pastedImages(e) {
+  const items = Array.from((e.clipboardData && e.clipboardData.items) || []);
+  const out = [];
+  for (const it of items) {
+    if (it.kind !== "file" || !/^image\//.test(it.type)) continue;
+    const f = it.getAsFile(); if (!f) continue;
+    const ext = (it.type.split("/")[1] || "png").replace("jpeg", "jpg");
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:T]/g, "").slice(2);
+    out.push(new File([f], `pasted-${stamp}-${out.length + 1}.${ext}`, { type: it.type }));
+  }
+  return out;
+}
 // our own support mailboxes — used to pick the right From address and signature
 // out of a To/Cc line that may also list a dozen colleagues
 const SUPPORT_MAILBOXES = ["cs.solution@crea.asia", "enfa.cs@crea.asia", "nestlepro.cs@crea.asia"];
@@ -2905,7 +2922,14 @@ function NewMessage({ me, onClose, onSent, toast }) {
 
           <div>
             <label className="lbl">{t("nmBody")}</label>
-            <textarea className="fld" rows={7} value={f.body} onChange={(e) => set("body", e.target.value)} />
+            <textarea className="fld" rows={7} value={f.body} onChange={(e) => set("body", e.target.value)}
+                      onPaste={(e) => {
+                        const imgs = pastedImages(e); if (!imgs.length) return;
+                        e.preventDefault();
+                        const ok = imgs.filter((x) => x.size <= 10 * 1024 * 1024);
+                        if (ok.length < imgs.length) toast("✉ " + t("attTooBig"), "error");
+                        setFiles((p) => [...p, ...ok].slice(0, 10));
+                      }} />
           </div>
 
           {sig && (
@@ -3759,6 +3783,15 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
               )}
               <textarea className="fld" rows={3} value={text} onChange={(e) => setText(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}
+                        onPaste={(e) => {
+                          const imgs = pastedImages(e); if (!imgs.length) return;
+                          e.preventDefault();
+                          if (!(tk?.dbId && tk.channel === "email" && !isNote)) { toast(t("attachOff"), "error"); return; }
+                          const ok = imgs.filter((x) => x.size <= 10 * 1024 * 1024);
+                          if (ok.length < imgs.length) toast("✉ " + t("attTooBig"), "error");
+                          setFiles((p) => [...p, ...ok].slice(0, 10));
+                          toast("🖼 " + ok.length + (ok.length === 1 ? " image" : " images") + " attached");
+                        }}
                         placeholder={isNote ? t("notePh") : t("replyPh", tv(tk.customer), tv(CH[tk.channel].n))}
                         style={{ background: isNote ? "#FFFBF2" : "#fff" }} />
               <div className="flex items-center gap-2 mt-2">
