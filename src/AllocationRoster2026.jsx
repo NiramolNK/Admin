@@ -5291,6 +5291,210 @@ export default function AllocationPanel({ isAdmin = true }) {
           </div>
         )}
 
+        {/* FIX (29 Oct 2026, "Prim cannot add brand"): the Brand Add/Edit modal used to live
+            inside the Allocation tab. The Performance > Chat Volume tab has its own
+            "+ Add Brand" button that sets brandModal=true - but on that tab the modal
+            was never rendered, so the click did nothing at all (no form, no error).
+            Moved to top level, same as the agent payroll form below, so it opens on
+            any tab. The Allocation tab's Add/Edit buttons are unchanged. */}
+        {/* ── Brand Add/Edit Modal ── */}
+        {brandModal && editBrand && (
+          <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.65)",backdropFilter:"blur(4px)"}} onClick={()=>setBrandModal(false)}>
+            <div style={{background:"#FFFFFF",borderRadius:16,border:"1px solid #E2E8F0",padding:24,width:480,maxWidth:"92vw",maxHeight:"85vh",overflow:"auto",boxShadow:"0 16px 48px #00000099"}} onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+                <div style={{fontSize:15,fontWeight:700}}>{editBrand.name||"New Brand"}</div>
+                <button onClick={()=>setBrandModal(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#6B7280",fontSize:18}}>×</button>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:14}}>
+                {/* Name */}
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Brand Name</label>
+                  <input value={editBrand.name} onChange={e=>setEditBrand({...editBrand,name:e.target.value})}
+                    placeholder="e.g. Casio-CMG"
+                    style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                </div>
+                {/* WH + Group */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Warehouse (WH)</label>
+                    <input value={editBrand.wh} onChange={e=>setEditBrand({...editBrand,wh:e.target.value})}
+                      placeholder="e.g. CMG, Inh, PVH"
+                      style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                  </div>
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Group</label>
+                    <input value={editBrand.group} onChange={e=>setEditBrand({...editBrand,group:e.target.value})}
+                      placeholder="e.g. 1, 2 (optional)"
+                      style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+                  </div>
+                </div>
+                {/* Platforms multi-select */}
+                <div>
+                  <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:8}}>
+                    Platforms <span style={{fontWeight:400,color:"#94A3B8",fontSize:9,textTransform:"none"}}>(select all that apply)</span>
+                  </label>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                    {PLATFORMS.map(p => {
+                      const on = (editBrand.platforms||[]).includes(p);
+                      const pc = PLATFORM_C[p];
+                      return (
+                        <button key={p} onClick={()=>{
+                          const cur = editBrand.platforms||[];
+                          setEditBrand({...editBrand, platforms: on ? cur.filter(x=>x!==p) : [...cur,p]});
+                        }} style={{
+                          display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,
+                          border:on?`2px solid ${pc.color}`:"1px solid #E2E8F0",
+                          background:on?pc.bg:"transparent",
+                          color:on?pc.color:"#94A3B8",
+                          transition:"all 0.15s"
+                        }}>
+                          <span style={{fontSize:14}}>{pc.icon}</span>
+                          {p}
+                          {on && <span style={{fontSize:10,marginLeft:2}}>✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {/* Custom channels — manager can add anything not in the fixed list */}
+                  {(editBrand.platforms||[]).filter(p=>!PLATFORMS.includes(p)).length > 0 && (
+                    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+                      {(editBrand.platforms||[]).filter(p=>!PLATFORMS.includes(p)).map(p => (
+                        <button key={p} onClick={()=>setEditBrand({...editBrand, platforms:(editBrand.platforms||[]).filter(x=>x!==p)})}
+                          title="Remove this channel"
+                          style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,border:"2px solid #475569",background:"#F1F5F9",color:"#475569"}}>
+                          {p} <span style={{fontSize:11}}>✕</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
+                    <input value={editBrand._newChannel||""} placeholder="Other channel… (e.g. Instagram, WhatsApp)"
+                      onChange={e=>setEditBrand({...editBrand,_newChannel:e.target.value})}
+                      onKeyDown={e=>{ if(e.key!=="Enter") return; e.preventDefault();
+                        const nm=(editBrand._newChannel||"").trim();
+                        if(!nm) return;
+                        const cur=editBrand.platforms||[];
+                        if(cur.some(x=>x.toLowerCase()===nm.toLowerCase()) || PLATFORMS.some(x=>x.toLowerCase()===nm.toLowerCase() && cur.includes(x))){ setEditBrand({...editBrand,_newChannel:""}); return; }
+                        const canonical = PLATFORMS.find(x=>x.toLowerCase()===nm.toLowerCase()) || nm;
+                        setEditBrand({...editBrand, platforms:[...cur, canonical], _newChannel:""});
+                      }}
+                      style={{flex:"0 1 260px",padding:"8px 12px",borderRadius:9,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                    <button onClick={()=>{
+                        const nm=(editBrand._newChannel||"").trim();
+                        if(!nm) return;
+                        const cur=editBrand.platforms||[];
+                        if(cur.some(x=>x.toLowerCase()===nm.toLowerCase())){ setEditBrand({...editBrand,_newChannel:""}); return; }
+                        const canonical = PLATFORMS.find(x=>x.toLowerCase()===nm.toLowerCase()) || nm;
+                        setEditBrand({...editBrand, platforms:[...cur, canonical], _newChannel:""});
+                      }}
+                      style={{padding:"8px 14px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Add Channel</button>
+                  </div>
+                  {(editBrand.platforms||[]).length === 0 && (
+                    <div style={{marginTop:6,fontSize:10,color:"#B45309"}}>— No platforms selected — brand won't appear in allocation</div>
+                  )}
+                </div>
+                {/* Chat volumes per platform */}
+                {(editBrand.platforms||[]).length > 0 && (
+                  <div>
+                    <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:8}}>
+                      Monthly Chat Volume <span style={{fontWeight:400,color:"#94A3B8",fontSize:9,textTransform:"none"}}>(chats / month per platform)</span>
+                    </label>
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
+                      {(editBrand.platforms||[]).map(p => {
+                        const pc = PLATFORM_C[p];
+                        const val = editBrand.chats?.[p] || 0;
+                        return (
+                          <div key={p} style={{background:"#FAFBFC",borderRadius:8,padding:"10px 12px",border:`1px solid ${pc.color}33`}}>
+                            <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6}}>
+                              <span style={{fontSize:13}}>{pc.icon}</span>
+                              <span style={{fontSize:11,fontWeight:700,color:pc.color}}>{p}</span>
+                            </div>
+                            <input type="number" min="0" value={val}
+                              onChange={e=>setEditBrand({...editBrand,chats:{...(editBrand.chats||{}), [p]:Number(e.target.value)}})}
+                              style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${pc.color}44`,background:"#FFFFFF",color:pc.color,fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div style={{marginTop:8,display:"flex",justifyContent:"flex-end"}}>
+                      <span style={{fontSize:11,color:"#94A3B8"}}>Total: </span>
+                      <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#B45309",marginLeft:4}}>
+                        {(editBrand.platforms||[]).reduce((s,p)=>s+(editBrand.chats?.[p]||0),0).toLocaleString()} chats/mo
+                      </span>
+                    </div>
+                  </div>
+                )}
+                {/* Start Date — allocation only kicks in from this date onward */}
+                <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14,marginTop:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <label style={{fontSize:11,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:0.3,minWidth:90}}>
+                      Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={editBrand.startDate || ""}
+                      onChange={e=>setEditBrand({...editBrand, startDate: e.target.value})}
+                      style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit",color:"#1A1D2E",background:"#fff",outline:"none"}}
+                    />
+                    <span style={{fontSize:10,color:"#94A3B8"}}>
+                      Agents will only be allocated from this date onward. Leave blank for no start-date restriction.
+                    </span>
+                  </div>
+                </div>
+                {/* Offboarded toggle + date */}
+                <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14,marginTop:6}}>
+                  <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:12,fontWeight:600,color:"#475569"}}>
+                    <input
+                      type="checkbox"
+                      checked={!!editBrand.offboarded}
+                      onChange={e=>{
+                        const checked = e.target.checked;
+                        setEditBrand({
+                          ...editBrand,
+                          offboarded: checked,
+                          offboardedDate: checked
+                            ? (editBrand.offboardedDate || new Date().toISOString().slice(0,10))
+                            : "",
+                        });
+                      }}
+                      style={{width:16,height:16,cursor:"pointer"}}
+                    />
+                    Offboarded — exclude from allocation
+                  </label>
+                  {editBrand.offboarded && (
+                    <div style={{marginTop:8,display:"flex",alignItems:"center",gap:10}}>
+                      <label style={{fontSize:11,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:0.3}}>
+                        Offboarded Date
+                      </label>
+                      <input
+                        type="date"
+                        value={editBrand.offboardedDate || ""}
+                        onChange={e=>setEditBrand({...editBrand, offboardedDate: e.target.value})}
+                        style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit",color:"#1A1D2E",background:"#fff",outline:"none"}}
+                      />
+                    </div>
+                  )}
+                </div>
+                {/* Actions */}
+                <div style={{display:"flex",gap:8,justifyContent:"space-between",marginTop:4}}>
+                  <div>
+                    {brands.find(b=>b.id===editBrand.id) && (
+                      <button onClick={()=>deleteBrand(editBrand.id)}
+                        style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#FEE2E2",color:"#B91C1C",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>setBrandModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Cancel</button>
+                    <button onClick={saveBrand} style={{padding:"8px 20px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save Brand</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* FIX: this modal used to be nested inside the `allocTab==="agents"`
             block, which meant T1/Return agents (who can't access the Teams
             tab) couldn't see it when clicking "Fill it now" on the invoice
@@ -5967,203 +6171,6 @@ export default function AllocationPanel({ isAdmin = true }) {
                 </div>
               </div>
 
-              {/* ── Brand Add/Edit Modal ── */}
-              {brandModal && editBrand && (
-                <div style={{position:"fixed",inset:0,zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,.65)",backdropFilter:"blur(4px)"}} onClick={()=>setBrandModal(false)}>
-                  <div style={{background:"#FFFFFF",borderRadius:16,border:"1px solid #E2E8F0",padding:24,width:480,maxWidth:"92vw",maxHeight:"85vh",overflow:"auto",boxShadow:"0 16px 48px #00000099"}} onClick={e=>e.stopPropagation()}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-                      <div style={{fontSize:15,fontWeight:700}}>{editBrand.name||"New Brand"}</div>
-                      <button onClick={()=>setBrandModal(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#6B7280",fontSize:18}}>×</button>
-                    </div>
-                    <div style={{display:"flex",flexDirection:"column",gap:14}}>
-                      {/* Name */}
-                      <div>
-                        <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Brand Name</label>
-                        <input value={editBrand.name} onChange={e=>setEditBrand({...editBrand,name:e.target.value})}
-                          placeholder="e.g. Casio-CMG"
-                          style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-                      </div>
-                      {/* WH + Group */}
-                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                        <div>
-                          <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Warehouse (WH)</label>
-                          <input value={editBrand.wh} onChange={e=>setEditBrand({...editBrand,wh:e.target.value})}
-                            placeholder="e.g. CMG, Inh, PVH"
-                            style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-                        </div>
-                        <div>
-                          <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:4}}>Group</label>
-                          <input value={editBrand.group} onChange={e=>setEditBrand({...editBrand,group:e.target.value})}
-                            placeholder="e.g. 1, 2 (optional)"
-                            style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-                        </div>
-                      </div>
-                      {/* Platforms multi-select */}
-                      <div>
-                        <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:8}}>
-                          Platforms <span style={{fontWeight:400,color:"#94A3B8",fontSize:9,textTransform:"none"}}>(select all that apply)</span>
-                        </label>
-                        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                          {PLATFORMS.map(p => {
-                            const on = (editBrand.platforms||[]).includes(p);
-                            const pc = PLATFORM_C[p];
-                            return (
-                              <button key={p} onClick={()=>{
-                                const cur = editBrand.platforms||[];
-                                setEditBrand({...editBrand, platforms: on ? cur.filter(x=>x!==p) : [...cur,p]});
-                              }} style={{
-                                display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,
-                                border:on?`2px solid ${pc.color}`:"1px solid #E2E8F0",
-                                background:on?pc.bg:"transparent",
-                                color:on?pc.color:"#94A3B8",
-                                transition:"all 0.15s"
-                              }}>
-                                <span style={{fontSize:14}}>{pc.icon}</span>
-                                {p}
-                                {on && <span style={{fontSize:10,marginLeft:2}}>✓</span>}
-                              </button>
-                            );
-                          })}
-                        </div>
-                        {/* Custom channels — manager can add anything not in the fixed list */}
-                        {(editBrand.platforms||[]).filter(p=>!PLATFORMS.includes(p)).length > 0 && (
-                          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
-                            {(editBrand.platforms||[]).filter(p=>!PLATFORMS.includes(p)).map(p => (
-                              <button key={p} onClick={()=>setEditBrand({...editBrand, platforms:(editBrand.platforms||[]).filter(x=>x!==p)})}
-                                title="Remove this channel"
-                                style={{display:"flex",alignItems:"center",gap:6,padding:"8px 14px",borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700,fontSize:12,border:"2px solid #475569",background:"#F1F5F9",color:"#475569"}}>
-                                {p} <span style={{fontSize:11}}>✕</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        <div style={{display:"flex",gap:8,marginTop:8,alignItems:"center"}}>
-                          <input value={editBrand._newChannel||""} placeholder="Other channel… (e.g. Instagram, WhatsApp)"
-                            onChange={e=>setEditBrand({...editBrand,_newChannel:e.target.value})}
-                            onKeyDown={e=>{ if(e.key!=="Enter") return; e.preventDefault();
-                              const nm=(editBrand._newChannel||"").trim();
-                              if(!nm) return;
-                              const cur=editBrand.platforms||[];
-                              if(cur.some(x=>x.toLowerCase()===nm.toLowerCase()) || PLATFORMS.some(x=>x.toLowerCase()===nm.toLowerCase() && cur.includes(x))){ setEditBrand({...editBrand,_newChannel:""}); return; }
-                              const canonical = PLATFORMS.find(x=>x.toLowerCase()===nm.toLowerCase()) || nm;
-                              setEditBrand({...editBrand, platforms:[...cur, canonical], _newChannel:""});
-                            }}
-                            style={{flex:"0 1 260px",padding:"8px 12px",borderRadius:9,border:"1px solid #E2E8F0",background:"#FAFBFC",color:"#1A1D2E",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
-                          <button onClick={()=>{
-                              const nm=(editBrand._newChannel||"").trim();
-                              if(!nm) return;
-                              const cur=editBrand.platforms||[];
-                              if(cur.some(x=>x.toLowerCase()===nm.toLowerCase())){ setEditBrand({...editBrand,_newChannel:""}); return; }
-                              const canonical = PLATFORMS.find(x=>x.toLowerCase()===nm.toLowerCase()) || nm;
-                              setEditBrand({...editBrand, platforms:[...cur, canonical], _newChannel:""});
-                            }}
-                            style={{padding:"8px 14px",borderRadius:9,border:"none",background:"#0D9488",color:"#fff",fontWeight:700,fontSize:12,cursor:"pointer"}}>+ Add Channel</button>
-                        </div>
-                        {(editBrand.platforms||[]).length === 0 && (
-                          <div style={{marginTop:6,fontSize:10,color:"#B45309"}}>— No platforms selected — brand won't appear in allocation</div>
-                        )}
-                      </div>
-                      {/* Chat volumes per platform */}
-                      {(editBrand.platforms||[]).length > 0 && (
-                        <div>
-                          <label style={{fontSize:10,fontWeight:700,color:"#94A3B8",textTransform:"uppercase",display:"block",marginBottom:8}}>
-                            Monthly Chat Volume <span style={{fontWeight:400,color:"#94A3B8",fontSize:9,textTransform:"none"}}>(chats / month per platform)</span>
-                          </label>
-                          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(140px,1fr))",gap:8}}>
-                            {(editBrand.platforms||[]).map(p => {
-                              const pc = PLATFORM_C[p];
-                              const val = editBrand.chats?.[p] || 0;
-                              return (
-                                <div key={p} style={{background:"#FAFBFC",borderRadius:8,padding:"10px 12px",border:`1px solid ${pc.color}33`}}>
-                                  <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:6}}>
-                                    <span style={{fontSize:13}}>{pc.icon}</span>
-                                    <span style={{fontSize:11,fontWeight:700,color:pc.color}}>{p}</span>
-                                  </div>
-                                  <input type="number" min="0" value={val}
-                                    onChange={e=>setEditBrand({...editBrand,chats:{...(editBrand.chats||{}), [p]:Number(e.target.value)}})}
-                                    style={{width:"100%",padding:"6px 8px",borderRadius:6,border:`1px solid ${pc.color}44`,background:"#FFFFFF",color:pc.color,fontSize:13,fontFamily:"monospace",fontWeight:700,outline:"none",boxSizing:"border-box"}}/>
-                                </div>
-                              );
-                            })}
-                          </div>
-                          <div style={{marginTop:8,display:"flex",justifyContent:"flex-end"}}>
-                            <span style={{fontSize:11,color:"#94A3B8"}}>Total: </span>
-                            <span style={{fontSize:12,fontFamily:"monospace",fontWeight:700,color:"#B45309",marginLeft:4}}>
-                              {(editBrand.platforms||[]).reduce((s,p)=>s+(editBrand.chats?.[p]||0),0).toLocaleString()} chats/mo
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                      {/* Start Date — allocation only kicks in from this date onward */}
-                      <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14,marginTop:6}}>
-                        <div style={{display:"flex",alignItems:"center",gap:10}}>
-                          <label style={{fontSize:11,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:0.3,minWidth:90}}>
-                            Start Date
-                          </label>
-                          <input
-                            type="date"
-                            value={editBrand.startDate || ""}
-                            onChange={e=>setEditBrand({...editBrand, startDate: e.target.value})}
-                            style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit",color:"#1A1D2E",background:"#fff",outline:"none"}}
-                          />
-                          <span style={{fontSize:10,color:"#94A3B8"}}>
-                            Agents will only be allocated from this date onward. Leave blank for no start-date restriction.
-                          </span>
-                        </div>
-                      </div>
-                      {/* Offboarded toggle + date */}
-                      <div style={{borderTop:"1px solid #F1F5F9",paddingTop:14,marginTop:6}}>
-                        <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:12,fontWeight:600,color:"#475569"}}>
-                          <input
-                            type="checkbox"
-                            checked={!!editBrand.offboarded}
-                            onChange={e=>{
-                              const checked = e.target.checked;
-                              setEditBrand({
-                                ...editBrand,
-                                offboarded: checked,
-                                offboardedDate: checked
-                                  ? (editBrand.offboardedDate || new Date().toISOString().slice(0,10))
-                                  : "",
-                              });
-                            }}
-                            style={{width:16,height:16,cursor:"pointer"}}
-                          />
-                          Offboarded — exclude from allocation
-                        </label>
-                        {editBrand.offboarded && (
-                          <div style={{marginTop:8,display:"flex",alignItems:"center",gap:10}}>
-                            <label style={{fontSize:11,color:"#94A3B8",fontWeight:600,textTransform:"uppercase",letterSpacing:0.3}}>
-                              Offboarded Date
-                            </label>
-                            <input
-                              type="date"
-                              value={editBrand.offboardedDate || ""}
-                              onChange={e=>setEditBrand({...editBrand, offboardedDate: e.target.value})}
-                              style={{padding:"6px 10px",borderRadius:8,border:"1px solid #E2E8F0",fontSize:12,fontFamily:"inherit",color:"#1A1D2E",background:"#fff",outline:"none"}}
-                            />
-                          </div>
-                        )}
-                      </div>
-                      {/* Actions */}
-                      <div style={{display:"flex",gap:8,justifyContent:"space-between",marginTop:4}}>
-                        <div>
-                          {brands.find(b=>b.id===editBrand.id) && (
-                            <button onClick={()=>deleteBrand(editBrand.id)}
-                              style={{padding:"8px 14px",borderRadius:8,border:"none",background:"#FEE2E2",color:"#B91C1C",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>
-                              Delete
-                            </button>
-                          )}
-                        </div>
-                        <div style={{display:"flex",gap:8}}>
-                          <button onClick={()=>setBrandModal(false)} style={{padding:"8px 16px",borderRadius:8,border:"1px solid #E2E8F0",background:"transparent",color:"#6B7280",fontSize:12,cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Cancel</button>
-                          <button onClick={saveBrand} style={{padding:"8px 20px",borderRadius:8,border:"none",background:"#0D9488",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Save Brand</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })()}
