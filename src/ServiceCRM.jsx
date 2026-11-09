@@ -2810,6 +2810,32 @@ function NewMessage({ me, onClose, onSent, toast }) {
     if (!f.subject.trim()) return setErr(t("nmErrSubj"));
     if (!f.body.trim()) return setErr(t("nmErrBody"));
     setBusy(true);
+    /* FIX (April, 2026-11-09 — TK-E10931, an empty "new" case beside the real
+       TK-E10932). This form creates the case row FIRST, then uploads the
+       attachments, then sends. On 9 Nov the database was overloaded: the row
+       was created at 10:53:42, the first attachment upload came back 544 at
+       10:54:27, and we returned with the error — leaving a case with no
+       owner, no message and the default brand sitting in the New queue. The
+       agent retried a minute later and that one went through as TK-E10932.
+       NewTicket below already removes its row when the send fails; this
+       form never did. Now it does: any failure after the insert deletes the
+       case row again and removes whatever attachments did get uploaded, so a
+       retry starts clean instead of leaving a shell behind. */
+    let tkId = null;
+    let uploaded = [];
+    const undo = async () => {
+      if (!tkId) return;
+      try {
+        // If the server already wrote the outbound message (e.g. the network
+        // dropped AFTER the email went out), the case is real — keep it.
+        const { count } = await supabase.from("messages").select("id", { count: "exact", head: true }).eq("ticket_id", tkId);
+        if (count > 0) { tkId = null; uploaded = []; return; }
+        if (uploaded.length) await supabase.storage.from(ATT_BUCKET).remove(uploaded);
+        await supabase.from("tickets").delete().eq("id", tkId);
+      } catch {}
+      tkId = null; uploaded = [];
+    };
+    const fail = async (msg) => { await undo(); setBusy(false); setErr(msg); };
     try {
       const { data: tkRow, error } = await supabase.from("tickets").insert({
         brand: boxes[f.from] || "CREA", channel: "email",
@@ -2818,6 +2844,7 @@ function NewMessage({ me, onClose, onSent, toast }) {
         subject: f.subject.trim(),
       }).select("id").single();
       if (error) { setBusy(false); return setErr(error.message); }
+      tkId = tkRow.id;
 
       // upload attachments first so the send function can pull them
       const at = Date.now();
@@ -2829,7 +2856,8 @@ function NewMessage({ me, onClose, onSent, toast }) {
       const atts = files.map((x, i) => ({ name: x.name, path: `${tkRow.id}/out-${at}/${i + 1}-${safeAttName(x.name)}`, size: x.size, type: x.type || "" }));
       for (let i = 0; i < files.length; i++) {
         const up = await supabase.storage.from(ATT_BUCKET).upload(atts[i].path, files[i], { contentType: atts[i].type || "application/octet-stream", upsert: true });
-        if (up.error) { setBusy(false); return setErr("✉ " + up.error.message); }
+        if (up.error) return fail("✉ " + up.error.message);
+        uploaded.push(atts[i].path);
       }
 
       const { data: s } = await supabase.auth.getSession();
@@ -2848,7 +2876,7 @@ function NewMessage({ me, onClose, onSent, toast }) {
         }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) { setBusy(false); return setErr("✉ " + (j.error || `send failed (${r.status})`)); }
+      if (!r.ok) return fail("✉ " + (j.error || `send failed (${r.status})`));
 
       /* The server already told us how many Cc addresses it removed (v27 drops
          colleagues who hold a NiRM login, to save SendGrid quota) — we simply
@@ -2868,7 +2896,7 @@ function NewMessage({ me, onClose, onSent, toast }) {
         messages: [{ from: "agent", text: biText(f.body), at: Date.now(), by: tv(me.n) }],
       });
       toast(t("nmSent", "TK-E" + tkRow.id));
-    } catch (e) { setBusy(false); setErr("✉ " + String(e.message || e)); }
+    } catch (e) { await fail("✉ " + String(e.message || e)); }
   };
 
   return (
