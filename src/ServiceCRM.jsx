@@ -7,7 +7,7 @@ import {
   ShieldCheck, Repeat, ThumbsUp, Paperclip, Globe, BookMarked,
   PhoneCall, PhoneOff, PhoneIncoming, PhoneOutgoing, PhoneMissed, Mic, MicOff,
   Pause, Play, Delete, Grid3x3, Radio, Server, Headphones, Link2,
-  Eye, EyeOff,
+  Eye, EyeOff, KeyRound, AtSign,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -16,6 +16,7 @@ import {
 import * as XLSX from "xlsx";
 import { supabase } from "./supabase.js";
 import CrmManual from "./CrmManual.jsx";
+import { PasswordKeeper, EmailGroupsView, useBrandGroups, GroupPicker } from "./CrmVault.jsx";
 
 /* ── live-channel wiring (P1: email) ─────────────────────────────
    Real cases live in Supabase (tickets + messages, fed by the
@@ -592,6 +593,9 @@ const D = {
   navCustomers: ["Customers", "ลูกค้า"], navKb: ["Knowledge", "คลังความรู้"], navReports: ["Reports", "รายงาน"],
   navUsers: ["People", "ผู้ใช้งาน"], navSettings: ["Settings", "ตั้งค่า"],
   navManual: ["Manual", "คู่มือ"],
+  navVault: ["Passwords", "รหัสผ่าน"], navGroups: ["Email groups", "กลุ่มอีเมล"],
+  grpApplied: ["%s — To and Cc filled in", "%s — ใส่ To และ Cc แล้ว"],
+  grpCc: ["group Cc", "Cc จากกลุ่ม"],
   toRemove: ["Remove this recipient", "นำผู้รับนี้ออก"],
   toNone: ["no recipient — add one", "ไม่มีผู้รับ — กรุณาเพิ่ม"],
   toAddHint: ["Add another recipient", "เพิ่มผู้รับ"],
@@ -2773,6 +2777,21 @@ function NewMessage({ me, onClose, onSent, toast }) {
   const [showCc, setShowCc] = useState(true);
   const [files, setFiles] = useState([]);
   const [sig, setSig] = useState("");
+  /* Brand email groups (Nov 2026): the saved To + Cc for a brand. Picking one
+     fills both fields and tags the new case with that brand — the agent can
+     still edit every address before sending. */
+  const [groups] = useBrandGroups();
+  const [groupBrand, setGroupBrand] = useState(null);
+  const applyGroup = (g) => {
+    setF((p) => ({
+      ...p,
+      to: (g.to_emails || []).join(", "),
+      cc: [...new Set([...p.cc.split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean), ...(g.cc_emails || [])])].join(", "),
+      customer: p.customer || g.brand || "",
+    }));
+    setGroupBrand(g.brand || null); setShowCc(true); setErr("");
+    toast(t("grpApplied", g.name));
+  };
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
@@ -2802,9 +2821,12 @@ function NewMessage({ me, onClose, onSent, toast }) {
   const boxKeys = sendFrom.length ? sendFrom : [EMAIL_FROM];
 
   const ccList = f.cc.split(/[,;\s]+/).map((s) => s.trim()).filter(Boolean);
+  /* several To addresses are allowed (a brand group usually has 2–3); the
+     first one becomes the case's customer_email, the whole list goes to send */
+  const toList = [...new Set(f.to.split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean))];
 
   const send = async () => {
-    if (!isEmail(f.to)) return setErr(t("nmErrTo"));
+    if (!toList.length || toList.some((a) => !isEmail(a))) return setErr(t("nmErrTo"));
     const bad = ccList.find((a) => !isEmail(a));
     if (bad) return setErr(t("nmErrCc", bad));
     if (!f.subject.trim()) return setErr(t("nmErrSubj"));
@@ -2838,9 +2860,9 @@ function NewMessage({ me, onClose, onSent, toast }) {
     const fail = async (msg) => { await undo(); setBusy(false); setErr(msg); };
     try {
       const { data: tkRow, error } = await supabase.from("tickets").insert({
-        brand: boxes[f.from] || "CREA", channel: "email",
-        customer_name: f.customer.trim() || f.to.trim(),
-        customer_email: f.to.trim().toLowerCase(),
+        brand: groupBrand || boxes[f.from] || "CREA", channel: "email",
+        customer_name: f.customer.trim() || toList[0],
+        customer_email: toList[0],
         subject: f.subject.trim(),
       }).select("id").single();
       if (error) { setBusy(false); return setErr(error.message); }
@@ -2871,6 +2893,7 @@ function NewMessage({ me, onClose, onSent, toast }) {
           fromName: (boxes[f.from] || "CREA") + " Customer Care",
           agentName: tv(me.n), agentKey: (me.email || me.id || "").toLowerCase(),
           cc: ccList, attachments: atts,
+          ...(toList.length > 1 ? { to: toList } : {}),
           // an edited sign-off is sent inline and the server one suppressed
           ...(sigOverride != null ? { noSignature: true } : {}),
         }),
@@ -2889,7 +2912,7 @@ function NewMessage({ me, onClose, onSent, toast }) {
         id: "TK-E" + tkRow.id, dbId: tkRow.id,
         subject: biText(f.subject.trim()), catKey: "inquiry", product: null,
         customer: biText(f.customer.trim() || f.to.trim()),
-        phone: "", email: f.to.trim(), order: null,
+        phone: "", email: toList[0], order: null,
         channel: "email", priority: "normal", status: "pending", emailTo: f.from,
         owner: me.id, createdAt: Date.now(),
         firstResponseMin: null, resolveMin: null, csat: null, reopened: false, tags: [],
@@ -2912,7 +2935,10 @@ function NewMessage({ me, onClose, onSent, toast }) {
 
         <div className="p-6 space-y-3">
           <div>
-            <label className="lbl">{t("nmFrom")}</label>
+            <div className="flex items-center justify-between">
+              <label className="lbl">{t("nmFrom")}</label>
+              <GroupPicker groups={groups} lang={LANG.cur} onPick={applyGroup} brandHint={boxes[f.from]} />
+            </div>
             <select className="fld" value={f.from} onChange={(e) => set("from", e.target.value)}
                     disabled={boxKeys.length < 2}>
               {boxKeys.map((m) => (
@@ -2926,7 +2952,7 @@ function NewMessage({ me, onClose, onSent, toast }) {
           <div className="grid gap-3" style={{ gridTemplateColumns: "1.3fr 1fr" }}>
             <div>
               <label className="lbl">{t("nmTo")}</label>
-              <input className="fld" value={f.to} onChange={(e) => set("to", e.target.value)} placeholder="customer@example.com" />
+              <input className="fld" value={f.to} onChange={(e) => set("to", e.target.value)} placeholder="customer@example.com, another@brand.com" />
             </div>
             <div>
               <label className="lbl">{t("nmCustomer")}</label>
@@ -3203,10 +3229,15 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const [dropPin, setDropPin] = useState([]);      // saved Cc skipped for THIS reply only
   const [dropForever, setDropForever] = useState([]); // saved Cc retired for future cases too
   const [addCc, setAddCc] = useState([]);          // extra Cc the agent typed in
+  /* Cc that came from a saved brand group (Nov 2026). Sent like addCc, but
+     NOT pinned to the customer — the group is the brand's standing list and
+     lives in Email groups, not on the customer record. */
+  const [groupCc, setGroupCc] = useState([]);
+  const [groups] = useBrandGroups();
   const [ccDraft, setCcDraft] = useState(null);    // null = input closed, "" = open
   const [ccOpen, setCcOpen] = useState(false);     // big Cc lists collapse to a count
   useEffect(() => {
-    setDropCc([]); setDropPin([]); setDropForever([]); setAddCc([]); setCcDraft(null); setCcOpen(false);
+    setDropCc([]); setDropPin([]); setDropForever([]); setAddCc([]); setGroupCc([]); setCcDraft(null); setCcOpen(false);
     setToList(null); setToDraft(null);
     setFromBox(null);
     const tkNow = tickets.find((x) => x.id === sel);
@@ -3253,13 +3284,22 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
   const pinnedKept = rcpt.pinned.filter((a) => !dropForever.includes(a));    // still saved for the customer
   const pinnedActive = pinnedKept.filter((a) => !dropPin.includes(a));       // actually going out on this reply
   /* saved + manual Cc go out even with reply-all off — they're explicit choices */
-  const ccOutgoing = [...new Set([...(replyAll ? ccFinal : []), ...pinnedActive, ...addCc])];
+  const ccOutgoing = [...new Set([...(replyAll ? ccFinal : []), ...pinnedActive, ...addCc, ...groupCc])];
+  const groupCcShown = groupCc.filter((a) => !(replyAll && ccFinal.includes(a)) && !pinnedKept.includes(a) && !addCc.includes(a));
+  const applyGroup = (g) => {
+    const to = [...new Set([...toActive, ...(g.to_emails || []).map((a) => a.toLowerCase())])];
+    setToList(to);
+    setGroupCc((p) => [...new Set([...p, ...(g.cc_emails || []).map((a) => a.toLowerCase())])].filter((a) => !to.includes(a)));
+    setCcOpen(true);
+    toast("✉ " + t("grpApplied", g.name));
+  };
   /* what stays remembered for the customer's future cases: skip-once chips
      stay in this list; only "stop for future cases" takes them out */
   const ccPinList = [...new Set([...pinnedKept, ...addCc])];
   const ccChipCount = (replyAll ? ccFinal.length : 0)
     + pinnedKept.filter((a) => !(replyAll && ccFinal.includes(a))).length
-    + addCc.filter((a) => !(replyAll && ccFinal.includes(a)) && !pinnedKept.includes(a)).length;
+    + addCc.filter((a) => !(replyAll && ccFinal.includes(a)) && !pinnedKept.includes(a)).length
+    + groupCcShown.length;
   const commitCcDraft = () => {
     const parts = String(ccDraft || "").split(/[,;\s]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
     if (!parts.length) { setCcDraft(null); return; }
@@ -3608,7 +3648,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                       {toActive.length ? toActive[0] : t("toNone")}
                     </b>
                     {toActive.length > 1 && <> +{toActive.length - 1}</>}
-                    {(() => { const n = (replyAll ? ccFinal.length : 0) + pinnedKept.filter((a) => !(replyAll && ccFinal.includes(a))).length + addCc.filter((a) => !(replyAll && ccFinal.includes(a)) && !pinnedKept.includes(a)).length;
+                    {(() => { const n = (replyAll ? ccFinal.length : 0) + pinnedKept.filter((a) => !(replyAll && ccFinal.includes(a))).length + addCc.filter((a) => !(replyAll && ccFinal.includes(a)) && !pinnedKept.includes(a)).length + groupCcShown.length;
                               return n > 0 ? <> · Cc {n}</> : null; })()}
                     <> · {fromActive.split("@")[0]}</>
                     {sig && !noSig && <> · ✓ {t("sigWillAdd").split(" ")[0]}</>}
@@ -3637,6 +3677,7 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                       {t("toReset")}
                     </button>
                   )}
+                  <GroupPicker groups={groups} lang={LANG.cur} onPick={applyGroup} brandHint={tk.brand} />
                   <span style={{ color: "var(--muted)" }}>{t("replyAllTo")}:</span>
                   {toActive.map((a) => (
                     <span key={a} className="pill" style={{ background: "var(--sky)", color: "var(--blue)" }}>
@@ -3673,10 +3714,10 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                       {t("toReset")}
                     </button>
                   )}
-                  {replyAll && ccFinal.length === 0 && pinnedKept.length === 0 && addCc.length === 0 && (
+                  {replyAll && ccFinal.length === 0 && pinnedKept.length === 0 && addCc.length === 0 && groupCcShown.length === 0 && (
                     <span style={{ color: "var(--muted)" }}>· {t("replyAllNone")}</span>
                   )}
-                  {((replyAll && ccFinal.length > 0) || pinnedKept.length > 0 || addCc.length > 0) && (
+                  {((replyAll && ccFinal.length > 0) || pinnedKept.length > 0 || addCc.length > 0 || groupCcShown.length > 0) && (
                     <span style={{ color: "var(--muted)" }}>{t("replyAllCc")}:</span>
                   )}
                   {/* big Nestlé threads carry 15+ Cc — collapsed to a count by
@@ -3719,6 +3760,13 @@ function InboxView({ tickets, setTickets, me, scope, canned, toast, focus, clear
                     <span key={a} className="pill" title={t("ccPinned")} style={{ background: "var(--sky)", color: "var(--blue)" }}>
                       {a}
                       <button onClick={() => setAddCc((p) => p.filter((x) => x !== a))} style={{ display: "flex", opacity: .55 }}><X size={10} /></button>
+                    </span>
+                  ))}
+                  {/* Cc from a brand group — sent, not saved to the customer */}
+                  {groupCcShown.map((a) => (
+                    <span key={"grp-" + a} className="pill" title={t("grpCc")} style={{ background: "var(--violet-bg)", color: "var(--violet)" }}>
+                      {a}
+                      <button onClick={() => setGroupCc((p) => p.filter((x) => x !== a))} style={{ display: "flex", opacity: .55 }}><X size={10} /></button>
                     </span>
                   ))}
                   {ccOpen && ccChipCount > 3 && (
@@ -6786,6 +6834,8 @@ const NAV = [
   { k: "esc",       key: "navEsc",       ic: ArrowUpRight,    roles: ["admin", "manager", "agent"] },
   { k: "kb",        key: "navKb",        ic: BookOpen,        roles: ["admin", "manager", "agent"] },
   { k: "manual",    key: "navManual",    ic: BookMarked,      roles: ["admin", "manager", "agent"] },
+  { k: "vault",     key: "navVault",     ic: KeyRound,        roles: ["admin", "manager", "agent"] },
+  { k: "groups",    key: "navGroups",    ic: AtSign,          roles: ["admin", "manager", "agent"] },
   { k: "reports",   key: "navReports",   ic: BarChart3,       roles: ["admin", "manager"] },
   { k: "brands",    key: "navBrands",    ic: ShoppingBag,     roles: ["admin", "manager"] },
   { k: "users",     key: "navUsers",     ic: UserCog,         roles: ["admin"] },
@@ -7191,6 +7241,8 @@ export default function ServiceCRM({ user, role, tab: extTab, onTab, hideNav, na
           {tab === "manual"    && <CrmManual lang={lang} canEdit={me.role !== "agent"} me={me} toast={toast} />}
           {tab === "reports"   && <Reports tickets={tickets} trend={trend} toast={toast} />}
           {tab === "brands"    && <BrandsView />}
+          {tab === "vault"     && <PasswordKeeper me={me} lang={lang} toast={toast} />}
+          {tab === "groups"    && <EmailGroupsView me={me} lang={lang} toast={toast} />}
           {tab === "users"     && <UsersView users={users} setUsers={setUsers} me={me} toast={toast} />}
           {tab === "settings"  && <SettingsView chans={chans} setChans={setChans} notif={notif} setNotif={setNotif} assign={assign} setAssign={setAssign} sip={sip} setSip={setSip} routing={routing} setRouting={setRouting} ringFor={ringFor} setRingFor={setRingFor} maxWait={maxWait} setMaxWait={setMaxWait} toast={toast} me={me} />}
          </CrmBoundary>
