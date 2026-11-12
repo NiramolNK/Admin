@@ -26,6 +26,27 @@ const todayISO = () => {
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const fmtDay = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 
+/* Turn bare URLs in a note into links (April, 12 Nov — SharePoint links were
+   showing as plain text). Trailing punctuation stays outside the link so
+   "see https://x.com." does not break the URL. Opens in a new tab. */
+const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
+function Linkify({ text }) {
+  const parts = String(text || "").split(URL_RE);
+  return parts.map((p, i) => {
+    if (i % 2 === 0) return p;
+    const m = p.match(/^(.*?)([.,;:!?)\]]*)$/);
+    const url = m ? m[1] : p, tail = m ? m[2] : "";
+    let label = url;
+    try { const u = new URL(url); label = u.host.replace(/^www\./, "") + (u.pathname.length > 1 ? u.pathname.slice(0, 40) + (u.pathname.length > 41 ? "…" : "") : ""); } catch {}
+    return (
+      <React.Fragment key={i}>
+        <a href={url} target="_blank" rel="noopener noreferrer" title={url}
+           style={{ color: TEAL, fontWeight: 600, textDecoration: "underline", textUnderlineOffset: 2, wordBreak: "break-all" }}>{label}</a>{tail}
+      </React.Fragment>
+    );
+  });
+}
+
 /* ── Refresh ────────────────────────────────────────────────────────────── */
 /* A bare icon, no box and no label (April, 12 Nov): a thin circular arrow
    like the one in her screenshot, grey at rest, teal on hover, spinning
@@ -125,7 +146,7 @@ export function TodayNotes({ canPost = false, me = {}, isPhone = false }) {
 
       {notes.map((n) => (
         <div key={n.id} style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #F1F5F9" }}>
-          <div style={{ fontSize: 13.5, color: "#0F172A", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{n.body}</div>
+          <div style={{ fontSize: 13.5, color: "#0F172A", whiteSpace: "pre-wrap", lineHeight: 1.5, overflowWrap: "anywhere" }}><Linkify text={n.body} /></div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, fontSize: 11, color: "#94A3B8", flexWrap: "wrap" }}>
             <span>{n.author_name || (n.author_email || "").replace(/@.*/, "") || "Manager"} · {fmtTime(n.updated_at || n.created_at)}</span>
             {n.until_date && <span style={{ background: "#F0FDFA", color: TEAL, padding: "1px 7px", borderRadius: 999, fontWeight: 600 }}>until {fmtDay(n.until_date)}</span>}
