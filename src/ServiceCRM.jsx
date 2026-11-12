@@ -2711,19 +2711,41 @@ function trimQuoted(raw) {
 }
 
 /* message body with the quoted tail folded behind a "…" chip */
+/* Bare URLs become links (April, 12 Nov — pasted SharePoint links in internal
+   notes were plain text). Colour is inherited so it reads on every bubble;
+   trailing punctuation stays outside the link. */
+const URL_RE = /(https?:\/\/[^\s<>"']+)/g;
+function Linkify({ text }) {
+  const parts = String(text ?? "").split(URL_RE);
+  if (parts.length === 1) return parts[0];
+  return parts.map((p, i) => {
+    if (i % 2 === 0) return p;
+    const m = p.match(/^(.*?)([.,;:!?)\]]*)$/);
+    const url = m ? m[1] : p, tail = m ? m[2] : "";
+    let label = url;
+    try { const u = new URL(url); label = u.host.replace(/^www\./, "") + (u.pathname.length > 1 ? u.pathname.slice(0, 40) + (u.pathname.length > 41 ? "…" : "") : ""); } catch {}
+    return (
+      <React.Fragment key={i}>
+        <a href={url} target="_blank" rel="noopener noreferrer" title={url}
+           style={{ color: "inherit", fontWeight: 700, textDecoration: "underline", textUnderlineOffset: 2, wordBreak: "break-all" }}>{label}</a>{tail}
+      </React.Fragment>
+    );
+  });
+}
+
 function MsgBody({ text }) {
   const [open, setOpen] = useState(false);
   const { visible, hidden } = trimQuoted(text);
-  if (!hidden) return <>{visible}</>;
+  if (!hidden) return <Linkify text={visible} />;
   return (
     <>
-      {visible}
+      <Linkify text={visible} />
       <button onClick={() => setOpen((v) => !v)} className="block mt-1.5 px-2 py-0.5 rounded-md text-[11px] font-bold"
               style={{ background: "rgba(100,116,139,.18)", color: "inherit", opacity: .8 }}
               title={open ? t("trimHide") : t("trimShow")}>· · ·</button>
       {open && (
         <span className="block mt-1.5 pl-2.5 whitespace-pre-wrap" style={{ borderLeft: "2px solid rgba(100,116,139,.35)", opacity: .7, fontSize: "0.95em" }}>
-          {hidden}
+          <Linkify text={hidden} />
         </span>
       )}
     </>
