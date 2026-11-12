@@ -7,6 +7,7 @@ import { supabase, onStateChange, docSignedUrl, docSignedUrls } from "./supabase
 import DailyCount from "./DailyCount.jsx";
 import CuteLoader from "./CuteLoader.jsx";
 import LiveNow from "./LiveNow.jsx";
+import { RefreshButton, TodayNotes } from "./TodayNotes.jsx";
 import { joinPresence, setPresenceTab, leavePresence } from "./livePresence.js";
 import { installFlushHooks as installTallyHooks, myAgentId as fetchMyTallyAgentId } from "./dailyTally.js";
 
@@ -3381,6 +3382,8 @@ export default function AllocationPanel({ isAdmin = true }) {
           <div style={{display:"flex",alignItems:"center",gap:isPhone?8:12,marginLeft:"auto",flexWrap:"wrap"}}>
             {/* Who is in NiRM right now. Managers and T2 see names and the tab
                 each person is on; everyone else sees a count only. */}
+            {/* Refresh (11 Nov 2026): flushes a pending save, then reloads. */}
+            <RefreshButton flush={() => { if (needsSave.current) { if (saveTimer.current) clearTimeout(saveTimer.current); return flushRef.current && flushRef.current(); } }} />
             <LiveNow canSeeNames={role==="manager" || role==="fulltime"} />
             {(!isPhone || !["agents","crm","kb","analytics"].includes(allocTab)) && (
             <MonthPicker
@@ -3412,6 +3415,12 @@ export default function AllocationPanel({ isAdmin = true }) {
             and Service CRM inside it; it hooks fetch, so no save button had
             to change to get one. */}
         <CuteLoader />
+        {/* Today's notes (11 Nov 2026): managers post, everyone reads. */}
+        {allocTab==="roster" && (() => {
+          const prof = userProfiles[(loginUser||"").toLowerCase()] || {};
+          const own = agents.find(a => (a.email && a.email.toLowerCase().trim() === (loginUser||"").toLowerCase().trim()));
+          return <TodayNotes canPost={role==="manager"} isPhone={isPhone} me={{ email: loginUser, name: own?.fullName || prof.preferName || "" }} />;
+        })()}
         {allocTab==="roster" && <div style={{marginBottom:16}}><LineCodeAlert /></div>}
 
         {/* ── KPI Bar — Report tab only — range-aware ── */}
