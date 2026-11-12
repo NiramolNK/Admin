@@ -72,11 +72,11 @@ const mk = (lang) => (k, ...a) => {
   return a.reduce((acc, v) => acc.replace("%s", v), s);
 };
 
-const PLATFORMS = ["Shopee", "Lazada", "TikTok Shop", "Email", "LINE OA", "Other"];
+const PLATFORMS = ["Shopee", "Lazada", "TikTok Shop", "Amaze", "Email", "LINE OA", "Other"];
 const PLAT_C = {
   "Shopee": { c: "#C2410C", bg: "#FFF1E8" }, "Lazada": { c: "#1D4ED8", bg: "#E8EEFF" },
   "TikTok Shop": { c: "#0F172A", bg: "#E5E7EB" }, "Email": { c: "#0369A1", bg: "#E0F2FE" },
-  "LINE OA": { c: "#15803D", bg: "#DCFCE7" }, "Other": { c: "#64748B", bg: "#F1F5F9" },
+  "LINE OA": { c: "#15803D", bg: "#DCFCE7" }, "Amaze": { c: "#7C3AED", bg: "#F3E8FF" }, "Other": { c: "#64748B", bg: "#F1F5F9" },
 };
 export const isEmailAddr = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || "").trim());
 export const splitAddrs = (s) => [...new Set(String(s || "").split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))];
