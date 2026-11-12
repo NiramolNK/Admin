@@ -26,3 +26,7 @@ drop policy if exists daily_notices_write on public.daily_notices;
 create policy daily_notices_read  on public.daily_notices for select to authenticated using (true);
 create policy daily_notices_write on public.daily_notices for all    to authenticated
   using (public.nirm_is_manager()) with check (public.nirm_is_manager());
+
+-- 12 Nov 2026: tag each note with a brand and a reason (applied live 12 Nov)
+alter table public.daily_notices add column if not exists brand text;
+alter table public.daily_notices add column if not exists reason text;

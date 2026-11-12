@@ -76,8 +76,26 @@ export function RefreshButton({ flush }) {
 }
 
 /* ── Today's notes ──────────────────────────────────────────────────────── */
+/* Why a note was posted. Fixed list so the tags stay consistent and can be
+   filtered on later; "Other" covers the rest. */
+const REASONS = ["Campaign", "Stock / delivery", "Price & promo", "Product issue", "Policy / process", "System issue", "Reminder", "Other"];
+const REASON_C = {
+  "Campaign": ["#7C3AED", "#F3E8FF"], "Stock / delivery": ["#C2410C", "#FFF1E8"], "Price & promo": ["#B45309", "#FEF3C7"],
+  "Product issue": ["#B91C1C", "#FEE2E2"], "Policy / process": ["#1D4ED8", "#E8EEFF"], "System issue": ["#0F172A", "#E5E7EB"],
+  "Reminder": ["#0F766E", "#F0FDFA"], "Other": ["#64748B", "#F1F5F9"],
+};
+const ALL_BRANDS = "All brands";
+
 export function TodayNotes({ canPost = false, me = {}, isPhone = false }) {
   const [rows, setRows] = useState(null);
+  const [brands, setBrands] = useState([]);
+  useEffect(() => {
+    if (!canPost) return;
+    let dead = false;
+    supabase.from("brands").select("name").eq("offboarded", false).order("name")
+      .then(({ data }) => { if (!dead) setBrands((data || []).map((b) => b.name).filter(Boolean)); });
+    return () => { dead = true; };
+  }, [canPost]);
   const [draft, setDraft] = useState(null);     // null | { id?, body, until }
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -86,7 +104,7 @@ export function TodayNotes({ canPost = false, me = {}, isPhone = false }) {
   const load = async () => {
     const today = todayISO();
     const { data, error } = await supabase.from("daily_notices")
-      .select("id, body, for_date, until_date, author_name, author_email, created_at, updated_at")
+      .select("id, body, brand, reason, for_date, until_date, author_name, author_email, created_at, updated_at")
       .lte("for_date", today)
       .or(`until_date.is.null,until_date.gte.${today}`)
       .order("created_at", { ascending: false });
@@ -107,7 +125,8 @@ export function TodayNotes({ canPost = false, me = {}, isPhone = false }) {
     const body = (draft?.body || "").trim();
     if (!body) { setErr("Write the note first"); return; }
     setBusy(true); setErr("");
-    const payload = { body, until_date: draft.until || null, author_email: me.email || null, author_name: me.name || null, updated_at: new Date().toISOString() };
+    const payload = { body, brand: draft.brand || null, reason: draft.reason || null, until_date: draft.until || null,
+                      author_email: me.email || null, author_name: me.name || null, updated_at: new Date().toISOString() };
     const { error } = draft.id
       ? await supabase.from("daily_notices").update(payload).eq("id", draft.id)
       : await supabase.from("daily_notices").insert({ ...payload, for_date: todayISO() });
@@ -133,7 +152,7 @@ export function TodayNotes({ canPost = false, me = {}, isPhone = false }) {
         <b style={{ fontSize: 13.5, color: "#0F172A" }}>Today's notes</b>
         <span style={{ fontSize: 11, color: "#94A3B8" }}>{fmtDay(todayISO())}</span>
         {canPost && !draft && (
-          <button onClick={() => setDraft({ body: "", until: "" })}
+          <button onClick={() => setDraft({ body: "", until: "", brand: "", reason: "" })}
             style={{ marginLeft: "auto", padding: "5px 11px", borderRadius: 8, border: "none", background: TEAL, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             + Post a note
           </button>
@@ -146,13 +165,19 @@ export function TodayNotes({ canPost = false, me = {}, isPhone = false }) {
 
       {notes.map((n) => (
         <div key={n.id} style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #F1F5F9" }}>
+          {(n.brand || n.reason) && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 5 }}>
+              {n.brand && <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: "#F0FDFA", color: TEAL, border: "1px solid #CCFBF1" }}>{n.brand}</span>}
+              {n.reason && (() => { const [c, bg] = REASON_C[n.reason] || REASON_C.Other; return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: bg, color: c }}>{n.reason}</span>; })()}
+            </div>
+          )}
           <div style={{ fontSize: 13.5, color: "#0F172A", whiteSpace: "pre-wrap", lineHeight: 1.5, overflowWrap: "anywhere" }}><Linkify text={n.body} /></div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, fontSize: 11, color: "#94A3B8", flexWrap: "wrap" }}>
             <span>{n.author_name || (n.author_email || "").replace(/@.*/, "") || "Manager"} · {fmtTime(n.updated_at || n.created_at)}</span>
             {n.until_date && <span style={{ background: "#F0FDFA", color: TEAL, padding: "1px 7px", borderRadius: 999, fontWeight: 600 }}>until {fmtDay(n.until_date)}</span>}
             {canPost && (
               <span style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
-                <button onClick={() => setDraft({ id: n.id, body: n.body, until: n.until_date || "" })} style={{ border: "none", background: "none", color: TEAL, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>Edit</button>
+                <button onClick={() => setDraft({ id: n.id, body: n.body, until: n.until_date || "", brand: n.brand || "", reason: n.reason || "" })} style={{ border: "none", background: "none", color: TEAL, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>Edit</button>
                 <button onClick={() => remove(n.id)} style={{ border: "none", background: "none", color: "#B91C1C", fontWeight: 700, cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>Remove</button>
               </span>
             )}
@@ -162,6 +187,25 @@ export function TodayNotes({ canPost = false, me = {}, isPhone = false }) {
 
       {draft && (
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #F1F5F9", display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <label style={{ fontSize: 11.5, color: "#64748B", display: "flex", alignItems: "center", gap: 6, flex: isPhone ? "1 1 100%" : "0 1 auto" }}>
+              Brand
+              <select value={draft.brand} onChange={(e) => setDraft({ ...draft, brand: e.target.value })}
+                style={{ padding: "5px 8px", border: "1px solid #E2E8F0", borderRadius: 7, fontFamily: "inherit", fontSize: 12.5, background: "#fff", minWidth: 160, flex: 1 }}>
+                <option value="">—</option>
+                <option value={ALL_BRANDS}>{ALL_BRANDS}</option>
+                {brands.map((b) => <option key={b} value={b}>{b}</option>)}
+              </select>
+            </label>
+            <label style={{ fontSize: 11.5, color: "#64748B", display: "flex", alignItems: "center", gap: 6, flex: isPhone ? "1 1 100%" : "0 1 auto" }}>
+              Reason
+              <select value={draft.reason} onChange={(e) => setDraft({ ...draft, reason: e.target.value })}
+                style={{ padding: "5px 8px", border: "1px solid #E2E8F0", borderRadius: 7, fontFamily: "inherit", fontSize: 12.5, background: "#fff", minWidth: 160, flex: 1 }}>
+                <option value="">—</option>
+                {REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+          </div>
           <textarea ref={taRef} value={draft.body} onChange={(e) => { setDraft({ ...draft, body: e.target.value }); setErr(""); }}
             rows={3} placeholder="e.g. Lazada 11.11 — expect high chat volume on Enfa and Nestlé until 23:59. Prioritise order-status questions; escalate stock issues to AM."
             style={{ width: "100%", padding: "9px 12px", border: "1px solid #E2E8F0", borderRadius: 9, fontFamily: "inherit", fontSize: 13.5, resize: "vertical", outline: "none" }} />
